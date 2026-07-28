@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -97,7 +98,11 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 
 	if la.Cwd != "" {
 		if _, err := os.Stat(la.Cwd); err != nil {
-			s.emitDone(id, -1, fmt.Sprintf("工作目录不存在: %s", la.Cwd), 0)
+			msg := fmt.Sprintf("工作目录不存在: %s", la.Cwd)
+			if strings.Contains(la.Cwd, "${") {
+				msg = fmt.Sprintf("工作目录的环境变量未设置（仍为 %s）——该动作需要参数输入，属 Phase 3 场景", la.Cwd)
+			}
+			s.emitDone(id, -1, msg, 0)
 			return
 		}
 	}
