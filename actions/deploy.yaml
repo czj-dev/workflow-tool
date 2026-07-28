@@ -1,0 +1,7 @@
+id: deploy
+title: 部署
+icon: 🚀
+description: 跨平台脚本示例（mac 跑 .sh，win 跑 .ps1）
+command:
+  script: ./scripts/deploy
+  timeout: 5m

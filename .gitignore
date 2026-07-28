@@ -1,0 +1,29 @@
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# 构建产物
+/build/
+/build/bin/
+
+# Node / 前端
+node_modules/
+frontend/dist/
+frontend/bindings/
+
+# Wails 生成
+/wails/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db

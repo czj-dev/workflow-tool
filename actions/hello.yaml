@@ -1,0 +1,6 @@
+id: hello
+title: 打个招呼
+icon: 👋
+description: 验证用，输出一行
+command:
+  shell: echo "hello from workflow-tool"
