@@ -1,4 +1,5 @@
-import { Call, Events } from '@wailsio/runtime';
+import { ListActions, RunAction, CancelAction } from './bindings/workflow-tool/internal/api/service.js';
+import { Events } from '@wailsio/runtime';
 
 const list = document.getElementById('action-list');
 const output = document.getElementById('output');
@@ -8,10 +9,7 @@ const stopBtn = document.getElementById('stop-btn');
 let currentId = null;
 let unsubs = [];
 
-function unsubscribeAll() {
-  unsubs.forEach(fn => fn && fn());
-  unsubs = [];
-}
+function unsubscribeAll() { unsubs.forEach(fn => fn && fn()); unsubs = []; }
 
 function subscribe(id) {
   unsubs.push(Events.On(`action:${id}:output`, (e) => {
@@ -35,7 +33,7 @@ async function runAction(a) {
   stopBtn.disabled = false;
   subscribe(a.id);
   try {
-    await Call.ByName('api.Service.RunAction', a.id);
+    await RunAction(a.id);
   } catch (err) {
     output.textContent += '启动失败: ' + err + '\n';
     stopBtn.disabled = true;
@@ -43,13 +41,13 @@ async function runAction(a) {
 }
 
 stopBtn.addEventListener('click', () => {
-  if (currentId) Call.ByName('api.Service.CancelAction', currentId);
+  if (currentId) CancelAction(currentId);
 });
 
 async function load() {
   try {
-    const result = await Call.ByName('api.Service.ListActions');
-    const data = result && (result.data || result) || {};
+    const result = await ListActions();
+    const data = result || {};
     const actions = data.actions || [];
     const errors = data.errors || [];
     if (!actions.length && !errors.length) {

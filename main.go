@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"io/fs"
 	"log"
 	"os"
 	"path/filepath"
@@ -20,14 +21,19 @@ func main() {
 	reg := registry.Load(filepath.Join(baseDir, "actions"), baseDir)
 	svc := api.New(reg, baseDir)
 
+	distFS, err := fs.Sub(assets, "frontend/dist")
+	if err != nil {
+		log.Fatal(err)
+	}
+
 	app := application.New(application.Options{
 		Name:        "Workflow Tool",
 		Description: "一键触发命令/脚本的 workflow 工具",
-		Bind: []any{
-			svc,
+		Services: []application.Service{
+			application.NewService(svc),
 		},
 		Assets: application.AssetOptions{
-			FS: assets,
+			Handler: application.AssetFileServerFS(distFS),
 		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
@@ -36,7 +42,7 @@ func main() {
 
 	svc.SetApp(app)
 
-	app.NewWebviewWindowWithOptions(application.WebviewWindowOptions{
+	app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title:  "Workflow Tool",
 		Width:  900,
 		Height: 640,

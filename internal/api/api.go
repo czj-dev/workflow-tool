@@ -103,9 +103,8 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 	}
 
 	emit := func(stream, line string) {
-		s.app.Events.Emit(&application.WailsEvent{
-			Name: eventName(id, "output"),
-			Data: map[string]string{"stream": stream, "line": line},
+		s.app.Event.Emit(eventName(id, "output"), map[string]string{
+			"stream": stream, "line": line,
 		})
 	}
 
@@ -123,13 +122,10 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 }
 
 func (s *Service) emitDone(id string, exitCode int, errMsg string, d time.Duration) {
-	s.app.Events.Emit(&application.WailsEvent{
-		Name: eventName(id, "done"),
-		Data: map[string]any{
-			"exitCode": exitCode,
-			"err":      errMsg,
-			"duration": d.String(),
-		},
+	s.app.Event.Emit(eventName(id, "done"), map[string]any{
+		"exitCode": exitCode,
+		"err":      errMsg,
+		"duration": d.String(),
 	})
 }
 
