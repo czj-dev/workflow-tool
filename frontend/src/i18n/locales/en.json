@@ -5,6 +5,8 @@
   "main.clear": "Clear",
   "main.copy": "Copy",
   "main.copied": "Copied",
+  "main.choose": "Choose",
+  "main.run": "Run",
   "empty.noActions": "(No actions. Put YAML in actions/)",
   "error.loadFailed": "Load failed",
   "error.startFailed": "Start failed",
