@@ -31,14 +31,21 @@ func (r *ShellRunner) Run(ctx context.Context, params map[string]any, emit EmitF
 	timeoutCtx, cancel := context.WithTimeout(ctx, r.Cfg.Timeout)
 	defer cancel()
 
-	cmd, err := r.buildCommand()
+	// Phase 3：所有 Runner 实现都用 params 替换 ${VAR}（params>env，未定义保留+warning）
+	cfg := r.Cfg
+	cfg.Shell = Expand(cfg.Shell, params)
+	cfg.Script = Expand(cfg.Script, params)
+	cfg.Cwd = Expand(cfg.Cwd, params)
+	cfg.Env = ExpandMap(cfg.Env, params)
+
+	cmd, err := buildCommandFromCfg(cfg)
 	if err != nil {
 		return Result{Err: err, Duration: time.Since(start)}
 	}
-	if r.Cfg.Cwd != "" {
-		cmd.Dir = r.Cfg.Cwd
+	if cfg.Cwd != "" {
+		cmd.Dir = cfg.Cwd
 	}
-	for k, v := range r.Cfg.Env {
+	for k, v := range cfg.Env {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}
 
@@ -85,19 +92,19 @@ func (r *ShellRunner) Run(ctx context.Context, params map[string]any, emit EmitF
 	}
 }
 
-// buildCommand 按 Shell/Script 和 OS 构造 exec.Cmd。
-func (r *ShellRunner) buildCommand() (*exec.Cmd, error) {
-	if r.Cfg.Shell == "" && r.Cfg.Script == "" {
+// buildCommandFromCfg 按 Shell/Script 和 OS 构造 exec.Cmd。
+func buildCommandFromCfg(cfg ShellConfig) (*exec.Cmd, error) {
+	if cfg.Shell == "" && cfg.Script == "" {
 		return nil, fmt.Errorf("command: shell 和 script 必须二选一")
 	}
-	if r.Cfg.Shell != "" && r.Cfg.Script != "" {
+	if cfg.Shell != "" && cfg.Script != "" {
 		return nil, fmt.Errorf("command: shell 和 script 互斥")
 	}
 	if runtime.GOOS == "windows" {
-		if r.Cfg.Shell != "" {
-			return exec.Command("cmd", "/c", r.Cfg.Shell), nil
+		if cfg.Shell != "" {
+			return exec.Command("cmd", "/c", cfg.Shell), nil
 		}
-		script, err := resolveScript(r.Cfg.Script, ".ps1", r.Cfg.BaseDir)
+		script, err := resolveScript(cfg.Script, ".ps1", cfg.BaseDir)
 		if err != nil {
 			return nil, err
 		}
@@ -106,10 +113,10 @@ func (r *ShellRunner) buildCommand() (*exec.Cmd, error) {
 		}
 		return exec.Command("powershell", "-NoProfile", "-File", script), nil
 	}
-	if r.Cfg.Shell != "" {
-		return exec.Command("sh", "-c", r.Cfg.Shell), nil
+	if cfg.Shell != "" {
+		return exec.Command("sh", "-c", cfg.Shell), nil
 	}
-	script, err := resolveScript(r.Cfg.Script, ".sh", r.Cfg.BaseDir)
+	script, err := resolveScript(cfg.Script, ".sh", cfg.BaseDir)
 	if err != nil {
 		return nil, err
 	}
