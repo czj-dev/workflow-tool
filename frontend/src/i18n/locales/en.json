@@ -13,5 +13,8 @@
   "output.stderrPrefix": "[stderr] ",
   "output.exitLine": "--- exit code {{exitCode}}{{err}} ---",
   "output.errSuffix": "  error: {{err}}",
-  "global.title": "Global Config"
+  "global.title": "Global Config",
+  "global.add": "Add",
+  "global.remove": "Remove",
+  "global.save": "Save"
 }

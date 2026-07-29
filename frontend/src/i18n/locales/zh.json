@@ -13,5 +13,8 @@
   "output.stderrPrefix": "[stderr] ",
   "output.exitLine": "--- 退出码 {{exitCode}}{{err}} ---",
   "output.errSuffix": "  错误: {{err}}",
-  "global.title": "全局配置"
+  "global.title": "全局配置",
+  "global.add": "新增",
+  "global.remove": "删除",
+  "global.save": "保存"
 }

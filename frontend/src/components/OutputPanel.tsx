@@ -1,9 +1,28 @@
 import { Card } from "@/components/ui/card";
+import { useActionRunner } from "../hooks/useActionRunner";
 import { OutputToolbar } from "./OutputToolbar";
 import { OutputConsole } from "./OutputConsole";
+import { ParamForm } from "./ParamForm";
+import { GlobalConfigEditor } from "./GlobalConfigEditor";
 
-// 右栏容器：工具栏 + 终端区
+// 右栏容器：按 view 切换 output（工具栏+终端）/ form（工具栏+参数表单）/ global（全局配置编辑）
 export function OutputPanel() {
+  const { view } = useActionRunner();
+  if (view === "global") {
+    return (
+      <main className="flex min-w-0 flex-1 flex-col">
+        <GlobalConfigEditor />
+      </main>
+    );
+  }
+  if (view === "form") {
+    return (
+      <main className="flex min-w-0 flex-1 flex-col">
+        <OutputToolbar />
+        <ParamForm />
+      </main>
+    );
+  }
   return (
     <main className="flex min-w-0 flex-1 flex-col">
       <OutputToolbar />
