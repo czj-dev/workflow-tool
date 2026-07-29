@@ -12,5 +12,6 @@
   "error.startFailed": "Start failed",
   "output.stderrPrefix": "[stderr] ",
   "output.exitLine": "--- exit code {{exitCode}}{{err}} ---",
-  "output.errSuffix": "  error: {{err}}"
+  "output.errSuffix": "  error: {{err}}",
+  "global.title": "Global Config"
 }

@@ -12,5 +12,6 @@
   "error.startFailed": "启动失败",
   "output.stderrPrefix": "[stderr] ",
   "output.exitLine": "--- 退出码 {{exitCode}}{{err}} ---",
-  "output.errSuffix": "  错误: {{err}}"
+  "output.errSuffix": "  错误: {{err}}",
+  "global.title": "全局配置"
 }

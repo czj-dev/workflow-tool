@@ -5,6 +5,7 @@ import {
   SidebarGroup,
   SidebarGroupContent,
   SidebarHeader,
+  SidebarFooter,
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
@@ -12,10 +13,10 @@ import {
 import { useActionRunner } from "../hooks/useActionRunner";
 import { ActionItem } from "./ActionItem";
 
-// 左侧可折叠侧边栏：渲染动作列表 + 加载错误
+// 左侧可折叠侧边栏：渲染动作列表 + 加载错误 + 底部「全局配置」入口
 export function AppSidebar() {
   const { t } = useTranslation();
-  const { actions, errors } = useActionRunner();
+  const { actions, errors, setView } = useActionRunner();
 
   return (
     <Sidebar collapsible="icon">
@@ -55,6 +56,16 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
+      <SidebarFooter>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={() => setView("global")} tooltip={t("global.title")}>
+              <span className="shrink-0">⚙</span>
+              <span>{t("global.title")}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarFooter>
     </Sidebar>
   );
 }

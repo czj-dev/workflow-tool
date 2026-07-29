@@ -8,6 +8,9 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   }),
   RunAction: vi.fn().mockResolvedValue(undefined),
   CancelAction: vi.fn(),
+  GetGlobalConfig: vi.fn().mockResolvedValue({}),
+  SetGlobalConfig: vi.fn().mockResolvedValue(undefined),
+  PickDirectory: vi.fn().mockResolvedValue(""),
 }));
 vi.mock("@wailsio/runtime", () => ({ Events: { On: () => () => ({}) } }));
 
