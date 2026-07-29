@@ -18,3 +18,19 @@ if (!window.matchMedia) {
     })),
   });
 }
+
+// base-ui ScrollArea 等组件依赖 ResizeObserver，jsdom 未实现
+if (!globalThis.ResizeObserver) {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+}
+
+// base-ui ScrollArea Viewport 用 Web Animations API（Element.getAnimations），jsdom 未实现
+if (!Element.prototype.getAnimations) {
+  Element.prototype.getAnimations = function (): Animation[] {
+    return [];
+  };
+}
