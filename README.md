@@ -13,6 +13,7 @@
 | script 脚本执行 + 跨平台（.sh/.ps1） | ✅ |
 | 超时 / 取消 | ✅ |
 | 单二进制跨平台分发 | ✅ |
+| 前端（React+TS+shadcn 双栏 UI + 中英 i18n） | ✅ |
 | 参数表单 / 多步骤 / 条件分支 | Phase 2/3/4 |
 
 - 设计文档：`docs/specs/2026-07-28-phase1-design.md`
@@ -91,6 +92,12 @@ command:
 
 完整字段见设计文档 §3.3。
 
+## 界面语言（i18n）
+
+界面静态文案走 `frontend/src/i18n/locales/{zh,en}.json`，默认中文，工具栏可切换中/EN，选择写入 localStorage、重启后记住。新增文案只改这两个 JSON。
+
+> 边界：动作 `title/description/icon`（用户 YAML 自定义）、后端 emit 的报错与 stdout/stderr 输出**不参与翻译**，保持原样。
+
 ## 项目结构
 
 ```
@@ -102,10 +109,12 @@ workflow-tool/
 │   ├── registry/     YAML 扫描 / 解析 / 校验（纯 Go）
 │   └── api/          Wails service 绑定 + 事件 emit
 ├── frontend/
-│   ├── index.html / main.js / style.css
-│   ├── package.json    vite + @wailsio/runtime
-│   ├── dist/           vite 构建产物（embed 目标，gitignore）
-│   └── bindings/       wails3 generate bindings 产物（ES module）
+│   ├── index.html          Vite 入口（挂载点 #root）
+│   ├── package.json        React 19 + TS + Vite + shadcn/ui + react-i18next
+│   ├── src/                React 源码（App、components、context、hooks、i18n、types）
+│   │   └── components/ui/  shadcn 组件源码（内嵌，base-ui 风格）
+│   ├── dist/               vite 构建产物（embed 目标，gitignore）
+│   └── bindings/           wails3 generate bindings 产物（ES module）
 ├── docs/             spec + plan
 ├── main.go           应用入口
 ├── go.mod / go.sum
@@ -141,6 +150,6 @@ workflow-tool/
 ## 开发提示
 
 - 改 `api.go` 后：`wails3 generate bindings` → `npm run build` → `go build`（顺序不能乱）
-- 改前端：`cd frontend && npm run build && cd .. && go build`
+- 改前端：`cd frontend && npm run build && cd .. && go build`。单独 `npm run dev` 可调样式，但联调后端必须 `go build` 跑 exe（`Call.ByID` 仅 Wails 运行时可用，纯前端 dev server 调不到后端）；前端单测 `cd frontend && npm test`
 - 核心包单测（不依赖 Wails）：`go test ./internal/runner ./internal/registry`
 - 交叉编译 Mac：`GOOS=darwin GOARCH=arm64 go build -o workflow-tool .`（需 Mac 上 CGO/WebKit 依赖）
