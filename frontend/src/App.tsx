@@ -1,21 +1,22 @@
-import { Button } from "@/components/ui/button"
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { ActionRunnerProvider } from "./context/ActionRunnerProvider";
+import { AppSidebar } from "./components/AppSidebar";
+import { OutputPanel } from "./components/OutputPanel";
 
-export function App() {
+// 双栏骨架：ActionRunnerProvider 提供运行状态，TooltipProvider 供侧边栏折叠态 tooltip，
+// SidebarProvider 管理侧边栏布局，AppSidebar 左栏，SidebarInset 右栏主区
+export default function App() {
   return (
-    <div className="flex min-h-svh p-6">
-      <div className="flex max-w-md min-w-0 flex-col gap-4 text-sm leading-loose">
-        <div>
-          <h1 className="font-medium">Project ready!</h1>
-          <p>You may now add components and start building.</p>
-          <p>We&apos;ve already added the button component for you.</p>
-          <Button className="mt-2">Button</Button>
-        </div>
-        <div className="font-mono text-xs text-muted-foreground">
-          (Press <kbd>d</kbd> to toggle dark mode)
-        </div>
-      </div>
-    </div>
-  )
+    <ActionRunnerProvider>
+      <TooltipProvider>
+        <SidebarProvider>
+          <AppSidebar />
+          <SidebarInset>
+            <OutputPanel />
+          </SidebarInset>
+        </SidebarProvider>
+      </TooltipProvider>
+    </ActionRunnerProvider>
+  );
 }
-
-export default App
