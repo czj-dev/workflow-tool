@@ -12,11 +12,29 @@ import (
 
 // ActionDef 是动作的 YAML 定义。
 type ActionDef struct {
-	ID          string  `yaml:"id"`
-	Title       string  `yaml:"title"`
-	Icon        string  `yaml:"icon"`
-	Description string  `yaml:"description"`
-	Command     Command `yaml:"command"`
+	ID          string      `yaml:"id"`
+	Title       string      `yaml:"title"`
+	Icon        string      `yaml:"icon"`
+	Description string      `yaml:"description"`
+	Command     Command     `yaml:"command"`
+	Params      []ParamSpec `yaml:"params"`
+	Presets     []Preset    `yaml:"presets"`
+}
+
+// ParamSpec 描述一个运行时参数（前端据此渲染表单）。
+type ParamSpec struct {
+	ID       string   `json:"id" yaml:"id"`
+	Label    string   `json:"label" yaml:"label"`
+	Type     string   `json:"type" yaml:"type"` // text|bool|select|path
+	Required bool     `json:"required" yaml:"required"`
+	Default  string   `json:"default" yaml:"default"`
+	Options  []string `json:"options" yaml:"options"`
+}
+
+// Preset 是作者定义的一整套参数值。
+type Preset struct {
+	Name   string            `json:"name" yaml:"name"`
+	Values map[string]string `json:"values" yaml:"values"`
 }
 
 // Command 是动作的执行块。
@@ -32,7 +50,7 @@ type Command struct {
 type LoadedAction struct {
 	Def     ActionDef
 	Timeout time.Duration
-	Cwd     string // 已做 ${VAR} 替换
+	Cwd     string // raw，运行时由 runner 用 params 替换
 }
 
 // FileError 记录单个文件的加载错误。
@@ -72,14 +90,11 @@ func Load(dir, baseDir string) *Registry {
 			reg.Errors = append(reg.Errors, FileError{File: filepath.Base(f), Error: fmt.Sprintf("重复 id %q", def.ID)})
 			continue
 		}
-		// 变量替换：shell/script/cwd
-		def.Command.Shell = expandVars(def.Command.Shell)
-		def.Command.Script = expandVars(def.Command.Script)
-		cwd := expandVars(def.Command.Cwd)
+		// Phase 3：不在 Load 时替换 ${VAR}，保留 raw，运行时由 runner 用 params 替换
 		reg.Actions[def.ID] = LoadedAction{
 			Def:     *def,
 			Timeout: parseTimeout(def.Command.Timeout),
-			Cwd:     cwd,
+			Cwd:     def.Command.Cwd, // raw，未替换
 		}
 	}
 	return reg
@@ -110,6 +125,18 @@ func validate(def *ActionDef) error {
 	if def.Command.Shell != "" && def.Command.Script != "" {
 		return fmt.Errorf("command.shell 与 command.script 互斥")
 	}
+	// params 校验
+	for i, p := range def.Params {
+		switch p.Type {
+		case "text", "bool", "select", "path":
+			// 合法
+		default:
+			return fmt.Errorf("params[%d].type 非法 %q（应为 text/bool/select/path）", i, p.Type)
+		}
+		if p.Type == "select" && len(p.Options) == 0 {
+			return fmt.Errorf("params[%d] (%s) 是 select 必须提供 options", i, p.ID)
+		}
+	}
 	return nil
 }
 
@@ -124,12 +151,4 @@ func parseTimeout(s string) time.Duration {
 	return d
 }
 
-// expandVars 从环境变量替换 ${VAR}，未定义的保留原样。
-func expandVars(s string) string {
-	return os.Expand(s, func(name string) string {
-		if v, ok := os.LookupEnv(name); ok {
-			return v
-		}
-		return "${" + name + "}"
-	})
-}
+// expandVars 已移除：Phase 3 起变量替换移到运行时（runner.Expand，用 params）。
