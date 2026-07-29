@@ -11,6 +11,9 @@ import {
   ListActions,
   RunAction,
   CancelAction,
+  GetGlobalConfig,
+  SetGlobalConfig,
+  PickDirectory,
 } from "../../bindings/workflow-tool/internal/api/service.js";
 import type { ActionItem } from "../../bindings/workflow-tool/internal/api/models.js";
 import type { OutputEventData, DoneEventData } from "../types/events";
@@ -29,10 +32,19 @@ export interface RunnerContextValue {
   lines: string[];
   status: Status;
   exitInfo: ExitInfo | null;
-  runAction: (id: string) => Promise<void>;
+  // Phase 3 新增
+  globalConfig: Record<string, string>;
+  formValues: Record<string, string>;
+  view: "output" | "form" | "global";
+  runAction: (id: string, params?: Record<string, any>) => Promise<void>;
   cancel: () => void;
   clearOutput: () => void;
   copyOutput: () => Promise<void>;
+  selectPreset: (actionId: string, presetName: string) => void;
+  saveGlobalConfig: (kv: Record<string, string>) => Promise<void>;
+  setView: (v: "output" | "form" | "global") => void;
+  setFormValue: (id: string, value: string) => void;
+  pickDirectory: () => Promise<string>;
 }
 
 // 事件分发表：测试用 _emitForTest 触发；运行时由 Events.On 回调写入
@@ -52,6 +64,9 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [lines, setLines] = useState<string[]>([]);
   const [status, setStatus] = useState<Status>("idle");
   const [exitInfo, setExitInfo] = useState<ExitInfo | null>(null);
+  const [globalConfig, setGlobalConfig] = useState<Record<string, string>>({});
+  const [formValues, setFormValues] = useState<Record<string, string>>({});
+  const [view, setView] = useState<"output" | "form" | "global">("output");
   const linesRef = useRef<string[]>([]);
   linesRef.current = lines;
 
@@ -63,6 +78,14 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         setErrors((res && res.errors) || []);
       })
       .catch((e) => setErrors([t("error.loadFailed") + ": " + e]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 挂载时拉取全局配置
+  useEffect(() => {
+    GetGlobalConfig()
+      .then((g) => setGlobalConfig((g ?? {}) as Record<string, string>))
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -100,17 +123,47 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentId]);
 
-  const runAction = async (id: string) => {
+  const runAction = async (id: string, params: Record<string, any> = {}) => {
     setLines([]);
     setCurrentId(id);
     setStatus("running");
     setExitInfo(null);
+    setView("output");
     try {
-      await RunAction(id);
+      await RunAction(id, params);
     } catch (e) {
       setLines((prev) => [...prev, t("error.startFailed") + ": " + e]);
       setStatus("error");
     }
+  };
+
+  // selectPreset：把预设值（+ 各 param 的 default 预填）填入 formValues，切到 form 视图。
+  // presetName 找不到时（如 ""）仅用 default 预填，仍进表单。
+  const selectPreset = (actionId: string, presetName: string) => {
+    const a = actions.find((x) => x.id === actionId);
+    if (!a) return;
+    const p = a.presets?.find((x) => x.name === presetName);
+    const vals: Record<string, string> = {};
+    a.params?.forEach((spec) => {
+      vals[spec.id] = spec.default ?? "";
+    });
+    if (p) Object.assign(vals, p.values);
+    setFormValues(vals);
+    setCurrentId(actionId);
+    setView("form");
+  };
+
+  const saveGlobalConfig = async (kv: Record<string, string>) => {
+    await SetGlobalConfig(kv);
+    setGlobalConfig(kv);
+  };
+
+  const setFormValue = (id: string, value: string) =>
+    setFormValues((prev) => ({ ...prev, [id]: value }));
+
+  const pickDirectory = async () => {
+    const p = await PickDirectory();
+    return p || "";
   };
 
   const cancel = () => {
@@ -130,10 +183,18 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     lines,
     status,
     exitInfo,
+    globalConfig,
+    formValues,
+    view,
     runAction,
     cancel,
     clearOutput,
     copyOutput,
+    selectPreset,
+    saveGlobalConfig,
+    setView,
+    setFormValue,
+    pickDirectory,
   };
 
   return (

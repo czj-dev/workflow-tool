@@ -3,8 +3,16 @@ import { renderHook, act } from "@testing-library/react";
 import type { ReactNode } from "react";
 
 // mock bindings 与 runtime：用 vi.hoisted 保证提升后变量可用，工厂直接引用（无需转发 spread）
-const { mockListActions, mockRunAction, mockCancelAction, mockOn, listeners } =
-  vi.hoisted(() => {
+const {
+  mockListActions,
+  mockRunAction,
+  mockCancelAction,
+  mockGetGlobalConfig,
+  mockSetGlobalConfig,
+  mockPickDirectory,
+  mockOn,
+  listeners,
+} = vi.hoisted(() => {
     const listeners: Record<string, (e: unknown) => void> = {};
     const mockOn = vi.fn((name: string, cb: (e: unknown) => void) => {
       listeners[name] = cb;
@@ -16,6 +24,9 @@ const { mockListActions, mockRunAction, mockCancelAction, mockOn, listeners } =
       mockListActions: vi.fn(),
       mockRunAction: vi.fn(() => Promise.resolve()),
       mockCancelAction: vi.fn(),
+      mockGetGlobalConfig: vi.fn(),
+      mockSetGlobalConfig: vi.fn(),
+      mockPickDirectory: vi.fn(),
       mockOn,
       listeners,
     };
@@ -25,6 +36,9 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   ListActions: mockListActions,
   RunAction: mockRunAction,
   CancelAction: mockCancelAction,
+  GetGlobalConfig: mockGetGlobalConfig,
+  SetGlobalConfig: mockSetGlobalConfig,
+  PickDirectory: mockPickDirectory,
 }));
 
 vi.mock("@wailsio/runtime", () => ({
@@ -43,6 +57,9 @@ beforeEach(() => {
   mockListActions.mockReset();
   mockRunAction.mockReset().mockResolvedValue(undefined);
   mockCancelAction.mockReset();
+  mockGetGlobalConfig.mockReset().mockResolvedValue({});
+  mockSetGlobalConfig.mockReset().mockResolvedValue(undefined);
+  mockPickDirectory.mockReset().mockResolvedValue("");
   mockOn.mockClear();
 });
 
@@ -66,7 +83,7 @@ describe("ActionRunnerProvider", () => {
       await result.current.runAction("a1");
     });
     expect(result.current.status).toBe("running");
-    expect(mockRunAction).toHaveBeenCalledWith("a1");
+    expect(mockRunAction).toHaveBeenCalledWith("a1", {});
     expect(mockOn).toHaveBeenCalledWith("action:a1:output", expect.any(Function));
     expect(mockOn).toHaveBeenCalledWith("action:a1:done", expect.any(Function));
   });
@@ -139,5 +156,58 @@ describe("ActionRunnerProvider", () => {
     );
     act(() => result.current.clearOutput());
     expect(result.current.lines).toEqual([]);
+  });
+
+  it("挂载时拉取全局配置", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    mockGetGlobalConfig.mockResolvedValue({ OUTPUT_DIR: "D:/pages" });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    expect(result.current.globalConfig.OUTPUT_DIR).toBe("D:/pages");
+  });
+
+  it("runAction 带 params 调用 RunAction(id, params)", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.runAction("a1", { NAME: "x" });
+    });
+    expect(mockRunAction).toHaveBeenCalledWith("a1", { NAME: "x" });
+  });
+
+  it("selectPreset 填充 formValues 并切到 form 视图", async () => {
+    mockListActions.mockResolvedValue({
+      actions: [
+        {
+          id: "a1",
+          title: "A",
+          icon: "▶",
+          description: "",
+          params: [
+            { id: "NAME", label: "名", type: "text", required: false, default: "d", options: [] },
+          ],
+          presets: [{ name: "p1", values: { NAME: "pre" } }],
+        },
+      ],
+      errors: [],
+    });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    act(() => result.current.selectPreset("a1", "p1"));
+    expect(result.current.formValues.NAME).toBe("pre");
+    expect(result.current.view).toBe("form");
+  });
+
+  it("saveGlobalConfig 调用 SetGlobalConfig", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.saveGlobalConfig({ OUTPUT_DIR: "D:/new" });
+    });
+    expect(mockSetGlobalConfig).toHaveBeenCalledWith({ OUTPUT_DIR: "D:/new" });
   });
 });
