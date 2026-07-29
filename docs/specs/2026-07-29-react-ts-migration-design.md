@@ -107,11 +107,11 @@ frontend/
 │   ├── types/
 │   │   └── events.ts                  OutputEventData / DoneEventData
 │   └── components/
-│       ├── ui/                        shadcn 组件（button/card/scroll-area/badge/tooltip/separator）
-│       ├── ActionSidebar.tsx          左栏动作列表
-│       ├── ActionItem.tsx             单个动作按钮 + 状态灯
+│       ├── ui/                        shadcn 组件（sidebar 及依赖、scroll-area、card）
+│       ├── AppSidebar.tsx            左栏（shadcn Sidebar，可折叠）
+│       ├── ActionItem.tsx             Sidebar 菜单项 + 状态灯
 │       ├── OutputPanel.tsx            右栏主区
-│       ├── OutputToolbar.tsx          标题 + 停止 + 清空 + 复制 + 语言切换
+│       ├── OutputToolbar.tsx          折叠触发 + 标题 + 停止 + 清空 + 复制 + 语言切换
 │       ├── OutputConsole.tsx          滚动终端区
 │       └── LangSwitch.tsx             中/EN 语言切换按钮
 ├── bindings/                          wails3 generate 产物（不变）
@@ -122,11 +122,11 @@ frontend/
 
 | 组件 | 职责 |
 |------|------|
-| `App` | 双栏布局骨架（`ActionSidebar` + `OutputPanel`），在最外层包 `ActionRunnerProvider` |
-| `ActionSidebar` | 渲染 `actions` 列表 + 加载 `errors`；逐个渲染 `ActionItem` |
-| `ActionItem` | 动作按钮（`icon` + `title`）+ `Tooltip`(`description`) + 运行状态灯；点击调 `runAction(id)` |
+| `App` | `SidebarProvider` 包裹 `AppSidebar` + `SidebarInset(OutputPanel)`，最外层包 `ActionRunnerProvider` |
+| `AppSidebar` | 基于 shadcn Sidebar 的可折叠侧边栏；渲染 `actions` 列表 + 加载 `errors`；逐个渲染 `ActionItem` |
+| `ActionItem` | Sidebar 菜单项（`SidebarMenuButton`，`icon` + `title`，tooltip 显 `description`）+ 运行状态灯；点击调 `runAction(id)` |
 | `OutputPanel` | 右栏容器，组合 `OutputToolbar` + `OutputConsole` |
-| `OutputToolbar` | 当前动作标题 + 停止 + 清空 + 复制 + `LangSwitch` |
+| `OutputToolbar` | `SidebarTrigger`（折叠侧边栏）+ 当前动作标题 + 停止 + 清空 + 复制 + `LangSwitch` |
 | `LangSwitch` | 中/EN 切换按钮，调 `i18next.changeLanguage` + 写 `localStorage` |
 | `OutputConsole` | `ScrollArea` + monospace 暗底，渲染 `lines`，新行自动滚到底 |
 
@@ -235,9 +235,10 @@ go build -o workflow-tool.exe .
 
 均为 UI 层增强，**不改后端契约**：
 
-1. **运行状态灯**：`ActionItem` 上的 `Badge`，随 `status` 变化（见 §3 表），让侧边栏直观看到哪个动作在跑 / 成功 / 失败。
+1. **运行状态灯**：`ActionItem` 上的 `SidebarMenuBadge`，随 `status` 变化（见 §3 表），让侧边栏直观看到哪个动作在跑 / 成功 / 失败。
 2. **输出工具栏**：标题（当前动作 `icon + title`）+ 停止按钮（已有）+ **清空**（清 `lines`）+ **复制**（`lines` 写入剪贴板）+ 语言切换。
 3. **i18n（中英文切换）**：详见 §8.1。
+4. **侧边栏可折叠**：基于 shadcn `Sidebar`（`collapsible="icon"`），由 OutputToolbar 的 `SidebarTrigger` 控制折叠/展开；折叠后只显动作 emoji 图标。
 
 ### 8.1 i18n 设计
 

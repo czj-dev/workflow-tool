@@ -648,122 +648,127 @@ git commit -m "feat: ActionRunnerProvider + useActionRunner（事件流状态管
 
 ---
 
-## Task 4: ActionSidebar + ActionItem 组件
+## Task 4: AppSidebar（shadcn Sidebar 组件）+ ActionItem
 
 **Files:**
-- Create: `frontend/src/components/ActionSidebar.tsx`, `frontend/src/components/ActionItem.tsx`, `frontend/src/components/ActionSidebar.test.tsx`
-- 需先添加 shadcn 组件：`button`、`badge`、`tooltip`、`scroll-area`
+- Create: `frontend/src/components/AppSidebar.tsx`, `frontend/src/components/ActionItem.tsx`, `frontend/src/components/AppSidebar.test.tsx`
+- 需先添加 shadcn 组件：`sidebar`（自带折叠，`collapsible="icon"`）
 
 **Interfaces:**
-- Consumes: `useActionRunner()` 的 `actions` / `errors` / `currentId` / `status` / `runAction`；`useTranslation()`。
-- Produces: `<ActionSidebar />` 渲染左栏。
+- Consumes: `useActionRunner()` 的 `actions` / `errors` / `currentId` / `status` / `runAction`；`useTranslation()`；shadcn Sidebar context（由 App.tsx 的 `SidebarProvider` 提供）。
+- Produces: `<AppSidebar />` —— 基于 shadcn Sidebar 的可折叠侧边栏。
 
-- [ ] **Step 1: 添加 shadcn 组件**
+- [ ] **Step 1: 添加 shadcn 组件（sidebar 及后续所需）**
 
 ```bash
 cd frontend
-npx shadcn@latest add button badge tooltip scroll-area separator
+npx shadcn@latest add sidebar scroll-area card
 cd ..
 ```
 
-预期：生成 `src/components/ui/{button,badge,tooltip,scroll-area,separator}.tsx`。
+预期：生成 `src/components/ui/{sidebar,scroll-area,card}.tsx`。`sidebar` 会自动安装其依赖（`button`、`separator`、`sheet`、`input`、`skeleton`、`tooltip`）；`scroll-area` 供 OutputConsole、`card` 供 OutputPanel 使用（Task 5）。若提示确认依赖，选 yes。
 
-- [ ] **Step 2: 写 ActionItem**
+- [ ] **Step 2: 写 ActionItem（Sidebar 菜单项）**
 
 创建 `frontend/src/components/ActionItem.tsx`：
 
 ```tsx
-import { useTranslation } from "react-i18next";
-import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+  SidebarMenuItem,
+  SidebarMenuButton,
+  SidebarMenuBadge,
+} from "@/components/ui/sidebar";
 import type { ActionItem as ActionItemType } from "../../bindings/workflow-tool/internal/api/models.js";
 import { useActionRunner } from "../hooks/useActionRunner";
 
 export function ActionItem({ action }: { action: ActionItemType }) {
   const { currentId, status, runAction } = useActionRunner();
   const isCurrent = currentId === action.id;
+  const mark =
+    status === "running" ? "●" : status === "done" ? "✓" : status === "error" ? "✗" : "";
 
   return (
-    <TooltipProvider>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant={isCurrent ? "default" : "outline"}
-            className="w-full justify-start"
-            onClick={() => runAction(action.id)}
-          >
-            <span className="mr-2">{action.icon || "▶"}</span>
-            <span className="truncate">{action.title}</span>
-            {isCurrent && (
-              <Badge
-                variant="secondary"
-                className="ml-auto"
-                data-status={status}
-              >
-                {status === "running" ? "●" : status === "done" ? "✓" : status === "error" ? "✗" : ""}
-              </Badge>
-            )}
-          </Button>
-        </TooltipTrigger>
-        {action.description && (
-          <TooltipContent>{action.description}</TooltipContent>
-        )}
-      </Tooltip>
-    </TooltipProvider>
+    <SidebarMenuItem>
+      <SidebarMenuButton
+        isActive={isCurrent}
+        tooltip={action.description || action.title}
+        onClick={() => runAction(action.id)}
+      >
+        {action.icon && <span>{action.icon}</span>}
+        <span>{action.title}</span>
+        {isCurrent && mark && <SidebarMenuBadge>{mark}</SidebarMenuBadge>}
+      </SidebarMenuButton>
+    </SidebarMenuItem>
   );
 }
 ```
 
-- [ ] **Step 3: 写 ActionSidebar**
+> 折叠（`collapsible="icon"`）时，`SidebarMenuButton` 自动只显示 icon（emoji）并通过 `tooltip` 显示标题/描述。
 
-创建 `frontend/src/components/ActionSidebar.tsx`：
+- [ ] **Step 3: 写 AppSidebar（shadcn Sidebar）**
+
+创建 `frontend/src/components/AppSidebar.tsx`：
 
 ```tsx
 import { useTranslation } from "react-i18next";
-import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarHeader,
+  SidebarMenu,
+  SidebarMenuItem,
+} from "@/components/ui/sidebar";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { ActionItem } from "./ActionItem";
 
-export function ActionSidebar() {
+export function AppSidebar() {
   const { t } = useTranslation();
   const { actions, errors } = useActionRunner();
 
   return (
-    <aside className="w-60 border-r bg-muted/40 p-4">
-      <h1 className="mb-3 text-xs font-semibold text-muted-foreground">
-        {t("sidebar.title")}
-      </h1>
-      <ScrollArea className="h-[calc(100vh-6rem)]">
-        <ul className="space-y-1.5">
-          {actions.length === 0 && errors.length === 0 && (
-            <li className="text-sm text-muted-foreground">
-              {t("empty.noActions")}
-            </li>
-          )}
-          {actions.map((a) => (
-            <li key={a.id}>
-              <ActionItem action={a} />
-            </li>
-          ))}
-          {errors.map((e, i) => (
-            <li key={i} className="text-sm text-destructive">⚠ {e}</li>
-          ))}
-        </ul>
-      </ScrollArea>
-    </aside>
+    <Sidebar collapsible="icon">
+      <SidebarHeader>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <span className="px-2 text-xs font-semibold text-muted-foreground">
+              {t("sidebar.title")}
+            </span>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarHeader>
+      <SidebarContent>
+        <SidebarGroup>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {actions.length === 0 && errors.length === 0 && (
+                <p className="px-2 text-sm text-muted-foreground">
+                  {t("empty.noActions")}
+                </p>
+              )}
+              {actions.map((a) => (
+                <ActionItem key={a.id} action={a} />
+              ))}
+              {errors.map((e, i) => (
+                <SidebarMenuItem key={`err-${i}`}>
+                  <span className="px-2 text-sm text-destructive">⚠ {e}</span>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+      </SidebarContent>
+    </Sidebar>
   );
 }
 ```
 
+> `Sidebar` 必须在 `SidebarProvider` 内使用（Task 6 的 App.tsx 提供）。`collapsible="icon"` 让侧边栏可折叠为图标栏；折叠/展开由 OutputToolbar 的 `SidebarTrigger`（Task 5）触发。
+
 - [ ] **Step 4: 写渲染测试**
 
-创建 `frontend/src/components/ActionSidebar.test.tsx`：
+创建 `frontend/src/components/AppSidebar.test.tsx`：
 
 ```tsx
 import { describe, expect, it, vi } from "vitest";
@@ -779,13 +784,20 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
 }));
 vi.mock("@wailsio/runtime", () => ({ Events: { On: () => () => {} } }));
 
+import { SidebarProvider } from "@/components/ui/sidebar";
 import { ActionRunnerProvider } from "../context/ActionRunnerProvider";
-import { ActionSidebar } from "./ActionSidebar";
+import { AppSidebar } from "./AppSidebar";
 
-describe("ActionSidebar", () => {
+describe("AppSidebar", () => {
   it("渲染动作列表", async () => {
-    render(<ActionRunnerProvider><ActionSidebar /></ActionRunnerProvider>);
-    expect(await screen.findByText("👋 打个招呼")).toBeInTheDocument();
+    render(
+      <ActionRunnerProvider>
+        <SidebarProvider>
+          <AppSidebar />
+        </SidebarProvider>
+      </ActionRunnerProvider>
+    );
+    expect(await screen.findByText("打个招呼")).toBeInTheDocument();
     expect(screen.getByText("动作")).toBeInTheDocument();
   });
 });
@@ -794,7 +806,7 @@ describe("ActionSidebar", () => {
 - [ ] **Step 5: 运行测试确认通过**
 
 ```bash
-npx vitest run src/components/ActionSidebar.test.tsx
+npx vitest run src/components/AppSidebar.test.tsx
 ```
 
 预期：PASS。
@@ -811,7 +823,7 @@ npx tsc --noEmit && npm run build
 
 ```bash
 git add frontend/src/components
-git commit -m "feat: ActionSidebar + ActionItem 组件（状态灯、Tooltip 描述）"
+git commit -m "feat: AppSidebar（shadcn Sidebar）+ ActionItem 组件（可折叠、状态灯）"
 ```
 
 ---
@@ -889,6 +901,7 @@ export function OutputConsole() {
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { LangSwitch } from "./LangSwitch";
 
@@ -908,9 +921,14 @@ export function OutputToolbar() {
 
   return (
     <header className="flex items-center justify-between border-b px-4 py-2">
-      <span className="font-semibold">
-        {current ? `${current.icon || "▶"} ${current.title}` : t("main.selectAction")}
-      </span>
+      <div className="flex items-center gap-2">
+        <SidebarTrigger />
+        <span className="font-semibold">
+          {current
+            ? `${current.icon || "▶"} ${current.title}`
+            : t("main.selectAction")}
+        </span>
+      </div>
       <div className="flex items-center gap-2">
         <Button variant="outline" size="sm" onClick={onCopy}>
           {copied ? t("main.copied") : t("main.copy")}
@@ -1019,7 +1037,7 @@ git commit -m "feat: OutputPanel/Toolbar/Console/LangSwitch 组件（清空、�
 - Modify: `frontend/src/App.tsx`, `frontend/src/main.tsx`, `frontend/index.html`
 
 **Interfaces:**
-- Consumes: `ActionRunnerProvider`、`ActionSidebar`、`OutputPanel`（前序任务）。
+- Consumes: `ActionRunnerProvider`、`AppSidebar`、`OutputPanel`（前序任务）。
 - Produces: 完整双栏应用，`main.tsx` 挂载。
 
 - [ ] **Step 1: 写 App.tsx**
@@ -1027,21 +1045,26 @@ git commit -m "feat: OutputPanel/Toolbar/Console/LangSwitch 组件（清空、�
 把 `frontend/src/App.tsx` 替换为：
 
 ```tsx
+import { SidebarProvider, SidebarInset } from "@/components/ui/sidebar";
 import { ActionRunnerProvider } from "./context/ActionRunnerProvider";
-import { ActionSidebar } from "./components/ActionSidebar";
+import { AppSidebar } from "./components/AppSidebar";
 import { OutputPanel } from "./components/OutputPanel";
 
 export default function App() {
   return (
     <ActionRunnerProvider>
-      <div className="flex h-screen w-screen">
-        <ActionSidebar />
-        <OutputPanel />
-      </div>
+      <SidebarProvider>
+        <AppSidebar />
+        <SidebarInset>
+          <OutputPanel />
+        </SidebarInset>
+      </SidebarProvider>
     </ActionRunnerProvider>
   );
 }
 ```
+
+> `SidebarProvider` 管理侧边栏布局与折叠状态；`AppSidebar` 是可折叠侧边栏，`SidebarInset` 是右侧主内容区（自动让出侧边栏宽度）。
 
 - [ ] **Step 2: 确认 main.tsx**
 
