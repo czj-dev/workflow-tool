@@ -4,7 +4,7 @@
 
 ## 状态
 
-**Phase 1（MVP）完成并验证。**
+**Phase 1（MVP）+ Phase 3（配置与参数系统）完成。**
 
 | 能力 | 状态 |
 |------|------|
@@ -14,7 +14,8 @@
 | 超时 / 取消 | ✅ |
 | 单二进制跨平台分发 | ✅ |
 | 前端（React+TS+shadcn 双栏 UI + 中英 i18n） | ✅ |
-| 参数表单 / 多步骤 / 条件分支 | Phase 2/3/4 |
+| 动作参数表单（text/bool/select/path）+ 预设 + 全局配置 | ✅ |
+| 多步骤 / 条件分支 | Phase 2/4 |
 
 - 设计文档：`docs/specs/2026-07-28-phase1-design.md`
 - 实现计划：`docs/superpowers/plans/2026-07-28-phase1.md`
@@ -68,7 +69,7 @@ go build -o workflow-tool.exe .
 内置示例动作：
 - **👋 打个招呼**：`shell` 形态，`echo`，开箱可用
 - **🚀 部署**：`script` 形态，跑 `scripts/deploy.sh`（Mac/Linux）或 `scripts/deploy.ps1`（Windows）
-- **🌐 抓网页转 Markdown**：参数化（需 `URL`/`OUTPUT_DIR` + `defuddle-cli`），属 Phase 3 场景
+- **🌐 抓网页转 Markdown**：参数化动作（点开弹表单填 URL/输出目录/文件名；需 `defuddle-cli`）
 
 ## 加一个动作
 
@@ -88,7 +89,37 @@ command:
     KEY: value
 ```
 
-`${VAR}` 从环境变量替换（未定义保留原样 + 友好报错）。重启 exe 生效。
+`${VAR}` 替换优先级：**动作参数 > 全局配置（`config.yaml`）> 环境变量**；三者都未定义则保留原样 + warning。重启 exe 生效。
+
+### 参数表单（params）
+
+动作声明 `params` 后，点击进右侧表单填写（无参数动作点击直接运行）：
+
+```yaml
+params:
+  - id: URL
+    label: 网址
+    type: text          # text | bool | select | path
+    required: true      # 未填时「运行」禁用
+    default: ""         # 可选
+    options: [a, b]     # select 必填
+```
+
+`path` 参数带「选择」按钮（原生目录对话框），且支持拖拽目录到输入框。
+
+### 预设（presets）
+
+作者定义几套常用参数值，动作项展开后列为子项：**单击进表单微调、双击直接运行**。
+
+```yaml
+presets:
+  - name: 首页
+    values: { URL: https://example.com }
+```
+
+### 全局配置（config.yaml）
+
+与 `actions/` 同级的 `config.yaml` 存跨动作共享变量（如 `OUTPUT_DIR`），所有动作可 `${KEY}` 引用。侧边栏底部「⚙ 全局配置」可增删改并保存写回。
 
 完整字段见设计文档 §3.3。
 
@@ -142,7 +173,7 @@ workflow-tool/
 |-------|------|---------|---------|
 | **1（已完成）** | 单命令/脚本一键触发 | ShellRunner + Registry | 定下 Runner 接口 |
 | 2 | 多步骤串行 | WorkflowRunner 编排多个 Runner | 无（新加 Runner 实现） |
-| 3 | 参数输入表单 | YAML `params` → 前端动态表单 | 无（params 字段启用） |
+| **3（已完成）** | 参数输入表单 + 预设 + 全局配置 | YAML `params`/`presets` + `config.yaml` | 无（params 字段启用） |
 | 4 | 条件分支 | YAML `when` / `depends_on` | 无 |
 
 `Runner` 接口稳定不变，所有扩展在 YAML schema 和编排层。

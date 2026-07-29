@@ -1,7 +1,23 @@
 id: scrape-to-md
 title: 抓网页转 Markdown
 icon: 🌐
-description: 把 URL 正文抓成 Markdown 存本地（需先设 URL/OUTPUT_DIR 环境变量）
+description: 把 URL 正文抓成 Markdown 存到本地（运行时填参数）
+params:
+  - id: URL
+    label: 网址
+    type: text
+    required: true
+  - id: OUTPUT_DIR
+    label: 输出目录
+    type: path
+    required: true
+  - id: NAME
+    label: 文件名
+    type: text
+    default: page
+presets:
+  - name: 首页
+    values: { URL: https://example.com, NAME: homepage }
 command:
   shell: defuddle-cli convert "${URL}" -o "${OUTPUT_DIR}/${NAME}.md"
   cwd: ${OUTPUT_DIR}
