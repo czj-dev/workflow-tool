@@ -19,7 +19,7 @@ var assets embed.FS
 func main() {
 	baseDir := exeDir()
 	reg := registry.Load(filepath.Join(baseDir, "actions"), baseDir)
-	svc := api.New(reg, baseDir)
+	svc := api.New(reg, baseDir, filepath.Join(baseDir, "config.yaml"))
 
 	distFS, err := fs.Sub(assets, "frontend/dist")
 	if err != nil {

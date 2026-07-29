@@ -1,0 +1,78 @@
+package api
+
+import (
+	"os"
+	"path/filepath"
+	"testing"
+
+	"workflow-tool/internal/registry"
+)
+
+func TestRunActionMergesGlobalAndParams(t *testing.T) {
+	// 全局 OUTPUT_DIR + 参数 NAME；参数应覆盖同名全局
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	registry.SaveGlobal(cfgPath, map[string]string{"OUTPUT_DIR": "D:/pages", "NAME": "global-name"})
+
+	reg := registry.Load(dir, dir) // 空动作，仅用于占位
+	svc := New(reg, dir, cfgPath)
+
+	// 直接测 merge 逻辑（不实际 exec）
+	merged := svc.mergeGlobalAndParams(map[string]any{"NAME": "param-name"})
+	if merged["OUTPUT_DIR"] != "D:/pages" {
+		t.Fatalf("全局未合并: %+v", merged)
+	}
+	if merged["NAME"] != "param-name" {
+		t.Fatalf("参数应覆盖全局: %+v", merged)
+	}
+}
+
+func TestGetAndSetGlobalConfig(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	svc := New(registry.Load(dir, dir), dir, cfgPath)
+
+	if err := svc.SetGlobalConfig(map[string]string{"OUTPUT_DIR": "D:/new"}); err != nil {
+		t.Fatal(err)
+	}
+	got := svc.GetGlobalConfig()
+	if got["OUTPUT_DIR"] != "D:/new" {
+		t.Fatalf("Get 与 Set 不一致: %+v", got)
+	}
+	// 确认落盘
+	persisted, _ := registry.LoadGlobal(cfgPath)
+	if persisted["OUTPUT_DIR"] != "D:/new" {
+		t.Fatalf("未写回文件: %+v", persisted)
+	}
+}
+
+func TestListActionsIncludesParamsAndPresets(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	os.WriteFile(filepath.Join(dir, "a.yaml"), []byte(`id: a
+title: A
+params:
+  - id: URL
+    label: 网址
+    type: text
+    required: true
+presets:
+  - name: 首页
+    values: { URL: https://example.com }
+command:
+  shell: echo ${URL}
+`), 0644)
+
+	svc := New(registry.Load(dir, dir), dir, cfgPath)
+	res := svc.ListActions()
+	if len(res.Actions) != 1 {
+		t.Fatalf("want 1 action, got %d", len(res.Actions))
+	}
+	a := res.Actions[0]
+	if len(a.Params) != 1 || a.Params[0].ID != "URL" {
+		t.Fatalf("ListActions 未带回 Params: %+v", a.Params)
+	}
+	if len(a.Presets) != 1 || a.Presets[0].Name != "首页" {
+		t.Fatalf("ListActions 未带回 Presets: %+v", a.Presets)
+	}
+}
