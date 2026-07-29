@@ -1,0 +1,14 @@
+{
+  "sidebar.title": "动作",
+  "main.selectAction": "选择一个动作",
+  "main.stop": "停止",
+  "main.clear": "清空",
+  "main.copy": "复制",
+  "main.copied": "已复制",
+  "empty.noActions": "（无动作，在 actions/ 放 YAML）",
+  "error.loadFailed": "加载失败",
+  "error.startFailed": "启动失败",
+  "output.stderrPrefix": "[stderr] ",
+  "output.exitLine": "--- 退出码 {{exitCode}}{{err}} ---",
+  "output.errSuffix": "  错误: {{err}}"
+}

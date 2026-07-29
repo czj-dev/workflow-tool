@@ -1,0 +1,14 @@
+{
+  "sidebar.title": "Actions",
+  "main.selectAction": "Select an action",
+  "main.stop": "Stop",
+  "main.clear": "Clear",
+  "main.copy": "Copy",
+  "main.copied": "Copied",
+  "empty.noActions": "(No actions. Put YAML in actions/)",
+  "error.loadFailed": "Load failed",
+  "error.startFailed": "Start failed",
+  "output.stderrPrefix": "[stderr] ",
+  "output.exitLine": "--- exit code {{exitCode}}{{err}} ---",
+  "output.errSuffix": "  error: {{err}}"
+}
