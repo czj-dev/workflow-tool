@@ -26,7 +26,7 @@ export function ActionItem({ action }: { action: ActionItemType }) {
         tooltip={action.description || action.title}
         onClick={() => runAction(action.id)}
       >
-        {action.icon && <span>{action.icon}</span>}
+        {action.icon && <span className="shrink-0">{action.icon}</span>}
         <span>{action.title}</span>
         {isCurrent && mark && <SidebarMenuBadge>{mark}</SidebarMenuBadge>}
       </SidebarMenuButton>

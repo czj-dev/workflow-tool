@@ -7,6 +7,7 @@ import {
   SidebarHeader,
   SidebarMenu,
   SidebarMenuItem,
+  SidebarMenuButton,
 } from "@/components/ui/sidebar";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { ActionItem } from "./ActionItem";
@@ -21,9 +22,15 @@ export function AppSidebar() {
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            <span className="px-2 text-xs font-semibold text-muted-foreground">
-              {t("sidebar.title")}
-            </span>
+            {/* 折叠为 icon 时只显⚡图标，展开时显⚡+标题（由 SidebarMenuButton 自带样式控制） */}
+            <SidebarMenuButton size="lg" tooltip={t("sidebar.title")}>
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-base">
+                ⚡
+              </span>
+              <span className="text-base font-semibold">
+                {t("sidebar.title")}
+              </span>
+            </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
