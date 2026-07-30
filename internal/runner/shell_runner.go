@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"runtime"
 	"time"
@@ -45,9 +46,8 @@ func (r *ShellRunner) Run(ctx context.Context, params map[string]any, emit EmitF
 	if cfg.Cwd != "" {
 		cmd.Dir = cfg.Cwd
 	}
-	for k, v := range cfg.Env {
-		cmd.Env = append(cmd.Env, k+"="+v)
-	}
+	// 子进程环境变量：父进程 env + params（全局+动作参数，供脚本内部 $env:VAR 读）+ 动作 env
+	cmd.Env = buildEnv(params, cfg.Env)
 
 	stdoutPipe, err := cmd.StdoutPipe()
 	if err != nil {
@@ -121,6 +121,19 @@ func buildCommandFromCfg(cfg ShellConfig) (*exec.Cmd, error) {
 		return nil, err
 	}
 	return exec.Command("sh", script), nil
+}
+
+// buildEnv 构造子进程环境变量：父进程 env + params（全局配置 + 动作参数，供脚本内部
+// $env:VAR / ${VAR} 读取）+ 动作 env。三者同名时后者覆盖前者（动作 env > params > 父 env）。
+func buildEnv(params map[string]any, cfgEnv map[string]string) []string {
+	env := os.Environ()
+	for k, v := range params {
+		env = append(env, k+"="+fmt.Sprint(v))
+	}
+	for k, v := range cfgEnv {
+		env = append(env, k+"="+v)
+	}
+	return env
 }
 
 // pump 逐行读取 r 并 emit。

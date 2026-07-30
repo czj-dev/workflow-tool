@@ -127,3 +127,20 @@ func TestShellRunnerUsesParams(t *testing.T) {
 		t.Fatalf("params 未注入，输出: %q", joined)
 	}
 }
+
+// TestBuildEnvInjectsParamsAndKeepsParent 验证 params（全局+动作参数）与动作 env
+// 都注入子进程环境变量，且父进程 env（如 PATH）保留——脚本内部 $env:VAR / ${VAR} 才能读到。
+func TestBuildEnvInjectsParamsAndKeepsParent(t *testing.T) {
+	env := buildEnv(map[string]any{"PROJECT_DIR": "D:/proj"}, map[string]string{"USER_AGENT": "M"})
+	joined := strings.Join(env, "\n")
+	if !strings.Contains(joined, "PROJECT_DIR=D:/proj") {
+		t.Fatalf("params 未注入 env: %v", env)
+	}
+	if !strings.Contains(joined, "USER_AGENT=M") {
+		t.Fatalf("动作 env 未注入: %v", env)
+	}
+	// 父进程 env 保留（os.Environ 通常几十项）
+	if len(env) <= 2 {
+		t.Fatalf("父进程 env 似乎丢失（len=%d）", len(env))
+	}
+}
