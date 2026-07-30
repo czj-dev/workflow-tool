@@ -15,6 +15,7 @@
 | 单二进制跨平台分发 | ✅ |
 | 前端（React+TS+shadcn 双栏 UI + 中英 i18n） | ✅ |
 | 动作参数表单（text/bool/select/path）+ 预设 + 全局配置 | ✅ |
+| LLM 流式输出（`stream: llm`，思考过程 + markdown 回复） | ✅ |
 | 多步骤 / 条件分支 | Phase 2/4 |
 
 - 设计文档：`docs/specs/2026-07-28-phase1-design.md`
@@ -70,6 +71,7 @@ go build -o workflow-tool.exe .
 - **👋 打个招呼**：`shell` 形态，`echo`，开箱可用
 - **🚀 部署**：`script` 形态，跑 `scripts/deploy.sh`（Mac/Linux）或 `scripts/deploy.ps1`（Windows）
 - **🌐 抓网页转 Markdown**：参数化动作（点开弹表单填 URL/输出目录/文件名；需 `defuddle-cli`）
+- **🤖 问 Claude**：`stream: llm` 形态，跑 `claude -p … --output-format=stream-json --verbose --thinking enabled`，右侧切到专用 LLM 视图——可折叠「思考过程」+ 流式 markdown 回复（需本地 `claude` CLI）
 
 ## 加一个动作
 
@@ -85,11 +87,34 @@ command:
   # script: ./scripts/foo    # 形态 B：脚本文件（按 OS 自动加 .sh / .ps1）
   cwd: ${SOME_DIR}           # 可选，默认用户主目录
   timeout: 60s               # 可选，默认 60s
+  stream: ""                 # 可选，"" 普通逐行输出；"llm" 解析 stream-json（见下）
   env:                       # 可选，追加到现有环境
     KEY: value
 ```
 
 `${VAR}` 替换优先级：**动作参数 > 全局配置（`config.yaml`）> 环境变量**；三者都未定义则保留原样 + warning。重启 exe 生效。
+
+### LLM 流式动作（stream: llm）
+
+给 `claude -p` 这类逐 token 输出的 LLM 命令标 `stream: llm`，运行时右侧切到**专用 LLM 视图**：后端按 stream-json 解析 stdout，只把 assistant 的**思考过程**（thinking 块）与**回复文本**（text 块）增量推给前端；前端用 nexus-ui 流式渲染——可折叠「思考过程」块（streaming 时展开、结束折叠并显示用时）+ markdown 回复，自动滚到底。system / hook / result 及无法解析的行一律跳过，不污染视图。
+
+```yaml
+id: claude-ask
+title: 问 Claude
+icon: 🤖
+params:
+  - id: QUESTION
+    label: 问题
+    type: text
+    required: true
+command:
+  # --output-format=stream-json --verbose 必须在 prompt 引号外；--thinking enabled 输出思考过程
+  shell: claude -p "${QUESTION}" --output-format=stream-json --verbose --thinking enabled
+  stream: llm
+  timeout: 5m
+```
+
+> 前置：本地安装 `claude` CLI。`stream` 只允许 `""` 或 `"llm"`，其他值加载时报错。
 
 ### 参数表单（params）
 
