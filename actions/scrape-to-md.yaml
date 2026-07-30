@@ -1,7 +1,7 @@
 id: scrape-to-md
 title: 抓网页转 Markdown
 icon: 🌐
-description: 把 URL 正文抓成 Markdown 存到本地（运行时填参数）
+description: 把 URL 正文抓成 Markdown 存到本地（运行时填参数，需 defuddle-cli）
 params:
   - id: URL
     label: 网址

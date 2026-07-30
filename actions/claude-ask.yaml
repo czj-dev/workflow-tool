@@ -1,0 +1,15 @@
+id: claude-ask
+title: 问 Claude
+icon: 🤖
+description: 输入问题，Claude（claude -p）回答，输出实时打印到面板
+params:
+  - id: QUESTION
+    label: 问题
+    type: text
+    required: true
+presets:
+  - name: 打招呼
+    values: { QUESTION: 用一句话介绍你自己 }
+command:
+  shell: claude -p "${QUESTION}"
+  timeout: 5m
