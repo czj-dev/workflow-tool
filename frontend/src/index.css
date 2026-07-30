@@ -2,6 +2,7 @@
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "@fontsource-variable/geist-mono";
+@import "tw-shimmer";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -162,3 +163,30 @@
 @source "../node_modules/@streamdown/math/dist/*.js";
 
 @source "../node_modules/@streamdown/cjk/dist/*.js";
+
+@layer utilities {
+
+@keyframes reasoning-expand {
+  from {
+    height: 0;
+        }
+  to {
+    height: var(--radix-collapsible-content-height);
+        }
+    }
+
+@keyframes reasoning-collapse {
+  from {
+    height: var(--radix-collapsible-content-height);
+        }
+  to {
+    height: 0;
+        }
+    }
+  .animate-collapsible-down {
+    animation: reasoning-expand 0.2s ease-out;
+    }
+  .animate-collapsible-up {
+    animation: reasoning-collapse 0.2s ease-out;
+    }
+}

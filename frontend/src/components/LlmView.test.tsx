@@ -54,4 +54,19 @@ describe("LlmView", () => {
     });
     expect(await screen.findByText(/你好/)).toBeInTheDocument();
   });
+
+  it("渲染 thinkingText 思考过程", async () => {
+    render(
+      <ActionRunnerProvider>
+        <Drive />
+      </ActionRunnerProvider>
+    );
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    act(() => {
+      _emitForTest("action:a1:output", { data: { stream: "llm-thinking", line: "我在思考" } });
+    });
+    expect(await screen.findByText(/我在思考/)).toBeInTheDocument();
+  });
 });
