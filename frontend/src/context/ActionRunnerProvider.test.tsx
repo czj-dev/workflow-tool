@@ -239,4 +239,29 @@ describe("ActionRunnerProvider", () => {
     });
     expect(result.current.llmText).toBe("你好世界");
   });
+
+  it("stream=llm-thinking 的 output 事件累加到 thinkingText", async () => {
+    mockListActions.mockResolvedValue({
+      actions: [
+        {
+          id: "a1", title: "A", icon: "▶", description: "", params: [], presets: [],
+          stream: "llm",
+        },
+      ],
+      errors: [],
+    });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.runAction("a1", {});
+    });
+    act(() => {
+      _emitForTest("action:a1:output", { data: { stream: "llm-thinking", line: "思考" } });
+      _emitForTest("action:a1:output", { data: { stream: "llm-thinking", line: "过程" } });
+    });
+    expect(result.current.thinkingText).toBe("思考过程");
+    // llm-thinking 不进 llmText
+    expect(result.current.llmText).toBe("");
+  });
 });

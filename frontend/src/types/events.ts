@@ -1,6 +1,6 @@
 // 后端 emit 的 output 事件 payload
 export interface OutputEventData {
-  stream: "stdout" | "stderr" | "llm";
+  stream: "stdout" | "stderr" | "llm" | "llm-thinking";
   line: string;
 }
 

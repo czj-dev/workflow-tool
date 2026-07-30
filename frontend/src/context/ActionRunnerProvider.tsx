@@ -37,6 +37,7 @@ export interface RunnerContextValue {
   formValues: Record<string, string>;
   view: "output" | "form" | "global" | "llm";
   llmText: string;
+  thinkingText: string;
   runAction: (id: string, params?: Record<string, any>) => Promise<void>;
   cancel: () => void;
   clearOutput: () => void;
@@ -69,6 +70,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [view, setView] = useState<"output" | "form" | "global" | "llm">("output");
   const [llmText, setLlmText] = useState<string>("");
+  const [thinkingText, setThinkingText] = useState<string>("");
   const linesRef = useRef<string[]>([]);
   linesRef.current = lines;
 
@@ -100,6 +102,10 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       const d = (((e as { data?: unknown })?.data) || {}) as OutputEventData;
       if (d.stream === "llm") {
         setLlmText((prev) => prev + (d.line || ""));
+        return;
+      }
+      if (d.stream === "llm-thinking") {
+        setThinkingText((prev) => prev + (d.line || ""));
         return;
       }
       const prefix = d.stream === "stderr" ? t("output.stderrPrefix") : "";
@@ -137,6 +143,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     const action = actions.find((a) => a.id === id);
     if (action?.stream === "llm") {
       setLlmText("");
+      setThinkingText("");
       setView("llm");
     } else {
       setView("output");
@@ -199,6 +206,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     formValues,
     view,
     llmText,
+    thinkingText,
     runAction,
     cancel,
     clearOutput,
