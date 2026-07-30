@@ -11,6 +11,6 @@ presets:
   - name: 打招呼
     values: { QUESTION: 用一句话介绍你自己 }
 command:
-  shell: claude -p "${QUESTION}" --output-format=stream-json --verbose --thinking
+  shell: claude -p "${QUESTION}" --output-format=stream-json --verbose --thinking enabled
   stream: llm
   timeout: 5m
