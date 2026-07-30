@@ -102,7 +102,11 @@ func buildCommandFromCfg(cfg ShellConfig) (*exec.Cmd, error) {
 	}
 	if runtime.GOOS == "windows" {
 		if cfg.Shell != "" {
-			return exec.Command("cmd", "/c", cfg.Shell), nil
+			// Windows 默认用 PowerShell（引号与 ${VAR} 传递比 cmd /c 可靠）；优先 pwsh 7，回退 Windows PowerShell
+			if path, err := exec.LookPath("pwsh"); err == nil {
+				return exec.Command(path, "-NoProfile", "-Command", cfg.Shell), nil
+			}
+			return exec.Command("powershell", "-NoProfile", "-Command", cfg.Shell), nil
 		}
 		script, err := resolveScript(cfg.Script, ".ps1", cfg.BaseDir)
 		if err != nil {

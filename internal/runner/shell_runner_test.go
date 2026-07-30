@@ -123,7 +123,9 @@ func TestShellRunnerUsesParams(t *testing.T) {
 		t.Fatalf("run err: %v", res.Err)
 	}
 	joined := strings.Join(collectLines(out), "\n")
-	if !strings.Contains(joined, "hello world") {
+	// 跨 shell 校验：cmd 的 echo 输出 "hello world" 一行；PowerShell 的 echo 多参数会分行，
+	// 只要出现 NAME 的值 "world" 即说明 ${NAME} 已被 params 替换
+	if !strings.Contains(joined, "world") {
 		t.Fatalf("params 未注入，输出: %q", joined)
 	}
 }
@@ -142,5 +144,30 @@ func TestBuildEnvInjectsParamsAndKeepsParent(t *testing.T) {
 	// 父进程 env 保留（os.Environ 通常几十项）
 	if len(env) <= 2 {
 		t.Fatalf("父进程 env 似乎丢失（len=%d）", len(env))
+	}
+}
+
+// TestBuildCommandWindowsShellUsesPowerShell 验证 Windows 下 shell 形态默认走 PowerShell
+// （而非 cmd /c），shell 内容作为 -Command 参数完整传递（引号不被吃掉）。
+func TestBuildCommandWindowsShellUsesPowerShell(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("windows 专属行为")
+	}
+	cmd, err := buildCommandFromCfg(ShellConfig{Shell: `claude -p "hi"`})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(cmd.Args, " ")
+	if strings.Contains(joined, " /c ") {
+		t.Fatalf("不应再用 cmd /c: %s", joined)
+	}
+	if !strings.Contains(joined, "powershell") && !strings.Contains(joined, "pwsh") {
+		t.Fatalf("Windows shell 应用 powershell/pwsh: %s", joined)
+	}
+	if !strings.Contains(joined, "-Command") {
+		t.Fatalf("应用 -Command 传 shell: %s", joined)
+	}
+	if !strings.Contains(joined, `claude -p "hi"`) {
+		t.Fatalf("shell 内容应完整保留（含引号）: %s", joined)
 	}
 }
