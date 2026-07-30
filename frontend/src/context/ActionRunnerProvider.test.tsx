@@ -210,4 +210,33 @@ describe("ActionRunnerProvider", () => {
     });
     expect(mockSetGlobalConfig).toHaveBeenCalledWith({ OUTPUT_DIR: "D:/new" });
   });
+
+  it("stream=llm 的 output 事件累加到 llmText 并切 view=llm", async () => {
+    mockListActions.mockResolvedValue({
+      actions: [
+        {
+          id: "a1", title: "A", icon: "▶", description: "", params: [], presets: [],
+          stream: "llm",
+        },
+      ],
+      errors: [],
+    });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.runAction("a1", {});
+    });
+    expect(result.current.view).toBe("llm");
+    act(() => {
+      _emitForTest("action:a1:output", { data: { stream: "llm", line: "你好" } });
+      _emitForTest("action:a1:output", { data: { stream: "llm", line: "世界" } });
+    });
+    expect(result.current.llmText).toBe("你好世界");
+    // 普通 stream 不进 llmText
+    act(() => {
+      _emitForTest("action:a1:output", { data: { stream: "stdout", line: "x" } });
+    });
+    expect(result.current.llmText).toBe("你好世界");
+  });
 });

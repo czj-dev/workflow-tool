@@ -35,14 +35,15 @@ export interface RunnerContextValue {
   // Phase 3 新增
   globalConfig: Record<string, string>;
   formValues: Record<string, string>;
-  view: "output" | "form" | "global";
+  view: "output" | "form" | "global" | "llm";
+  llmText: string;
   runAction: (id: string, params?: Record<string, any>) => Promise<void>;
   cancel: () => void;
   clearOutput: () => void;
   copyOutput: () => Promise<void>;
   selectPreset: (actionId: string, presetName: string) => void;
   saveGlobalConfig: (kv: Record<string, string>) => Promise<void>;
-  setView: (v: "output" | "form" | "global") => void;
+  setView: (v: "output" | "form" | "global" | "llm") => void;
   setFormValue: (id: string, value: string) => void;
   pickDirectory: () => Promise<string>;
 }
@@ -66,7 +67,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [exitInfo, setExitInfo] = useState<ExitInfo | null>(null);
   const [globalConfig, setGlobalConfig] = useState<Record<string, string>>({});
   const [formValues, setFormValues] = useState<Record<string, string>>({});
-  const [view, setView] = useState<"output" | "form" | "global">("output");
+  const [view, setView] = useState<"output" | "form" | "global" | "llm">("output");
+  const [llmText, setLlmText] = useState<string>("");
   const linesRef = useRef<string[]>([]);
   linesRef.current = lines;
 
@@ -96,6 +98,10 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
 
     const onOutput = (e: unknown) => {
       const d = (((e as { data?: unknown })?.data) || {}) as OutputEventData;
+      if (d.stream === "llm") {
+        setLlmText((prev) => prev + (d.line || ""));
+        return;
+      }
       const prefix = d.stream === "stderr" ? t("output.stderrPrefix") : "";
       setLines((prev) => [...prev, prefix + (d.line || "")]);
     };
@@ -128,7 +134,13 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setCurrentId(id);
     setStatus("running");
     setExitInfo(null);
-    setView("output");
+    const action = actions.find((a) => a.id === id);
+    if (action?.stream === "llm") {
+      setLlmText("");
+      setView("llm");
+    } else {
+      setView("output");
+    }
     try {
       await RunAction(id, params);
     } catch (e) {
@@ -186,6 +198,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     globalConfig,
     formValues,
     view,
+    llmText,
     runAction,
     cancel,
     clearOutput,
