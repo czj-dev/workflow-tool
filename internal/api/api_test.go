@@ -76,3 +76,23 @@ command:
 		t.Fatalf("ListActions 未带回 Presets: %+v", a.Presets)
 	}
 }
+
+func TestListActionsIncludesStream(t *testing.T) {
+	dir := t.TempDir()
+	cfgPath := filepath.Join(dir, "config.yaml")
+	os.WriteFile(filepath.Join(dir, "a.yaml"), []byte(`id: a
+title: A
+command:
+  shell: echo hi
+  stream: llm
+`), 0644)
+
+	svc := New(registry.Load(dir, dir), dir, cfgPath)
+	res := svc.ListActions()
+	if len(res.Actions) != 1 {
+		t.Fatalf("want 1 action, got %d", len(res.Actions))
+	}
+	if res.Actions[0].Stream != "llm" {
+		t.Fatalf("ListActions 未带回 stream: %+v", res.Actions[0].Stream)
+	}
+}

@@ -52,6 +52,7 @@ type ActionItem struct {
 	Description string               `json:"description"`
 	Params      []registry.ParamSpec `json:"params"`
 	Presets     []registry.Preset    `json:"presets"`
+	Stream      string               `json:"stream"`
 }
 
 // ListResult 包装 ListActions 的多返回值，便于前端绑定。
@@ -71,6 +72,7 @@ func (s *Service) ListActions() ListResult {
 			Description: la.Def.Description,
 			Params:      la.Def.Params,
 			Presets:     la.Def.Presets,
+			Stream:      la.Def.Command.Stream,
 		})
 	}
 	errs := make([]string, 0, len(s.reg.Errors))
@@ -175,6 +177,7 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 		Timeout: la.Timeout,
 		Env:     la.Def.Command.Env,
 		BaseDir: s.baseDir,
+		Stream:  la.Def.Command.Stream,
 	}}
 
 	res := r.Run(ctx, params, emit)
