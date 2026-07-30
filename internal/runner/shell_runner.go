@@ -19,6 +19,7 @@ type ShellConfig struct {
 	Timeout time.Duration     // 超时
 	Env     map[string]string // 额外环境变量
 	BaseDir string            // exe 目录，用于解析相对 script 路径
+	Stream  string            // "" 普通逐行；"llm" 走 pumpLLM 解析 stream-json
 }
 
 // ShellRunner 执行单条 shell 命令或脚本文件，流式输出。
@@ -64,7 +65,11 @@ func (r *ShellRunner) Run(ctx context.Context, params map[string]any, emit EmitF
 
 	doneOut := make(chan struct{})
 	doneErr := make(chan struct{})
-	go pump(stdoutPipe, "stdout", emit, doneOut)
+	if cfg.Stream == "llm" {
+		go pumpLLM(stdoutPipe, emit, doneOut)
+	} else {
+		go pump(stdoutPipe, "stdout", emit, doneOut)
+	}
 	go pump(stderrPipe, "stderr", emit, doneErr)
 
 	waitCh := make(chan error, 1)
