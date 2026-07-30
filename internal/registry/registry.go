@@ -44,6 +44,7 @@ type Command struct {
 	Cwd     string            `yaml:"cwd"`
 	Timeout string            `yaml:"timeout"`
 	Env     map[string]string `yaml:"env"`
+	Stream  string            `yaml:"stream"` // "" 普通逐行；"llm" 按 stream-json 解析
 }
 
 // LoadedAction 是已校验、字段已解析的动作。
@@ -136,6 +137,12 @@ func validate(def *ActionDef) error {
 		if p.Type == "select" && len(p.Options) == 0 {
 			return fmt.Errorf("params[%d] (%s) 是 select 必须提供 options", i, p.ID)
 		}
+	}
+	switch def.Command.Stream {
+	case "", "llm":
+		// 合法
+	default:
+		return fmt.Errorf("command.stream 非法 %q（应为空或 llm）", def.Command.Stream)
 	}
 	return nil
 }

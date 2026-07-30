@@ -210,3 +210,35 @@ command:
 		t.Fatal("非法 type 应报错")
 	}
 }
+
+func TestLoadParsesStream(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.yaml", `id: a
+title: A
+command:
+  shell: echo hi
+  stream: llm
+`)
+	reg := Load(dir, dir)
+	if len(reg.Errors) != 0 {
+		t.Fatalf("stream:llm 应合法，got errors: %v", reg.Errors)
+	}
+	la := reg.Actions["a"]
+	if la.Def.Command.Stream != "llm" {
+		t.Fatalf("want stream=llm，got %q", la.Def.Command.Stream)
+	}
+}
+
+func TestValidateBadStream(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.yaml", `id: a
+title: A
+command:
+  shell: echo hi
+  stream: wat
+`)
+	reg := Load(dir, dir)
+	if len(reg.Errors) == 0 {
+		t.Fatal("非法 stream 值应报错")
+	}
+}
