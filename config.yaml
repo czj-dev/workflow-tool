@@ -1,3 +1,2 @@
-# 全局配置（与 actions/ 同级）。动作用 ${KEY} 引用，侧边栏「⚙ 全局配置」可编辑。
-# 替换优先级：动作参数 > 全局配置 > 环境变量。
-OUTPUT_DIR: D:/pages
+OUTPUT_DIR: C:\Users\ASUS\Documents\TEMP
+PROJECT_DIR: C:\Users\ASUS\Documents\TEMP

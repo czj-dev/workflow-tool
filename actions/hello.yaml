@@ -3,4 +3,4 @@ title: 打个招呼
 icon: 👋
 description: 验证用，输出一行
 command:
-  shell: echo "hello from workflow-tool"
+  shell: "Glow C:\\Users\\ASUS\\Documents\\X\\CLAUDE.source.md"
