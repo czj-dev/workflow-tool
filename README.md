@@ -57,8 +57,8 @@ npm run build
 cd ..
 wails3 generate bindings
 
-# 3. 编译 exe（embed frontend/dist）
-go build -o workflow-tool.exe .
+# 3. 编译 exe（embed frontend/dist）；-H windowsgui 隐藏运行时弹出的控制台窗口
+go build -ldflags "-H windowsgui" -o workflow-tool.exe .
 ```
 
 > `frontend/dist/` 是构建产物（`.gitignore` 忽略）；`frontend/bindings/` 由 `wails3 generate bindings` 生成。
@@ -208,4 +208,5 @@ workflow-tool/
 - 改 `api.go` 后：`wails3 generate bindings` → `npm run build` → `go build`（顺序不能乱）
 - 改前端：`cd frontend && npm run build && cd .. && go build`。单独 `npm run dev` 可调样式，但联调后端必须 `go build` 跑 exe（`Call.ByID` 仅 Wails 运行时可用，纯前端 dev server 调不到后端）；前端单测 `cd frontend && npm test`
 - 核心包单测（不依赖 Wails）：`go test ./internal/runner ./internal/registry`
-- 交叉编译 Mac：`GOOS=darwin GOARCH=arm64 go build -o workflow-tool .`（需 Mac 上 CGO/WebKit 依赖）
+- 交叉编译 Mac：`GOOS=darwin GOARCH=arm64 go build -o workflow-tool .`（需 Mac 上 CGO/WebKit 依赖；`-H windowsgui` 是 Windows 链接器专有标志，Mac 上不加）
+- 调试看 Go 侧日志：临时用普通 `go build -o workflow-tool.exe .`（不加 `-H windowsgui`），运行时会弹出控制台窗口显示 `log`/`fmt` 输出；发布构建再换回带 ldflags 的版本

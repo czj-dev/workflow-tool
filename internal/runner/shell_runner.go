@@ -44,6 +44,7 @@ func (r *ShellRunner) Run(ctx context.Context, params map[string]any, emit EmitF
 	if err != nil {
 		return Result{Err: err, Duration: time.Since(start)}
 	}
+	hideWindow(cmd) // Windows 上隐藏子进程控制台窗口（action 执行不再弹黑框）；非 Windows 空操作
 	if cfg.Cwd != "" {
 		cmd.Dir = cfg.Cwd
 	}
