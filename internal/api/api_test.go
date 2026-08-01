@@ -12,10 +12,11 @@ func TestRunActionMergesGlobalAndParams(t *testing.T) {
 	// 全局 OUTPUT_DIR + 参数 NAME；参数应覆盖同名全局
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
+	fragPath := filepath.Join(dir, "fragments.yaml")
 	registry.SaveGlobal(cfgPath, map[string]string{"OUTPUT_DIR": "D:/pages", "NAME": "global-name"})
 
 	reg := registry.Load(dir, dir) // 空动作，仅用于占位
-	svc := New(reg, dir, cfgPath)
+	svc := New(reg, dir, cfgPath, fragPath)
 
 	// 直接测 merge 逻辑（不实际 exec）
 	merged := svc.mergeGlobalAndParams(map[string]any{"NAME": "param-name"})
@@ -30,7 +31,8 @@ func TestRunActionMergesGlobalAndParams(t *testing.T) {
 func TestGetAndSetGlobalConfig(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
-	svc := New(registry.Load(dir, dir), dir, cfgPath)
+	fragPath := filepath.Join(dir, "fragments.yaml")
+	svc := New(registry.Load(dir, dir), dir, cfgPath, fragPath)
 
 	if err := svc.SetGlobalConfig(map[string]string{"OUTPUT_DIR": "D:/new"}); err != nil {
 		t.Fatal(err)
@@ -63,7 +65,7 @@ command:
   shell: echo ${URL}
 `), 0644)
 
-	svc := New(registry.Load(dir, dir), dir, cfgPath)
+	svc := New(registry.Load(dir, dir), dir, cfgPath, filepath.Join(dir, "fragments.yaml"))
 	res := svc.ListActions()
 	if len(res.Actions) != 1 {
 		t.Fatalf("want 1 action, got %d", len(res.Actions))
@@ -87,7 +89,7 @@ command:
   stream: llm
 `), 0644)
 
-	svc := New(registry.Load(dir, dir), dir, cfgPath)
+	svc := New(registry.Load(dir, dir), dir, cfgPath, filepath.Join(dir, "fragments.yaml"))
 	res := svc.ListActions()
 	if len(res.Actions) != 1 {
 		t.Fatalf("want 1 action, got %d", len(res.Actions))

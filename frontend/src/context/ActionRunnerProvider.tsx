@@ -13,9 +13,12 @@ import {
   CancelAction,
   GetGlobalConfig,
   SetGlobalConfig,
+  GetFragments,
+  SetFragments,
   PickDirectory,
 } from "../../bindings/workflow-tool/internal/api/service.js";
 import type { ActionItem } from "../../bindings/workflow-tool/internal/api/models.js";
+import type { Fragment } from "../../bindings/workflow-tool/internal/registry/models.js";
 import type { OutputEventData, DoneEventData } from "../types/events";
 
 type Status = "idle" | "running" | "done" | "error";
@@ -35,16 +38,18 @@ export interface RunnerContextValue {
   // Phase 3 新增
   globalConfig: Record<string, string>;
   formValues: Record<string, string>;
-  view: "output" | "form" | "global" | "llm";
+  view: "output" | "form" | "global" | "llm" | "fragments";
   llmText: string;
   thinkingText: string;
+  fragments: Fragment[];
   runAction: (id: string, params?: Record<string, any>) => Promise<void>;
   cancel: () => void;
   clearOutput: () => void;
   copyOutput: () => Promise<void>;
   selectPreset: (actionId: string, presetName: string) => void;
   saveGlobalConfig: (kv: Record<string, string>) => Promise<void>;
-  setView: (v: "output" | "form" | "global" | "llm") => void;
+  saveFragments: (list: Fragment[]) => Promise<void>;
+  setView: (v: "output" | "form" | "global" | "llm" | "fragments") => void;
   setFormValue: (id: string, value: string) => void;
   pickDirectory: () => Promise<string>;
 }
@@ -68,9 +73,12 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [exitInfo, setExitInfo] = useState<ExitInfo | null>(null);
   const [globalConfig, setGlobalConfig] = useState<Record<string, string>>({});
   const [formValues, setFormValues] = useState<Record<string, string>>({});
-  const [view, setView] = useState<"output" | "form" | "global" | "llm">("output");
+  const [view, setView] = useState<
+    "output" | "form" | "global" | "llm" | "fragments"
+  >("output");
   const [llmText, setLlmText] = useState<string>("");
   const [thinkingText, setThinkingText] = useState<string>("");
+  const [fragments, setFragments] = useState<Fragment[]>([]);
   const linesRef = useRef<string[]>([]);
   linesRef.current = lines;
 
@@ -91,6 +99,13 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       .then((g) => setGlobalConfig((g ?? {}) as Record<string, string>))
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 挂载时拉取指令片段
+  useEffect(() => {
+    GetFragments()
+      .then((list) => setFragments(list ?? []))
+      .catch(() => {});
   }, []);
 
   // 按 currentId 订阅事件
@@ -178,6 +193,11 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setGlobalConfig(kv);
   };
 
+  const saveFragments = async (list: Fragment[]) => {
+    await SetFragments(list);
+    setFragments(list);
+  };
+
   const setFormValue = (id: string, value: string) =>
     setFormValues((prev) => ({ ...prev, [id]: value }));
 
@@ -208,12 +228,14 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     view,
     llmText,
     thinkingText,
+    fragments,
     runAction,
     cancel,
     clearOutput,
     copyOutput,
     selectPreset,
     saveGlobalConfig,
+    saveFragments,
     setView,
     setFormValue,
     pickDirectory,

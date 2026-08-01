@@ -59,6 +59,12 @@ export function AppSidebar() {
       <SidebarFooter>
         <SidebarMenu>
           <SidebarMenuItem>
+            <SidebarMenuButton onClick={() => setView("fragments")} tooltip={t("fragments.title")}>
+              <span className="shrink-0">📋</span>
+              <span>{t("fragments.title")}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
             <SidebarMenuButton onClick={() => setView("global")} tooltip={t("global.title")}>
               <span className="shrink-0">⚙</span>
               <span>{t("global.title")}</span>

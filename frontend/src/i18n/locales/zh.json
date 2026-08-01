@@ -16,5 +16,19 @@
   "global.title": "全局配置",
   "global.add": "新增",
   "global.remove": "删除",
-  "global.save": "保存"
+  "global.save": "保存",
+  "fragments.title": "指令片段",
+  "fragments.add": "新增",
+  "fragments.remove": "删除",
+  "fragments.copy": "复制",
+  "fragments.copied": "已复制",
+  "fragments.save": "保存",
+  "fragments.edit": "编辑",
+  "fragments.done": "完成",
+  "fragments.empty": "（暂无片段，点「编辑」添加）",
+  "fragments.uncategorized": "未分类",
+  "fragments.untitled": "无标题",
+  "fragments.titlePlaceholder": "标题",
+  "fragments.contentPlaceholder": "指令内容，支持 ${VAR} 变量",
+  "fragments.tagsPlaceholder": "标签（逗号分隔）"
 }

@@ -18,26 +18,35 @@ type Service struct {
 	app     *application.App
 	reg     *registry.Registry
 	baseDir string
-	cfgPath string // config.yaml 路径
-	global  map[string]string
-	gMu     sync.Mutex // 保护 global 的读写
-	mu      sync.Mutex
-	running map[string]context.CancelFunc // actionID -> cancel
+	cfgPath  string // config.yaml 路径
+	fragPath string // fragments.yaml 路径
+	global   map[string]string
+	gMu      sync.Mutex // 保护 global 的读写
+	fragments []registry.Fragment
+	fMu       sync.Mutex // 保护 fragments 的读写
+	mu        sync.Mutex
+	running   map[string]context.CancelFunc // actionID -> cancel
 }
 
-// New 创建 service。cfgPath 是全局配置 config.yaml 路径。
+// New 创建 service。cfgPath 是全局配置 config.yaml 路径，fragPath 是 fragments.yaml 路径。
 // app 通过 SetApp 在 main 里注入（打破循环依赖）。
-func New(reg *registry.Registry, baseDir, cfgPath string) *Service {
+func New(reg *registry.Registry, baseDir, cfgPath, fragPath string) *Service {
 	g, _ := registry.LoadGlobal(cfgPath)
 	if g == nil {
 		g = map[string]string{}
 	}
+	frags, _ := registry.LoadFragments(fragPath)
+	if frags == nil {
+		frags = []registry.Fragment{}
+	}
 	return &Service{
-		reg:     reg,
-		baseDir: baseDir,
-		cfgPath: cfgPath,
-		global:  g,
-		running: map[string]context.CancelFunc{},
+		reg:       reg,
+		baseDir:   baseDir,
+		cfgPath:   cfgPath,
+		fragPath:  fragPath,
+		global:    g,
+		fragments: frags,
+		running:   map[string]context.CancelFunc{},
 	}
 }
 
@@ -145,6 +154,26 @@ func (s *Service) SetGlobalConfig(kv map[string]string) error {
 		return err
 	}
 	s.global = kv
+	return nil
+}
+
+// GetFragments 返回当前指令片段列表（副本）。
+func (s *Service) GetFragments() []registry.Fragment {
+	s.fMu.Lock()
+	defer s.fMu.Unlock()
+	out := make([]registry.Fragment, len(s.fragments))
+	copy(out, s.fragments)
+	return out
+}
+
+// SetFragments 替换指令片段并写回 fragments.yaml。
+func (s *Service) SetFragments(list []registry.Fragment) error {
+	s.fMu.Lock()
+	defer s.fMu.Unlock()
+	if err := registry.SaveFragments(s.fragPath, list); err != nil {
+		return err
+	}
+	s.fragments = list
 	return nil
 }
 

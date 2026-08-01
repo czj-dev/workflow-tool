@@ -16,5 +16,19 @@
   "global.title": "Global Config",
   "global.add": "Add",
   "global.remove": "Remove",
-  "global.save": "Save"
+  "global.save": "Save",
+  "fragments.title": "Fragments",
+  "fragments.add": "Add",
+  "fragments.remove": "Remove",
+  "fragments.copy": "Copy",
+  "fragments.copied": "Copied",
+  "fragments.save": "Save",
+  "fragments.edit": "Edit",
+  "fragments.done": "Done",
+  "fragments.empty": "(No fragments yet. Click \"Edit\" to create one)",
+  "fragments.uncategorized": "Uncategorized",
+  "fragments.untitled": "Untitled",
+  "fragments.titlePlaceholder": "Title",
+  "fragments.contentPlaceholder": "Content, supports ${VAR} variables",
+  "fragments.tagsPlaceholder": "Tags (comma-separated)"
 }
