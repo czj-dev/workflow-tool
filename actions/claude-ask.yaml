@@ -1,6 +1,6 @@
 id: claude-ask
 title: 问 Claude
-icon: 🤖
+icon: hi:ai
 description: 输入问题，Claude（claude -p）流式回答，专用 LLM 视图渲染 markdown
 params:
   - id: QUESTION

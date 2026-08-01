@@ -1,4 +1,10 @@
 import { useRef, useState } from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import {
+  Cancel01Icon,
+  Loading03Icon,
+  Tick02Icon,
+} from "@hugeicons/core-free-icons";
 import {
   SidebarMenuItem,
   SidebarMenuButton,
@@ -7,6 +13,7 @@ import {
 import type { ActionItem as ActionItemType } from "../../bindings/workflow-tool/internal/api/models.js";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { PresetList } from "./PresetList";
+import { ActionIcon } from "./ActionIcon";
 
 const DOUBLE_CLICK_DELAY = 250; // ms
 
@@ -14,19 +21,12 @@ const DOUBLE_CLICK_DELAY = 250; // ms
 // 单击 —— 有子项则展开/收起；无子项但有参数则进表单；两者都无则直接运行。
 // 双击 —— 始终尝试直接运行（用默认参数）。
 export function ActionItem({ action }: { action: ActionItemType }) {
-  const { currentId, status, runAction, selectPreset } = useActionRunner();
+  const { currentId, status, selectedPreset, runAction, selectPreset } =
+    useActionRunner();
   const [expanded, setExpanded] = useState(false);
   const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isCurrent = currentId === action.id;
-  const mark =
-    status === "running"
-      ? "●"
-      : status === "done"
-        ? "✓"
-        : status === "error"
-          ? "✗"
-          : "";
   const hasPresets = (action.presets?.length ?? 0) > 0;
   const hasParams = (action.params?.length ?? 0) > 0;
 
@@ -54,17 +54,39 @@ export function ActionItem({ action }: { action: ActionItemType }) {
     runAction(action.id, {});
   };
 
+  // 运行状态徽标图标（仅 current 动作显示）
+  const statusIcon =
+    status === "running" ? (
+      <HugeiconsIcon
+        icon={Loading03Icon}
+        strokeWidth={1.75}
+        className="size-3.5 animate-spin text-muted-foreground"
+      />
+    ) : status === "done" ? (
+      <HugeiconsIcon
+        icon={Tick02Icon}
+        strokeWidth={1.75}
+        className="size-3.5 text-emerald-500"
+      />
+    ) : status === "error" ? (
+      <HugeiconsIcon
+        icon={Cancel01Icon}
+        strokeWidth={1.75}
+        className="size-3.5 text-destructive"
+      />
+    ) : null;
+
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
-        isActive={isCurrent}
+        isActive={isCurrent && !selectedPreset}
         tooltip={action.description || action.title}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
       >
-        {action.icon && <span className="shrink-0">{action.icon}</span>}
+        <ActionIcon name={action.icon} className="shrink-0" />
         <span>{action.title}</span>
-        {isCurrent && mark && <SidebarMenuBadge>{mark}</SidebarMenuBadge>}
+        {isCurrent && statusIcon && <SidebarMenuBadge>{statusIcon}</SidebarMenuBadge>}
       </SidebarMenuButton>
       {expanded && hasPresets && <PresetList action={action} />}
     </SidebarMenuItem>

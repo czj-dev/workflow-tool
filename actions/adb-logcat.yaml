@@ -1,6 +1,6 @@
 id: adb-logcat
 title: 抓取日志
-icon: 📝
+icon: hi:file
 description: adb logcat 抓取到本地文件
 params:
   - id: LOGS_DIR

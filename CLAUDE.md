@@ -47,7 +47,7 @@ internal/api/       Wails Service 绑定 + 事件 emit（唯一依赖 Wails 的�
 
 ## 动作 YAML（actions/*.yaml）
 
-`id`（`^[a-z0-9-]+$` 全局唯一）+ `title` 必填；`command.shell` 与 `command.script` 互斥必选其一。`script` 路径不含扩展名，按 OS 自动加 `.sh`/`.ps1`，相对路径基于 exe 目录。`command.stream` 只允许 `""` 或 `"llm"`。`params`（type: text|bool|select|path，select 必带 options）驱动前端表单；`presets` 是作者预设的整套参数值。校验逻辑在 `registry.validate`。
+`id`（`^[a-z0-9-]+$` 全局唯一）+ `title` 必填；`command.shell` 与 `command.script` 互斥必选其一。`script` 路径不含扩展名，按 OS 自动加 `.sh`/`.ps1`，相对路径基于 exe 目录。`command.stream` 只允许 `""` 或 `"llm"`。`params`（type: text|bool|select|path，select 必带 options）驱动前端表单；`presets` 是作者预设的整套参数值。可选 `icon`：写 `hi:<key>`（key 见 `frontend/src/components/ActionIcon.tsx` 注册表）渲染 hugeicons 矢量图标，或直接写 emoji/文本（原样显示，向后兼容）。校验逻辑在 `registry.validate`。
 
 ## 改动注意
 

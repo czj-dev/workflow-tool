@@ -1,6 +1,6 @@
 id: adb-query
 title: 测试 Query
-icon: 🗣️
+icon: hi:voice
 description: 发送语音 query 广播
 params:
   - id: QUERY

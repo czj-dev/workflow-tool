@@ -153,6 +153,6 @@ func pump(r io.Reader, stream string, emit EmitFunc, done chan<- struct{}) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
-		emit(stream, sc.Text())
+		emit(stream, stripANSI(sc.Text()))
 	}
 }

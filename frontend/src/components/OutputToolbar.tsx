@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { useActionRunner } from "../hooks/useActionRunner";
+import { ActionIcon } from "./ActionIcon";
 import { LangSwitch } from "./LangSwitch";
 
 // 输出区工具栏：折叠触发 + 当前动作标题 + 停止/清空/复制 + 语言切换
@@ -24,10 +25,15 @@ export function OutputToolbar() {
     <header className="flex items-center justify-between border-b px-4 py-2">
       <div className="flex items-center gap-2">
         <SidebarTrigger />
-        <span className="font-semibold">
-          {current
-            ? `${current.icon || "▶"} ${current.title}`
-            : t("main.selectAction")}
+        <span className="flex items-center gap-1.5 font-semibold">
+          {current ? (
+            <>
+              <ActionIcon name={current.icon ?? "hi:play"} />
+              {current.title}
+            </>
+          ) : (
+            t("main.selectAction")
+          )}
         </span>
       </div>
       <div className="flex items-center gap-2">

@@ -1,6 +1,6 @@
 id: adb-car-broadcast
 title: 发送车控广播
-icon: 🚗
+icon: hi:car
 description: "adb shell am broadcast -a WECARSPEECH_COME_ALIVE"
 command:
   shell: adb shell am broadcast -a WECARSPEECH_COME_ALIVE

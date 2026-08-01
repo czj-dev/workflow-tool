@@ -1,6 +1,6 @@
 id: adb-debug-log
 title: 打开 Debug 日志
-icon: 📋
+icon: hi:settings
 description: "adb shell setprop persist.log.tag D"
 command:
   shell: adb shell 'setprop persist.log.tag D'

@@ -1,6 +1,6 @@
 id: adb-install
 title: 安装 APK
-icon: 📦
+icon: hi:package
 description: 找到 VOICE_DEBUG_OUTPUT 目录下第一个 APK 并 adb install（VOICE_DEBUG_OUTPUT 来自全局配置）
 command:
   script: ./scripts/adb-install

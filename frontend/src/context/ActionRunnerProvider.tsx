@@ -32,6 +32,7 @@ export interface RunnerContextValue {
   actions: ActionItem[];
   errors: string[];
   currentId: string | null;
+  selectedPreset: string | null;
   lines: string[];
   status: Status;
   exitInfo: ExitInfo | null;
@@ -68,6 +69,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [actions, setActions] = useState<ActionItem[]>([]);
   const [errors, setErrors] = useState<string[]>([]);
   const [currentId, setCurrentId] = useState<string | null>(null);
+  // 当前选中的预设名（属于 currentId 动作）；为 null 时父动作高亮，非空时对应 preset 子项高亮
+  const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [lines, setLines] = useState<string[]>([]);
   const [status, setStatus] = useState<Status>("idle");
   const [exitInfo, setExitInfo] = useState<ExitInfo | null>(null);
@@ -155,6 +158,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setCurrentId(id);
     setStatus("running");
     setExitInfo(null);
+    setSelectedPreset(null); // 直接运行回到动作级，不再高亮某个 preset
     const action = actions.find((a) => a.id === id);
     if (action?.stream === "llm") {
       setLlmText("");
@@ -185,6 +189,10 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     if (p) Object.assign(vals, p.values);
     setFormValues(vals);
     setCurrentId(actionId);
+    setSelectedPreset(presetName || null); // 记住选中的 preset，子项据此高亮、父项取消高亮
+    // 进表单=准备新配置，清除上次运行的 status/exitInfo，避免选中动作残留 error/done 徽标
+    setStatus("idle");
+    setExitInfo(null);
     setView("form");
   };
 
@@ -220,6 +228,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     actions,
     errors,
     currentId,
+    selectedPreset,
     lines,
     status,
     exitInfo,

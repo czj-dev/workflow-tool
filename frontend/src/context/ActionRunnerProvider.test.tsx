@@ -201,6 +201,7 @@ describe("ActionRunnerProvider", () => {
     act(() => result.current.selectPreset("a1", "p1"));
     expect(result.current.formValues.NAME).toBe("pre");
     expect(result.current.view).toBe("form");
+    expect(result.current.selectedPreset).toBe("p1");
   });
 
   it("saveGlobalConfig 调用 SetGlobalConfig", async () => {
@@ -265,5 +266,35 @@ describe("ActionRunnerProvider", () => {
     expect(result.current.thinkingText).toBe("思考过程");
     // llm-thinking 不进 llmText
     expect(result.current.llmText).toBe("");
+  });
+
+  it("selectPreset 重置上次运行的 status/exitInfo（打开配置面板不残留失败徽标）", async () => {
+    mockListActions.mockResolvedValue({
+      actions: [
+        {
+          id: "a1", title: "A", icon: "▶", description: "",
+          params: [{ id: "NAME", label: "名", type: "text", required: false, default: "", options: [] }],
+          presets: [],
+        },
+      ],
+      errors: [],
+    });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    // 运行 a1 失败（如 adb 未找到）
+    await act(async () => {
+      await result.current.runAction("a1", {});
+    });
+    act(() => {
+      _emitForTest("action:a1:done", { data: { exitCode: 2, err: "boom", duration: "1s" } });
+    });
+    expect(result.current.status).toBe("error");
+    // 单击 a1（有 params 无 presets）→ selectPreset 进表单
+    act(() => result.current.selectPreset("a1", ""));
+    // 进配置面板后不应残留上次的失败状态
+    expect(result.current.status).toBe("idle");
+    expect(result.current.exitInfo).toBeNull();
+    expect(result.current.view).toBe("form");
   });
 });

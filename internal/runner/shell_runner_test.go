@@ -171,3 +171,19 @@ func TestBuildCommandWindowsShellUsesPowerShell(t *testing.T) {
 		t.Fatalf("shell 内容应完整保留（含引号）: %s", joined)
 	}
 }
+
+// TestStripANSI 验证剥离 ANSI 颜色/样式控制序列，避免前端把 PowerShell 等输出的
+// 彩色码（如 \x1b[31;1m）渲染成可见乱码。
+func TestStripANSI(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"\x1b[31;1madb: error\x1b[0m", "adb: error"},
+		{"plain text", "plain text"},
+		{"\x1b[1mbold\x1b[22m \x1b[32mgreen\x1b[0m", "bold green"},
+		{"", ""},
+	}
+	for _, c := range cases {
+		if got := stripANSI(c.in); got != c.want {
+			t.Errorf("stripANSI(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
