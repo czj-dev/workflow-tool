@@ -10,6 +10,7 @@
 # 构建产物
 /build/
 /build/bin/
+/workflow-tool
 
 # Node / 前端
 node_modules/
