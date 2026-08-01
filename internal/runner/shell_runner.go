@@ -45,6 +45,7 @@ func (r *ShellRunner) Run(ctx context.Context, params map[string]any, emit EmitF
 		return Result{Err: err, Duration: time.Since(start)}
 	}
 	hideWindow(cmd) // Windows 上隐藏子进程控制台窗口（action 执行不再弹黑框）；非 Windows 空操作
+	setPgid(cmd)    // Unix: 新进程组，cancel 时杀整组（含子进程）；Windows: 空操作
 	if cfg.Cwd != "" {
 		cmd.Dir = cfg.Cwd
 	}
@@ -82,7 +83,7 @@ func (r *ShellRunner) Run(ctx context.Context, params map[string]any, emit EmitF
 
 	select {
 	case <-timeoutCtx.Done():
-		_ = cmd.Process.Kill()
+		killGroup(cmd) // ponytail: 杀进程组而非单进程，否则 sh -c 的子进程(如 adb logcat)残留
 		<-waitCh
 		return Result{ExitCode: -1, Err: timeoutCtx.Err(), Duration: time.Since(start)}
 	case werr := <-waitCh:
