@@ -4,13 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import {
-  Card,
-  CardAction,
-  CardContent,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+  Item,
+  ItemActions,
+  ItemContent,
+  ItemDescription,
+  ItemGroup,
+  ItemTitle,
+} from "@/components/ui/item";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { useActionRunner } from "../hooks/useActionRunner";
@@ -68,42 +70,40 @@ function UseView() {
           <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
             {tag}
           </h3>
-          <div className="flex flex-col gap-2">
+          <ItemGroup>
             {idxs.map((i) => {
               const f = fragments[i];
               const preview = expand(f.content, globalConfig);
               return (
-                <Card key={i} size="sm">
-                  <CardHeader>
-                    <CardTitle>{f.title || t("fragments.untitled")}</CardTitle>
-                    <CardAction>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => copyOne(i)}
-                      >
-                        {copiedIdx === i
-                          ? t("fragments.copied")
-                          : t("fragments.copy")}
-                      </Button>
-                    </CardAction>
-                  </CardHeader>
-                  <CardContent>
-                    <pre className="whitespace-pre-wrap break-all rounded bg-muted p-2 font-mono text-xs">
+                <Item key={i} variant="outline">
+                  <ItemContent>
+                    <ItemTitle>{f.title || t("fragments.untitled")}</ItemTitle>
+                    <ItemDescription className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed line-clamp-none">
                       {preview}
-                    </pre>
-                  </CardContent>
-                </Card>
+                    </ItemDescription>
+                  </ItemContent>
+                  <ItemActions>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => copyOne(i)}
+                    >
+                      {copiedIdx === i
+                        ? t("fragments.copied")
+                        : t("fragments.copy")}
+                    </Button>
+                  </ItemActions>
+                </Item>
               );
             })}
-          </div>
+          </ItemGroup>
         </section>
       ))}
     </div>
   );
 }
 
-// ─── 编辑视图：CRUD + 保存 ─────────────────────────────────────────────
+// ─── 编辑视图：CRUD + 保存（每条片段用 FieldGroup 表单） ───────────────
 function EditView() {
   const { t } = useTranslation();
   const { fragments, saveFragments } = useActionRunner();
@@ -116,7 +116,7 @@ function EditView() {
   );
   const [dirty, setDirty] = useState(false);
 
-  // fragments（异步）变化时同步 rows：render-time 调整，未编辑时才同步，避免覆盖用户改动
+  // fragments（异步）变化时同步 rows：render-time 调整，未编辑时才同步
   const [prevFragments, setPrevFragments] = useState(fragments);
   if (fragments !== prevFragments) {
     setPrevFragments(fragments);
@@ -173,21 +173,25 @@ function EditView() {
           {t("fragments.save")}
         </Button>
       </div>
-      <div className="flex flex-1 flex-col gap-3 overflow-auto p-4">
+      <div className="flex flex-1 flex-col gap-4 overflow-auto p-4">
         {rows.length === 0 && (
           <Empty className="flex-none">
             <EmptyDescription>{t("fragments.empty")}</EmptyDescription>
           </Empty>
         )}
         {rows.map((r, i) => (
-          <Card key={i} size="sm">
-            <CardContent className="flex flex-col gap-2">
+          <FieldGroup key={i}>
+            <Field>
+              <FieldLabel htmlFor={`frag-${i}-title`}>
+                {t("fragments.titlePlaceholder")}
+              </FieldLabel>
               <div className="flex gap-2">
                 <Input
+                  id={`frag-${i}-title`}
+                  className="flex-1"
                   value={r.title}
                   onChange={(e) => update(i, "title", e.target.value)}
                   placeholder={t("fragments.titlePlaceholder")}
-                  className="flex-1"
                 />
                 <Button
                   variant="outline"
@@ -197,19 +201,31 @@ function EditView() {
                   {t("fragments.remove")}
                 </Button>
               </div>
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`frag-${i}-content`}>
+                {t("fragments.contentPlaceholder")}
+              </FieldLabel>
               <Textarea
+                id={`frag-${i}-content`}
                 value={r.content}
                 onChange={(e) => update(i, "content", e.target.value)}
                 placeholder={t("fragments.contentPlaceholder")}
                 rows={3}
               />
+            </Field>
+            <Field>
+              <FieldLabel htmlFor={`frag-${i}-tags`}>
+                {t("fragments.tagsPlaceholder")}
+              </FieldLabel>
               <Input
+                id={`frag-${i}-tags`}
                 value={r.tags}
                 onChange={(e) => update(i, "tags", e.target.value)}
                 placeholder={t("fragments.tagsPlaceholder")}
               />
-            </CardContent>
-          </Card>
+            </Field>
+          </FieldGroup>
         ))}
       </div>
     </>
