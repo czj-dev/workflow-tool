@@ -1,5 +1,8 @@
 {
   "sidebar.title": "动作",
+  "sidebar.openDir": "打开 actions 目录",
+  "sidebar.brand": "Workflow Tool",
+  "sidebar.config": "配置",
   "main.selectAction": "选择一个动作",
   "main.stop": "停止",
   "main.clear": "清空",

@@ -12,8 +12,8 @@
   },
   "iconLibrary": "hugeicons",
   "rtl": false,
-  "menuColor": "default-translucent",
-  "menuAccent": "subtle",
+  "menuColor": "default",
+  "menuAccent": "bold",
   "aliases": {
     "components": "@/components",
     "utils": "@/lib/utils",

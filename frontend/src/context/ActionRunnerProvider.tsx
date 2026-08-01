@@ -16,6 +16,7 @@ import {
   GetFragments,
   SetFragments,
   PickDirectory,
+  OpenActionsDir,
 } from "../../bindings/workflow-tool/internal/api/service.js";
 import type { ActionItem } from "../../bindings/workflow-tool/internal/api/models.js";
 import type { Fragment } from "../../bindings/workflow-tool/internal/registry/models.js";
@@ -53,6 +54,7 @@ export interface RunnerContextValue {
   setView: (v: "output" | "form" | "global" | "llm" | "fragments") => void;
   setFormValue: (id: string, value: string) => void;
   pickDirectory: () => Promise<string>;
+  openActionsDir: () => Promise<void>;
 }
 
 // 事件分发表：测试用 _emitForTest 触发；运行时由 Events.On 回调写入
@@ -214,6 +216,10 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     return p || "";
   };
 
+  const openActionsDir = async () => {
+    await OpenActionsDir();
+  };
+
   const cancel = () => {
     if (currentId) CancelAction(currentId);
   };
@@ -248,6 +254,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setView,
     setFormValue,
     pickDirectory,
+    openActionsDir,
   };
 
   return (

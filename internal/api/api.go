@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
@@ -133,6 +136,21 @@ func (s *Service) CancelAction(id string) {
 	if ok {
 		cancel()
 	}
+}
+
+// OpenActionsDir 用系统文件管理器打开 actions 目录（Windows: explorer / macOS: open / 其他: xdg-open）。
+func (s *Service) OpenActionsDir() error {
+	dir := filepath.Join(s.baseDir, "actions")
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		cmd = exec.Command("explorer", dir)
+	case "darwin":
+		cmd = exec.Command("open", dir)
+	default:
+		cmd = exec.Command("xdg-open", dir)
+	}
+	return cmd.Start()
 }
 
 // GetGlobalConfig 返回当前全局配置（返回副本，避免前端误改内部 map）。

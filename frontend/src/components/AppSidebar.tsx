@@ -4,6 +4,7 @@ import {
   SidebarContent,
   SidebarGroup,
   SidebarGroupContent,
+  SidebarGroupLabel,
   SidebarHeader,
   SidebarFooter,
   SidebarMenu,
@@ -13,7 +14,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Alert02Icon,
-  CommandIcon,
+  FlashIcon,
   NoteIcon,
   Settings02Icon,
 } from "@hugeicons/core-free-icons";
@@ -25,7 +26,7 @@ import { ActionItem } from "./ActionItem";
 // 左侧可折叠侧边栏：渲染动作列表 + 加载错误 + 底部「片段 / 全局配置」入口
 export function AppSidebar() {
   const { t } = useTranslation();
-  const { actions, errors, setView } = useActionRunner();
+  const { actions, errors, setView, openActionsDir } = useActionRunner();
 
   return (
     <Sidebar collapsible="icon">
@@ -33,23 +34,33 @@ export function AppSidebar() {
         <SidebarMenu>
           <SidebarMenuItem>
             {/* 折叠为 icon 时只显命令图标，展开时显图标+标题（由 SidebarMenuButton 自带样式控制） */}
-            <SidebarMenuButton size="lg" tooltip={t("sidebar.title")}>
-              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-zinc-900 text-primary ring-1 ring-white/10">
+            <SidebarMenuButton
+              size="lg"
+              onClick={openActionsDir}
+              tooltip={t("sidebar.openDir")}
+            >
+              <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground">
                 <HugeiconsIcon
-                  icon={CommandIcon}
+                  icon={FlashIcon}
                   strokeWidth={1.75}
                   className="size-4.5"
                 />
               </span>
-              <span className="text-base font-semibold">
-                {t("sidebar.title")}
-              </span>
+              <div className="flex flex-col gap-0.5 leading-none">
+                <span className="text-base font-semibold">
+                  {t("sidebar.brand")}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {t("sidebar.openDir")}
+                </span>
+              </div>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
+          <SidebarGroupLabel>{t("sidebar.title")}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {actions.length === 0 && errors.length === 0 && (
@@ -73,6 +84,7 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
+        <SidebarGroupLabel>{t("sidebar.config")}</SidebarGroupLabel>
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
