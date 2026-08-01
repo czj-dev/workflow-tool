@@ -1,6 +1,0 @@
-id: hello
-title: 打个招呼
-icon: 👋
-description: 验证用，输出一行
-command:
-  shell: "Glow C:\\Users\\ASUS\\Documents\\X\\CLAUDE.source.md"

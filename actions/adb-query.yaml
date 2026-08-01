@@ -1,0 +1,18 @@
+id: adb-query
+title: 测试 Query
+icon: 🗣️
+description: 发送语音 query 广播
+params:
+  - id: QUERY
+    label: Query 内容
+    type: text
+    required: true
+    default: 你好小度
+presets:
+  - name: 你好小度
+    values: { QUERY: 你好小度 }
+  - name: 打开空调
+    values: { QUERY: 打开空调 }
+command:
+  shell: adb shell am broadcast -a vr.intent.action.QUERY --es query "${QUERY}"
+  timeout: 30s

@@ -1,0 +1,7 @@
+id: adb-debug-activity
+title: 拉起测试页面
+icon: 🧪
+description: "adb shell am start DebugActivity"
+command:
+  shell: adb shell am start -n com.baidu.che.codriver/com.baidu.che.codriver.ui.DebugActivity
+  timeout: 30s

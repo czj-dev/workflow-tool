@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import {
   SidebarMenu,
   SidebarMenuItem,
@@ -6,20 +7,45 @@ import {
 import type { ActionItem } from "../../bindings/workflow-tool/internal/api/models.js";
 import { useActionRunner } from "../hooks/useActionRunner";
 
+const DOUBLE_CLICK_DELAY = 250; // ms
+
 // 动作的预设子项：单击进表单（预填该预设值）、双击直接运行
 export function PresetList({ action }: { action: ActionItem }) {
   const { selectPreset, runAction } = useActionRunner();
+  const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   if (!action.presets || action.presets.length === 0) return null;
+
+  const handleClick = (presetName: string) => {
+    if (clickTimer.current) clearTimeout(clickTimer.current);
+    clickTimer.current = setTimeout(() => {
+      selectPreset(action.id, presetName);
+      clickTimer.current = null;
+    }, DOUBLE_CLICK_DELAY);
+  };
+
+  const handleDoubleClick = (values: Record<string, string | undefined>) => {
+    if (clickTimer.current) {
+      clearTimeout(clickTimer.current);
+      clickTimer.current = null;
+    }
+    runAction(action.id, values);
+  };
+
   return (
     <SidebarMenu>
-      {action.presets.map((p) => (
+      {action.presets.map((p, i) => (
         <SidebarMenuItem key={p.name}>
           <SidebarMenuButton
             size="sm"
-            onClick={() => selectPreset(action.id, p.name)}
-            onDoubleClick={() => runAction(action.id, p.values)}
+            tooltip={p.name}
+            onClick={() => handleClick(p.name)}
+            onDoubleClick={() => handleDoubleClick(p.values)}
           >
-            <span className="pl-4">{p.name}</span>
+            <span className="flex size-5 shrink-0 items-center justify-center rounded text-xs font-medium bg-sidebar-accent text-sidebar-accent-foreground">
+              {i + 1}
+            </span>
+            <span>{p.name}</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
       ))}

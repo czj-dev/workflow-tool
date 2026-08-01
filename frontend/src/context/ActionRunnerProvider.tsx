@@ -158,13 +158,14 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
 
   // selectPreset：把预设值（+ 各 param 的 default 预填）填入 formValues，切到 form 视图。
   // presetName 找不到时（如 ""）仅用 default 预填，仍进表单。
+  // 优先级：preset值 > param default > 全局配置同名 key
   const selectPreset = (actionId: string, presetName: string) => {
     const a = actions.find((x) => x.id === actionId);
     if (!a) return;
     const p = a.presets?.find((x) => x.name === presetName);
     const vals: Record<string, string> = {};
     a.params?.forEach((spec) => {
-      vals[spec.id] = spec.default ?? "";
+      vals[spec.id] = spec.default || globalConfig[spec.id] || "";
     });
     if (p) Object.assign(vals, p.values);
     setFormValues(vals);

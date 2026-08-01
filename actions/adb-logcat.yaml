@@ -1,0 +1,12 @@
+id: adb-logcat
+title: 抓取日志
+icon: 📝
+description: adb logcat 抓取到本地文件
+params:
+  - id: LOGS_DIR
+    label: 日志目录
+    type: path
+    required: true
+command:
+  shell: adb logcat -v time > "${LOGS_DIR}/logcat_$(date +%Y%m%d_%H%M%S).log"
+  timeout: 10m

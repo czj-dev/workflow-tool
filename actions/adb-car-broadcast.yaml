@@ -1,0 +1,7 @@
+id: adb-car-broadcast
+title: 发送车控广播
+icon: 🚗
+description: "adb shell am broadcast -a WECARSPEECH_COME_ALIVE"
+command:
+  shell: adb shell am broadcast -a WECARSPEECH_COME_ALIVE
+  timeout: 30s
