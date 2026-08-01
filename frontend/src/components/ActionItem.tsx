@@ -66,7 +66,7 @@ export function ActionItem({ action }: { action: ActionItemType }) {
       <HugeiconsIcon
         icon={Tick02Icon}
         strokeWidth={1.75}
-        className="size-3.5 text-emerald-500"
+        className="size-3.5 text-muted-foreground"
       />
     ) : status === "error" ? (
       <HugeiconsIcon

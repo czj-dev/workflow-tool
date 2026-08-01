@@ -17,6 +17,8 @@ import {
   NoteIcon,
   Settings02Icon,
 } from "@hugeicons/core-free-icons";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { ActionItem } from "./ActionItem";
 
@@ -51,23 +53,19 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {actions.length === 0 && errors.length === 0 && (
-                <p className="px-2 text-sm text-muted-foreground">
-                  {t("empty.noActions")}
-                </p>
+                <Empty className="flex-none items-start border-none p-2 text-left">
+                  <EmptyDescription>{t("empty.noActions")}</EmptyDescription>
+                </Empty>
               )}
               {actions.map((a) => (
                 <ActionItem key={a.id} action={a} />
               ))}
               {errors.map((e, i) => (
                 <SidebarMenuItem key={`err-${i}`}>
-                  <span className="flex items-center gap-1 px-2 text-sm text-destructive">
-                    <HugeiconsIcon
-                      icon={Alert02Icon}
-                      strokeWidth={1.75}
-                      className="size-4"
-                    />
-                    {e}
-                  </span>
+                  <Alert variant="destructive" className="py-2">
+                    <HugeiconsIcon icon={Alert02Icon} strokeWidth={1.75} />
+                    <AlertDescription>{e}</AlertDescription>
+                  </Alert>
                 </SidebarMenuItem>
               ))}
             </SidebarMenu>

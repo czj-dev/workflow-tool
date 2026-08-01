@@ -111,7 +111,7 @@ describe("FragmentsView - 编辑视图", () => {
     const user = userEvent.setup();
     renderView();
     await screen.findByText("adb");
-    await user.click(screen.getByRole("button", { name: "编辑" }));
+    await user.click(screen.getByRole("tab", { name: "编辑" }));
     // 编辑模式展示输入框
     expect(screen.getByDisplayValue("看日志")).toBeInTheDocument();
     expect(
@@ -124,7 +124,7 @@ describe("FragmentsView - 编辑视图", () => {
     const user = userEvent.setup();
     renderView();
     await screen.findByText("adb");
-    await user.click(screen.getByRole("button", { name: "编辑" }));
+    await user.click(screen.getByRole("tab", { name: "编辑" }));
     const titleInput = await screen.findByDisplayValue("看日志");
     const saveBtn = screen.getByRole("button", { name: "保存" });
     expect(saveBtn).toBeDisabled();
@@ -144,7 +144,7 @@ describe("FragmentsView - 编辑视图", () => {
     const user = userEvent.setup();
     renderView();
     await screen.findByText("adb");
-    await user.click(screen.getByRole("button", { name: "编辑" }));
+    await user.click(screen.getByRole("tab", { name: "编辑" }));
     await screen.findByDisplayValue("看日志");
     await user.click(screen.getByRole("button", { name: "新增" }));
     expect(screen.getAllByRole("button", { name: "删除" })).toHaveLength(2);
