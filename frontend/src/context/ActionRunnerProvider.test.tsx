@@ -10,6 +10,8 @@ const {
   mockGetGlobalConfig,
   mockSetGlobalConfig,
   mockPickDirectory,
+  mockGetActionYaml,
+  mockSetActionYaml,
   mockOn,
   listeners,
 } = vi.hoisted(() => {
@@ -27,6 +29,8 @@ const {
       mockGetGlobalConfig: vi.fn(),
       mockSetGlobalConfig: vi.fn(),
       mockPickDirectory: vi.fn(),
+      mockGetActionYaml: vi.fn(),
+      mockSetActionYaml: vi.fn(),
       mockOn,
       listeners,
     };
@@ -41,6 +45,8 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   GetFragments: vi.fn().mockResolvedValue([]),
   SetFragments: vi.fn().mockResolvedValue(undefined),
   PickDirectory: mockPickDirectory,
+  GetActionYaml: mockGetActionYaml,
+  SetActionYaml: mockSetActionYaml,
 }));
 
 vi.mock("@wailsio/runtime", () => ({
@@ -62,6 +68,8 @@ beforeEach(() => {
   mockGetGlobalConfig.mockReset().mockResolvedValue({});
   mockSetGlobalConfig.mockReset().mockResolvedValue(undefined);
   mockPickDirectory.mockReset().mockResolvedValue("");
+  mockGetActionYaml.mockReset();
+  mockSetActionYaml.mockReset();
   mockOn.mockClear();
 });
 
@@ -296,5 +304,23 @@ describe("ActionRunnerProvider", () => {
     expect(result.current.status).toBe("idle");
     expect(result.current.exitInfo).toBeNull();
     expect(result.current.view).toBe("form");
+  });
+
+  it("saveActionYaml 写回并刷新 actions", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    mockSetActionYaml.mockResolvedValue({
+      actions: [
+        { id: "a", title: "新名", icon: "", description: "", params: [], presets: [], stream: "" },
+      ],
+      errors: [],
+    });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.saveActionYaml("a", "id: a\ntitle: 新名\n");
+    });
+    expect(mockSetActionYaml).toHaveBeenCalledWith("a", "id: a\ntitle: 新名\n");
+    expect(result.current.actions).toHaveLength(1);
+    expect(result.current.actions[0].title).toBe("新名");
   });
 });

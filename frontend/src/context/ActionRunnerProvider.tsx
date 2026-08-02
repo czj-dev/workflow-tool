@@ -17,6 +17,8 @@ import {
   SetFragments,
   PickDirectory,
   OpenActionsDir,
+  GetActionYaml,
+  SetActionYaml,
 } from "../../bindings/workflow-tool/internal/api/service.js";
 import type { ActionItem } from "../../bindings/workflow-tool/internal/api/models.js";
 import type { Fragment } from "../../bindings/workflow-tool/internal/registry/models.js";
@@ -40,7 +42,7 @@ export interface RunnerContextValue {
   // Phase 3 新增
   globalConfig: Record<string, string>;
   formValues: Record<string, string>;
-  view: "output" | "form" | "global" | "llm" | "fragments";
+  view: "output" | "form" | "global" | "llm" | "fragments" | "edit";
   llmText: string;
   thinkingText: string;
   fragments: Fragment[];
@@ -51,10 +53,12 @@ export interface RunnerContextValue {
   selectPreset: (actionId: string, presetName: string) => void;
   saveGlobalConfig: (kv: Record<string, string>) => Promise<void>;
   saveFragments: (list: Fragment[]) => Promise<void>;
-  setView: (v: "output" | "form" | "global" | "llm" | "fragments") => void;
+  setView: (v: "output" | "form" | "global" | "llm" | "fragments" | "edit") => void;
   setFormValue: (id: string, value: string) => void;
   pickDirectory: () => Promise<string>;
   openActionsDir: () => Promise<void>;
+  getActionYaml: (id: string) => Promise<string>;
+  saveActionYaml: (id: string, text: string) => Promise<void>;
 }
 
 // 事件分发表：测试用 _emitForTest 触发；运行时由 Events.On 回调写入
@@ -79,7 +83,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [globalConfig, setGlobalConfig] = useState<Record<string, string>>({});
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [view, setView] = useState<
-    "output" | "form" | "global" | "llm" | "fragments"
+    "output" | "form" | "global" | "llm" | "fragments" | "edit"
   >("output");
   const [llmText, setLlmText] = useState<string>("");
   const [thinkingText, setThinkingText] = useState<string>("");
@@ -208,6 +212,17 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setFragments(list);
   };
 
+  const getActionYaml = async (id: string): Promise<string> => {
+    return await GetActionYaml(id);
+  };
+
+  // saveActionYaml：写回 yaml（后端校验+重载），成功后用返回的列表刷新 actions/errors。
+  const saveActionYaml = async (id: string, text: string): Promise<void> => {
+    const res = await SetActionYaml(id, text);
+    setActions((res && res.actions) || []);
+    setErrors((res && res.errors) || []);
+  };
+
   const setFormValue = (id: string, value: string) =>
     setFormValues((prev) => ({ ...prev, [id]: value }));
 
@@ -255,6 +270,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setFormValue,
     pickDirectory,
     openActionsDir,
+    getActionYaml,
+    saveActionYaml,
   };
 
   return (
