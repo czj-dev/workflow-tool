@@ -3,6 +3,7 @@ package api
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"workflow-tool/internal/registry"
@@ -96,5 +97,86 @@ command:
 	}
 	if res.Actions[0].Stream != "llm" {
 		t.Fatalf("ListActions 未带回 stream: %+v", res.Actions[0].Stream)
+	}
+}
+
+func TestGetActionYamlReturnsRawWithComments(t *testing.T) {
+	dir := t.TempDir()
+	ad := filepath.Join(dir, "actions")
+	os.Mkdir(ad, 0755)
+	os.WriteFile(filepath.Join(ad, "a.yaml"), []byte("# 注释\nid: a\ntitle: A\ncommand:\n  shell: echo hi\n"), 0644)
+	svc := New(registry.Load(ad, dir), dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
+	got, err := svc.GetActionYaml("a")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "# 注释") {
+		t.Fatalf("应保留注释原文，got %q", got)
+	}
+}
+
+func TestSetActionYamlValidWritesAndReloads(t *testing.T) {
+	dir := t.TempDir()
+	ad := filepath.Join(dir, "actions")
+	os.Mkdir(ad, 0755)
+	os.WriteFile(filepath.Join(ad, "a.yaml"), []byte("id: a\ntitle: A\ncommand:\n  shell: echo hi\n"), 0644)
+	svc := New(registry.Load(ad, dir), dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
+	res, err := svc.SetActionYaml("a", "id: a\ntitle: 改名\ncommand:\n  shell: echo bye\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Actions[0].Title != "改名" {
+		t.Fatalf("重载后应见新标题，got %+v", res.Actions[0])
+	}
+	persisted, _ := svc.GetActionYaml("a")
+	if !strings.Contains(persisted, "改名") {
+		t.Fatalf("应落盘，got %q", persisted)
+	}
+}
+
+func TestSetActionYamlRejectsBadYAML(t *testing.T) {
+	dir := t.TempDir()
+	ad := filepath.Join(dir, "actions")
+	os.Mkdir(ad, 0755)
+	orig := "id: a\ntitle: A\ncommand:\n  shell: echo hi\n"
+	os.WriteFile(filepath.Join(ad, "a.yaml"), []byte(orig), 0644)
+	svc := New(registry.Load(ad, dir), dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
+	_, err := svc.SetActionYaml("a", "id: a\n  : : :\n")
+	if err == nil {
+		t.Fatal("非法 yaml 应报错")
+	}
+	got, _ := svc.GetActionYaml("a")
+	if got != orig {
+		t.Fatalf("非法时不该写盘，got %q", got)
+	}
+}
+
+func TestSetActionYamlRejectsValidation(t *testing.T) {
+	dir := t.TempDir()
+	ad := filepath.Join(dir, "actions")
+	os.Mkdir(ad, 0755)
+	os.WriteFile(filepath.Join(ad, "a.yaml"), []byte("id: a\ntitle: A\ncommand:\n  shell: echo hi\n"), 0644)
+	svc := New(registry.Load(ad, dir), dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
+	// 缺 title → Validate 失败
+	_, err := svc.SetActionYaml("a", "id: a\ncommand:\n  shell: echo\n")
+	if err == nil {
+		t.Fatal("校验失败应报错")
+	}
+}
+
+func TestSetActionYamlRejectsIDChange(t *testing.T) {
+	dir := t.TempDir()
+	ad := filepath.Join(dir, "actions")
+	os.Mkdir(ad, 0755)
+	orig := "id: a\ntitle: A\ncommand:\n  shell: echo hi\n"
+	os.WriteFile(filepath.Join(ad, "a.yaml"), []byte(orig), 0644)
+	svc := New(registry.Load(ad, dir), dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
+	_, err := svc.SetActionYaml("a", "id: b\ntitle: A\ncommand:\n  shell: echo\n")
+	if err == nil {
+		t.Fatal("改 id 应被拒绝")
+	}
+	got, _ := svc.GetActionYaml("a")
+	if got != orig {
+		t.Fatalf("改 id 被拒不该写盘，got %q", got)
 	}
 }

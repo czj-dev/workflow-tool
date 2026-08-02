@@ -75,6 +75,11 @@ type ListResult struct {
 
 // ListActions 返回全部已加载动作 + 加载错误。
 func (s *Service) ListActions() ListResult {
+	return s.buildListResult()
+}
+
+// buildListResult 从当前 registry 构造前端可见列表（ListActions 与 SetActionYaml 末尾共用）。
+func (s *Service) buildListResult() ListResult {
 	items := make([]ActionItem, 0, len(s.reg.Actions))
 	for _, la := range s.reg.Actions {
 		items = append(items, ActionItem{
@@ -92,6 +97,49 @@ func (s *Service) ListActions() ListResult {
 		errs = append(errs, fmt.Sprintf("%s: %s", e.File, e.Error))
 	}
 	return ListResult{Actions: items, Errors: errs}
+}
+
+// Reload 重扫 actions 目录重建 registry（编辑保存后调用）。
+// 低频操作：整体替换 reg 指针；正在运行的 action 持有旧 LoadedAction 副本，不受影响。
+func (s *Service) Reload() {
+	s.reg = registry.Load(filepath.Join(s.baseDir, "actions"), s.baseDir)
+}
+
+// GetActionYaml 返回指定 action 源文件原文（含注释与格式）。
+func (s *Service) GetActionYaml(id string) (string, error) {
+	la, ok := s.reg.Actions[id]
+	if !ok {
+		return "", fmt.Errorf("未知动作 %q", id)
+	}
+	data, err := os.ReadFile(la.File)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// SetActionYaml 校验并写回 action 源文件，随后重载 registry，返回最新列表。
+// 禁止改 id（id 为文件锚点）；解析/校验失败时不写盘。
+func (s *Service) SetActionYaml(id string, text string) (ListResult, error) {
+	la, ok := s.reg.Actions[id]
+	if !ok {
+		return ListResult{}, fmt.Errorf("未知动作 %q", id)
+	}
+	def, err := registry.ParseAction([]byte(text))
+	if err != nil {
+		return ListResult{}, fmt.Errorf("YAML 解析失败: %w", err)
+	}
+	if def.ID != id {
+		return ListResult{}, fmt.Errorf("id 不可修改（原 %q，现 %q）", id, def.ID)
+	}
+	if err := registry.Validate(def); err != nil {
+		return ListResult{}, err
+	}
+	if err := os.WriteFile(la.File, []byte(text), 0644); err != nil {
+		return ListResult{}, err
+	}
+	s.Reload()
+	return s.buildListResult(), nil
 }
 
 // RunAction 按 id 启动动作，params 为运行时参数；输出通过事件流推送。
