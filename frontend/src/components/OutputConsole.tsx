@@ -13,8 +13,8 @@ export function OutputConsole() {
   }, [lines]);
 
   return (
-    <ScrollArea className="flex-1 bg-zinc-950">
-      <pre className="p-4 font-mono text-[13px] leading-relaxed text-zinc-100 whitespace-pre-wrap">
+    <ScrollArea className="flex-1 bg-zinc-100 dark:bg-zinc-950">
+      <pre className="p-4 font-mono text-[13px] leading-relaxed text-zinc-900 dark:text-zinc-100 whitespace-pre-wrap">
         {lines.join("\n")}
         <div ref={bottomRef} />
       </pre>
