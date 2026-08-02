@@ -186,6 +186,27 @@ func (s *Service) CancelAction(id string) {
 	}
 }
 
+// AddPreset 给指定动作新增/覆盖一个 preset（同名覆盖），写回 yaml 并重载，返回最新列表。
+func (s *Service) AddPreset(actionID, name, description string, values map[string]string) (ListResult, error) {
+	la, ok := s.reg.Actions[actionID]
+	if !ok {
+		return ListResult{}, fmt.Errorf("未知动作 %q", actionID)
+	}
+	raw, err := os.ReadFile(la.File)
+	if err != nil {
+		return ListResult{}, err
+	}
+	updated, err := registry.AddPresetToYAML(raw, name, description, values)
+	if err != nil {
+		return ListResult{}, err
+	}
+	if err := os.WriteFile(la.File, updated, 0644); err != nil {
+		return ListResult{}, err
+	}
+	s.Reload()
+	return s.buildListResult(), nil
+}
+
 // OpenActionsDir 用系统文件管理器打开 actions 目录（Windows: explorer / macOS: open / 其他: xdg-open）。
 func (s *Service) OpenActionsDir() error {
 	dir := filepath.Join(s.baseDir, "actions")
