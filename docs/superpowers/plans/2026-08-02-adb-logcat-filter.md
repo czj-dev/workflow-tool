@@ -179,7 +179,7 @@ $out = Join-Path $LOGS_DIR "logcat_$ts.log"
 
 # 收集 logcat 源参数
 $logcatArgs = @('-v', 'threadtime')
-if ($TAG) { ($TAG -split '\s+') | ForEach-Object { $logcatArgs += "$_:*" } }
+if ($TAG) { ($TAG -split '\s+') | ForEach-Object { $logcatArgs += "${_}:*" } }
 
 # 包名 → pid 过滤：优先 --pid（Android 8+），不支持则降级按 threadtime 第 3 列匹配。
 # 注意：$PID 是 PowerShell 自动变量（当前进程 PID），不可复用，故用 $procId。
@@ -222,7 +222,7 @@ Expected: 无错误输出（`$errs` 为空），退出码 0。
 
 Run:
 ```sh
-pwsh -NoProfile -Command "@('D VoiceASR: debug','W VoiceASR: QUERY received','E SystemUI: crash') | Where-Object { -not \$INCLUDE -or \$_ -match \$INCLUDE } -WithVar @{INCLUDE='query'}" 2>/dev/null || pwsh -NoProfile -Command "\$INCLUDE='query'; @('D VoiceASR: debug','W VoiceASR: QUERY received','E SystemUI: crash') | Where-Object { -not \$INCLUDE -or \$_ -match \$INCLUDE }"
+pwsh -NoProfile -Command "\$INCLUDE='query'; @('D VoiceASR: debug','W VoiceASR: QUERY received','E SystemUI: crash') | Where-Object { -not \$INCLUDE -or \$_ -match \$INCLUDE }"
 ```
 Expected: 只输出 `W VoiceASR: QUERY received`（`-match` 大小写不敏感）。
 

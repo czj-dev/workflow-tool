@@ -125,7 +125,7 @@ $ts = Get-Date -Format yyyyMMdd_HHmmss
 $out = Join-Path $LOGS_DIR "logcat_$ts.log"
 
 $logcatArgs = @('-v','threadtime')
-if ($TAG) { ($TAG -split '\s+') | ForEach-Object { $logcatArgs += "$_:*" } }
+if ($TAG) { ($TAG -split '\s+') | ForEach-Object { $logcatArgs += "${_}:*" } }
 # 注意：$PID 是 PowerShell 自动变量（当前进程 PID），不可复用，改用 $procId。
 if ($PACKAGE) { $procId = (adb shell pidof -s $PACKAGE).Trim(); if ($procId) { $logcatArgs += '--pid', $procId } }
 
