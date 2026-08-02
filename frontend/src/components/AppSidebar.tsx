@@ -14,20 +14,36 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Alert02Icon,
+  ContrastIcon,
   FlashIcon,
   Globe02Icon,
+  Moon02Icon,
   NoteIcon,
   Settings02Icon,
+  Sun03Icon,
 } from "@hugeicons/core-free-icons";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { useActionRunner } from "../hooks/useActionRunner";
+import { useTheme } from "@/components/theme-provider";
 import { ActionItem } from "./ActionItem";
 
 // 左侧可折叠侧边栏：渲染动作列表 + 加载错误 + 底部「片段 / 全局配置」入口
 export function AppSidebar() {
   const { t, i18n } = useTranslation();
   const { actions, errors, setView, openActionsDir } = useActionRunner();
+  const { theme, setTheme } = useTheme();
+
+  const THEME_ICON = {
+    light: Sun03Icon,
+    dark: Moon02Icon,
+    system: ContrastIcon,
+  } as const;
+
+  const cycleTheme = () =>
+    setTheme(
+      theme === "light" ? "dark" : theme === "dark" ? "system" : "light",
+    );
 
   return (
     <Sidebar collapsible="icon">
@@ -111,6 +127,16 @@ export function AppSidebar() {
                 className="size-4 shrink-0"
               />
               <span>{t("global.title")}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton onClick={cycleTheme} tooltip={t("sidebar.theme")}>
+              <HugeiconsIcon
+                icon={THEME_ICON[theme]}
+                strokeWidth={1.75}
+                className="size-4 shrink-0"
+              />
+              <span>{t(`theme.${theme}`)}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>

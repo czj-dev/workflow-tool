@@ -31,6 +31,7 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
 vi.mock("@wailsio/runtime", () => ({ Events: { On: mockOn } }));
 
 import { SidebarProvider } from "@/components/ui/sidebar";
+import { ThemeProvider } from "@/components/theme-provider";
 import { ActionRunnerProvider } from "../context/ActionRunnerProvider";
 import { AppSidebar } from "./AppSidebar";
 
@@ -39,15 +40,32 @@ beforeEach(() => {
   mockListActions.mockReset();
   mockRunAction.mockReset().mockResolvedValue(undefined);
   mockOn.mockClear();
+  // 主题测试需要：jsdom 无 matchMedia，mock 之；清 storage 保证初始态
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockImplementation((query: string) => ({
+      matches: false,
+      media: query,
+      onchange: null,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    })),
+  );
+  localStorage.clear();
 });
 
 function wrap() {
   return (
-    <ActionRunnerProvider>
-      <SidebarProvider>
-        <AppSidebar />
-      </SidebarProvider>
-    </ActionRunnerProvider>
+    <ThemeProvider defaultTheme="light" storageKey="theme-test">
+      <ActionRunnerProvider>
+        <SidebarProvider>
+          <AppSidebar />
+        </SidebarProvider>
+      </ActionRunnerProvider>
+    </ThemeProvider>
   );
 }
 
@@ -91,5 +109,19 @@ describe("AppSidebar", () => {
     const item = await screen.findByText("抓取");
     await user.click(item);
     expect(await screen.findByText("首页")).toBeInTheDocument();
+  });
+
+  it("主题按钮循环 light→dark→system→light", async () => {
+    const user = userEvent.setup();
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    render(wrap());
+    // defaultTheme="light" + localStorage 空 → 初始「浅色」
+    const themeBtn = await screen.findByText("浅色");
+    await user.click(themeBtn);
+    expect(screen.getByText("深色")).toBeInTheDocument();
+    await user.click(screen.getByText("深色"));
+    expect(screen.getByText("跟随系统")).toBeInTheDocument();
+    await user.click(screen.getByText("跟随系统"));
+    expect(screen.getByText("浅色")).toBeInTheDocument();
   });
 });
