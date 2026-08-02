@@ -242,3 +242,41 @@ command:
 		t.Fatal("非法 stream 值应报错")
 	}
 }
+
+func TestLoadRecordsSourceFile(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.yaml", `id: a
+title: A
+command:
+  shell: echo hi
+`)
+	reg := Load(dir, dir)
+	la := reg.Actions["a"]
+	if la.File == "" {
+		t.Fatal("Load 应在 LoadedAction.File 记录源文件路径")
+	}
+	if filepath.Base(la.File) != "a.yaml" {
+		t.Fatalf("File 应指向 a.yaml，got %q", la.File)
+	}
+}
+
+func TestParseActionExported(t *testing.T) {
+	def, err := ParseAction([]byte("id: a\ntitle: A\ncommand:\n  shell: echo\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if def.ID != "a" || def.Title != "A" {
+		t.Fatalf("ParseAction 解析错误: %+v", def)
+	}
+}
+
+func TestValidateExported(t *testing.T) {
+	legal := &ActionDef{ID: "a", Title: "A", Command: Command{Shell: "echo"}}
+	if err := Validate(legal); err != nil {
+		t.Fatalf("合法定义不应报错: %v", err)
+	}
+	bad := &ActionDef{ID: "Bad ID"}
+	if err := Validate(bad); err == nil {
+		t.Fatal("非法 id 应被 Validate 拒绝")
+	}
+}

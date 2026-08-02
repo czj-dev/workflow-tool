@@ -52,6 +52,7 @@ type LoadedAction struct {
 	Def     ActionDef
 	Timeout time.Duration
 	Cwd     string // raw，运行时由 runner 用 params 替换
+	File    string // 源文件绝对路径（编辑器读写锚点）
 }
 
 // FileError 记录单个文件的加载错误。
@@ -83,7 +84,7 @@ func Load(dir, baseDir string) *Registry {
 			reg.Errors = append(reg.Errors, FileError{File: filepath.Base(f), Error: err.Error()})
 			continue
 		}
-		if err := validate(def); err != nil {
+		if err := Validate(def); err != nil {
 			reg.Errors = append(reg.Errors, FileError{File: filepath.Base(f), Error: err.Error()})
 			continue
 		}
@@ -96,6 +97,7 @@ func Load(dir, baseDir string) *Registry {
 			Def:     *def,
 			Timeout: parseTimeout(def.Command.Timeout),
 			Cwd:     def.Command.Cwd, // raw，未替换
+			File:    f,               // 源文件路径，供编辑器定位
 		}
 	}
 	return reg
@@ -106,6 +108,11 @@ func parseFile(path string) (*ActionDef, error) {
 	if err != nil {
 		return nil, err
 	}
+	return ParseAction(data)
+}
+
+// ParseAction 解析 yaml 字节为 ActionDef（供 api 层编辑后校验复用）。
+func ParseAction(data []byte) (*ActionDef, error) {
 	var def ActionDef
 	if err := yaml.Unmarshal(data, &def); err != nil {
 		return nil, err
@@ -113,7 +120,7 @@ func parseFile(path string) (*ActionDef, error) {
 	return &def, nil
 }
 
-func validate(def *ActionDef) error {
+func Validate(def *ActionDef) error {
 	if !idPattern.MatchString(def.ID) {
 		return fmt.Errorf("id 必须匹配 ^[a-z0-9-]+$，got %q", def.ID)
 	}
