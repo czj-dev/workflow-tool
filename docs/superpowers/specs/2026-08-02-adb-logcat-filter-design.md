@@ -114,6 +114,13 @@ adb logcat "$@" | stage_include | stage_exclude > "$OUT"
 #### `.ps1` 伪代码
 
 ```powershell
+# params 经环境变量注入（shell_runner.buildEnv），PowerShell 须用 $env: 读取后映射到本地变量
+$LOGS_DIR = $env:LOGS_DIR
+$TAG      = $env:TAG
+$PACKAGE  = $env:PACKAGE
+$INCLUDE  = $env:INCLUDE
+$EXCLUDE  = $env:EXCLUDE
+
 $ts = Get-Date -Format yyyyMMdd_HHmmss
 $out = Join-Path $LOGS_DIR "logcat_$ts.log"
 
