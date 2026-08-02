@@ -48,6 +48,13 @@
   "edit.runAfterSave": "Saved. Takes effect on next run.",
   "edit.tooltip": "Edit yaml",
   "edit.exit": "Exit edit",
+  "preset.title": "Save as Preset",
+  "preset.nameLabel": "Name",
+  "preset.namePlaceholder": "Preset name",
+  "preset.descLabel": "Description",
+  "preset.descPlaceholder": "Optional description",
+  "preset.cancel": "Cancel",
+  "preset.confirm": "Save",
   "theme.light": "Light",
   "theme.dark": "Dark",
   "theme.system": "System"

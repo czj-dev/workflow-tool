@@ -48,6 +48,13 @@
   "edit.runAfterSave": "已保存，下次运行生效",
   "edit.tooltip": "编辑 yaml",
   "edit.exit": "退出编辑",
+  "preset.title": "保存为预设",
+  "preset.nameLabel": "名称",
+  "preset.namePlaceholder": "预设名称",
+  "preset.descLabel": "描述",
+  "preset.descPlaceholder": "可选描述",
+  "preset.cancel": "取消",
+  "preset.confirm": "保存",
   "theme.light": "浅色",
   "theme.dark": "深色",
   "theme.system": "跟随系统"

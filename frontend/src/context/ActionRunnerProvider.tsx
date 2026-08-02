@@ -19,6 +19,7 @@ import {
   OpenActionsDir,
   GetActionYaml,
   SetActionYaml,
+  AddPreset,
 } from "../../bindings/workflow-tool/internal/api/service.js";
 import type { ActionItem } from "../../bindings/workflow-tool/internal/api/models.js";
 import type { Fragment } from "../../bindings/workflow-tool/internal/registry/models.js";
@@ -59,6 +60,7 @@ export interface RunnerContextValue {
   openActionsDir: () => Promise<void>;
   getActionYaml: (id: string) => Promise<string>;
   saveActionYaml: (id: string, text: string) => Promise<void>;
+  addPreset: (name: string, description: string) => Promise<void>;
 }
 
 // 事件分发表：测试用 _emitForTest 触发；运行时由 Events.On 回调写入
@@ -223,6 +225,14 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setErrors((res && res.errors) || []);
   };
 
+  // addPreset：把当前 formValues 存为 currentId 动作的 preset（同名覆盖）。
+  const addPreset = async (name: string, description: string) => {
+    if (!currentId) return;
+    const res = await AddPreset(currentId, name, description, formValues);
+    setActions((res && res.actions) || []);
+    setErrors((res && res.errors) || []);
+  };
+
   const setFormValue = (id: string, value: string) =>
     setFormValues((prev) => ({ ...prev, [id]: value }));
 
@@ -272,6 +282,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     openActionsDir,
     getActionYaml,
     saveActionYaml,
+    addPreset,
   };
 
   return (
