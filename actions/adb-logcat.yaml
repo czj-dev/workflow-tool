@@ -1,12 +1,24 @@
 id: adb-logcat
 title: 抓取日志
 icon: hi:file
-description: adb logcat 抓取到本地文件
+description: adb logcat 抓取到本地文件（可选按 包名/Tag/消息关键字 过滤，手动停止）
 params:
   - id: LOGS_DIR
     label: 日志目录
     type: path
     required: true
+  - id: PACKAGE
+    label: 包名过滤（可空，如 com.baidu.che.codriver）
+    type: text
+  - id: TAG
+    label: Tag 过滤（多个空格分隔，可空）
+    type: text
+  - id: INCLUDE
+    label: 消息包含（正则，可空）
+    type: text
+  - id: EXCLUDE
+    label: 消息排除（正则，可空）
+    type: text
 command:
-  shell: adb logcat -v time > "${LOGS_DIR}/logcat_$(date +%Y%m%d_%H%M%S).log"
-  timeout: 10m
+  script: ./scripts/adb-logcat
+  timeout: 24h
