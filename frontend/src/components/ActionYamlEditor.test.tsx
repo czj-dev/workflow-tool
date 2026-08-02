@@ -63,14 +63,14 @@ beforeEach(async () => {
 describe("ActionYamlEditor", () => {
   it("进入时加载首个 action 原文到编辑区", async () => {
     renderEditor();
-    const ta = await screen.findByRole("textbox");
+    const ta = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
     await waitFor(() => expect(ta.value).toContain("# 注释"));
   });
 
   it("编辑后保存调用 saveActionYaml 并清 dirty", async () => {
     const user = userEvent.setup();
     renderEditor();
-    const ta = await screen.findByRole("textbox");
+    const ta = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
     await waitFor(() => expect(ta.value).toContain("echo hi"));
     const saveBtn = screen.getByRole("button", { name: "保存" });
     expect(saveBtn).toBeDisabled();
@@ -86,7 +86,7 @@ describe("ActionYamlEditor", () => {
     mockSetActionYaml.mockRejectedValueOnce("YAML 解析失败: line 1");
     const user = userEvent.setup();
     renderEditor();
-    const ta = await screen.findByRole("textbox");
+    const ta = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
     await waitFor(() => expect(ta.value).toContain("echo hi"));
     await user.type(ta, "{End}x");
     await user.click(screen.getByRole("button", { name: "保存" }));
