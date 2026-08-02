@@ -35,5 +35,14 @@
   "fragments.untitled": "无标题",
   "fragments.titlePlaceholder": "标题",
   "fragments.contentPlaceholder": "指令内容，支持 ${VAR} 变量",
-  "fragments.tagsPlaceholder": "标签（逗号分隔）"
+  "fragments.tagsPlaceholder": "标签（逗号分隔）",
+  "edit.title": "编辑 Action",
+  "edit.placeholder": "选择 Action",
+  "edit.save": "保存",
+  "edit.saving": "保存中…",
+  "edit.reset": "重置",
+  "edit.loading": "加载中…",
+  "edit.empty": "（无 Action，可在 actions/ 放 yaml）",
+  "edit.runAfterSave": "已保存，下次运行生效",
+  "edit.tooltip": "编辑 yaml"
 }

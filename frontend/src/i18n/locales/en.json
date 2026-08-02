@@ -35,5 +35,14 @@
   "fragments.untitled": "Untitled",
   "fragments.titlePlaceholder": "Title",
   "fragments.contentPlaceholder": "Content, supports ${VAR} variables",
-  "fragments.tagsPlaceholder": "Tags (comma-separated)"
+  "fragments.tagsPlaceholder": "Tags (comma-separated)",
+  "edit.title": "Edit Action",
+  "edit.placeholder": "Select an action",
+  "edit.save": "Save",
+  "edit.saving": "Saving…",
+  "edit.reset": "Reset",
+  "edit.loading": "Loading…",
+  "edit.empty": "(No actions. Put yaml in actions/)",
+  "edit.runAfterSave": "Saved. Takes effect on next run.",
+  "edit.tooltip": "Edit yaml"
 }

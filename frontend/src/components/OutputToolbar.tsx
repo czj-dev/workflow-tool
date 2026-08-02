@@ -9,7 +9,7 @@ import { LangSwitch } from "./LangSwitch";
 // 输出区工具栏：折叠触发 + 当前动作标题 + 停止/清空/复制 + 语言切换
 export function OutputToolbar() {
   const { t } = useTranslation();
-  const { actions, currentId, status, cancel, clearOutput, copyOutput } =
+  const { actions, currentId, status, cancel, clearOutput, copyOutput, setView } =
     useActionRunner();
   const [copied, setCopied] = useState(false);
   const current = actions.find((a) => a.id === currentId);
@@ -25,7 +25,12 @@ export function OutputToolbar() {
     <header className="flex items-center justify-between border-b px-4 py-2">
       <div className="flex items-center gap-2">
         <SidebarTrigger />
-        <span className="flex items-center gap-1.5 font-semibold">
+        <button
+          type="button"
+          onClick={() => setView("edit")}
+          title={t("edit.tooltip")}
+          className="flex items-center gap-1.5 rounded px-1 font-semibold hover:bg-accent cursor-pointer"
+        >
           {current ? (
             <>
               <ActionIcon name={current.icon ?? "hi:play"} />
@@ -34,7 +39,7 @@ export function OutputToolbar() {
           ) : (
             t("main.selectAction")
           )}
-        </span>
+        </button>
       </div>
       <div className="flex items-center gap-2">
         <Button variant="outline" size="sm" onClick={onCopy}>

@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   ListActions: vi.fn().mockResolvedValue({
@@ -13,6 +14,8 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   GetFragments: vi.fn().mockResolvedValue([]),
   SetFragments: vi.fn().mockResolvedValue(undefined),
   PickDirectory: vi.fn().mockResolvedValue(""),
+  GetActionYaml: vi.fn().mockResolvedValue("id: a1\ntitle: A1\n"),
+  SetActionYaml: vi.fn().mockResolvedValue({ actions: [], errors: [] }),
 }));
 vi.mock("@wailsio/runtime", () => ({ Events: { On: () => () => ({}) } }));
 
@@ -35,5 +38,19 @@ describe("OutputPanel", () => {
     expect(screen.getByText("复制")).toBeInTheDocument();
     // 语言切换默认显示 EN（当前中文）
     expect(screen.getByText("EN")).toBeInTheDocument();
+  });
+
+  it("点击标题进入编辑视图", async () => {
+    const user = userEvent.setup();
+    render(
+      <ActionRunnerProvider>
+        <SidebarProvider>
+          <OutputPanel />
+        </SidebarProvider>
+      </ActionRunnerProvider>
+    );
+    await screen.findByText("选择一个动作");
+    await user.click(screen.getByRole("button", { name: "选择一个动作" }));
+    expect(await screen.findByRole("button", { name: "保存" })).toBeInTheDocument();
   });
 });
