@@ -44,5 +44,6 @@
   "edit.loading": "加载中…",
   "edit.empty": "（无 Action，可在 actions/ 放 yaml）",
   "edit.runAfterSave": "已保存，下次运行生效",
-  "edit.tooltip": "编辑 yaml"
+  "edit.tooltip": "编辑 yaml",
+  "edit.exit": "退出编辑"
 }

@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Edit02Icon } from "@hugeicons/core-free-icons";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -24,7 +26,7 @@ function errMsg(e: unknown): string {
 // 切换动作自动丢弃未保存改动（按需求不弹确认）。
 export function ActionYamlEditor() {
   const { t } = useTranslation();
-  const { actions, currentId, getActionYaml, saveActionYaml } = useActionRunner();
+  const { actions, currentId, getActionYaml, saveActionYaml, setView } = useActionRunner();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [text, setText] = useState("");
@@ -131,6 +133,14 @@ export function ActionYamlEditor() {
           </Select>
         </div>
         <div className="flex items-center gap-2">
+          <Button
+            variant="secondary"
+            size="icon-sm"
+            onClick={() => setView("output")}
+            title={t("edit.exit")}
+          >
+            <HugeiconsIcon icon={Edit02Icon} strokeWidth={1.75} />
+          </Button>
           <Button
             variant="outline"
             size="sm"

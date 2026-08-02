@@ -44,5 +44,6 @@
   "edit.loading": "Loading…",
   "edit.empty": "(No actions. Put yaml in actions/)",
   "edit.runAfterSave": "Saved. Takes effect on next run.",
-  "edit.tooltip": "Edit yaml"
+  "edit.tooltip": "Edit yaml",
+  "edit.exit": "Exit edit"
 }

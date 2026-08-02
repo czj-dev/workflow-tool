@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Edit02Icon } from "@hugeicons/core-free-icons";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { ActionIcon } from "./ActionIcon";
 import { LangSwitch } from "./LangSwitch";
@@ -42,6 +44,14 @@ export function OutputToolbar() {
         </button>
       </div>
       <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          size="icon-sm"
+          onClick={() => setView("edit")}
+          title={t("edit.tooltip")}
+        >
+          <HugeiconsIcon icon={Edit02Icon} strokeWidth={1.75} />
+        </Button>
         <Button variant="outline" size="sm" onClick={onCopy}>
           {copied ? t("main.copied") : t("main.copy")}
         </Button>
