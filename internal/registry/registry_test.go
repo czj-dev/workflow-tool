@@ -1,6 +1,7 @@
 package registry
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"testing"
@@ -278,5 +279,61 @@ func TestValidateExported(t *testing.T) {
 	bad := &ActionDef{ID: "Bad ID"}
 	if err := Validate(bad); err == nil {
 		t.Fatal("非法 id 应被 Validate 拒绝")
+	}
+}
+
+func TestAddPresetToYAML_NewPreset(t *testing.T) {
+	in := []byte("id: a\ntitle: A\ncommand:\n  shell: echo\n")
+	out, err := AddPresetToYAML(in, "p1", "描述", map[string]string{"URL": "x"})
+	if err != nil {
+		t.Fatalf("AddPresetToYAML: %v", err)
+	}
+	def, err := ParseAction(out)
+	if err != nil {
+		t.Fatalf("输出无法解析: %v\n%s", err, out)
+	}
+	if len(def.Presets) != 1 || def.Presets[0].Name != "p1" {
+		t.Fatalf("want 1 preset p1, got %+v", def.Presets)
+	}
+	if def.Presets[0].Description != "描述" {
+		t.Fatalf("description want 描述, got %q", def.Presets[0].Description)
+	}
+	if def.Presets[0].Values["URL"] != "x" {
+		t.Fatalf("values.URL want x, got %+v", def.Presets[0].Values)
+	}
+}
+
+func TestAddPresetToYAML_OverwriteSameName(t *testing.T) {
+	in := []byte("id: a\ntitle: A\npresets:\n  - name: p1\n    values: {URL: old}\ncommand:\n  shell: echo\n")
+	out, err := AddPresetToYAML(in, "p1", "新描述", map[string]string{"URL": "new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	def, _ := ParseAction(out)
+	if len(def.Presets) != 1 {
+		t.Fatalf("覆盖后应仍为 1 个 preset, got %d", len(def.Presets))
+	}
+	if def.Presets[0].Values["URL"] != "new" {
+		t.Fatalf("URL 应覆盖为 new, got %q", def.Presets[0].Values["URL"])
+	}
+	if def.Presets[0].Description != "新描述" {
+		t.Fatalf("description 应为新描述, got %q", def.Presets[0].Description)
+	}
+}
+
+func TestAddPresetToYAML_EmptyName(t *testing.T) {
+	if _, err := AddPresetToYAML([]byte("id: a\ntitle: A\n"), "  ", "", nil); err == nil {
+		t.Fatal("空 name 应报错")
+	}
+}
+
+func TestAddPresetToYAML_PreservesComments(t *testing.T) {
+	in := []byte("# 顶部注释\nid: a\ntitle: A\ncommand:\n  shell: echo\n")
+	out, err := AddPresetToYAML(in, "p1", "", map[string]string{"K": "v"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(out, []byte("# 顶部注释")) {
+		t.Fatalf("顶部注释应保留, got:\n%s", out)
 	}
 }

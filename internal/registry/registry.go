@@ -1,10 +1,13 @@
 package registry
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -33,8 +36,9 @@ type ParamSpec struct {
 
 // Preset 是作者定义的一整套参数值。
 type Preset struct {
-	Name   string            `json:"name" yaml:"name"`
-	Values map[string]string `json:"values" yaml:"values"`
+	Name        string            `json:"name" yaml:"name"`
+	Description string            `json:"description" yaml:"description,omitempty"`
+	Values      map[string]string `json:"values" yaml:"values"`
 }
 
 // Command 是动作的执行块。
@@ -166,3 +170,112 @@ func parseTimeout(s string) time.Duration {
 }
 
 // expandVars 已移除：Phase 3 起变量替换移到运行时（runner.Expand，用 params）。
+
+// AddPresetToYAML 在 yaml 原文中新增/覆盖一个 preset，保留其余节点注释与格式。
+// 同名 preset 删除后追加（值被覆盖，位置移到 presets 列表末尾）；否则追加。
+// name trim 后为空返回错误。values 序列化为 flow 风格 { K: V }。
+func AddPresetToYAML(raw []byte, name, description string, values map[string]string) ([]byte, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("preset name 不能为空")
+	}
+
+	var root yaml.Node
+	if err := yaml.Unmarshal(raw, &root); err != nil {
+		return nil, fmt.Errorf("yaml 解析失败: %w", err)
+	}
+	// yaml.v3 的 Unmarshal 把文档包在 DocumentNode 里，真正的根 mapping 是 Content[0]
+	if root.Kind == yaml.DocumentNode && len(root.Content) == 1 {
+		root = *root.Content[0]
+	}
+	// 空文档：Unmarshal 得到零值节点，建一个空 mapping
+	if root.Kind == 0 {
+		root = yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	}
+	if root.Kind != yaml.MappingNode {
+		return nil, fmt.Errorf("yaml 根节点应为 mapping")
+	}
+
+	// 找/建 presets 键
+	var presetsNode *yaml.Node
+	for i := 0; i+1 < len(root.Content); i += 2 {
+		if root.Content[i].Value == "presets" {
+			presetsNode = root.Content[i+1]
+			break
+		}
+	}
+	if presetsNode == nil {
+		keyNode := &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: "presets"}
+		presetsNode = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		root.Content = append(root.Content, keyNode, presetsNode)
+	} else if presetsNode.Kind != yaml.SequenceNode {
+		presetsNode.Kind = yaml.SequenceNode
+		presetsNode.Tag = "!!seq"
+		presetsNode.Content = nil
+	}
+
+	// 构造 flow-style values mapping（key 字母序，输出稳定）
+	keys := make([]string, 0, len(values))
+	for k := range values {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	valuesNode := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map", Style: yaml.FlowStyle}
+	for _, k := range keys {
+		valuesNode.Content = append(valuesNode.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: k},
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: values[k]},
+		)
+	}
+
+	// 删除同名 preset（覆盖语义：删旧 + 追加新，位置移到末尾）
+	kept := presetsNode.Content[:0]
+	for _, item := range presetsNode.Content {
+		if item.Kind == yaml.MappingNode && presetNameOf(item) == name {
+			continue
+		}
+		kept = append(kept, item)
+	}
+	presetsNode.Content = kept
+	presetsNode.Content = append(presetsNode.Content, newPresetMapping(name, description, valuesNode))
+
+	return encodeYAMLNode(&root)
+}
+
+// presetNameOf 从 preset mapping 节点取 name 字段值。
+func presetNameOf(item *yaml.Node) string {
+	for i := 0; i+1 < len(item.Content); i += 2 {
+		if item.Content[i].Value == "name" {
+			return item.Content[i+1].Value
+		}
+	}
+	return ""
+}
+
+// newPresetMapping 构造 name → description(非空时) → values 顺序的 mapping 节点。
+func newPresetMapping(name, description string, valuesNode *yaml.Node) *yaml.Node {
+	m := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	add := func(k string, v *yaml.Node) {
+		m.Content = append(m.Content,
+			&yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: k},
+			v,
+		)
+	}
+	add("name", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: name})
+	if description != "" {
+		add("description", &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: description})
+	}
+	add("values", valuesNode)
+	return m
+}
+
+// encodeYAMLNode 以 2 空格缩进序列化节点。
+func encodeYAMLNode(root *yaml.Node) ([]byte, error) {
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(root); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
