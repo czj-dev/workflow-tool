@@ -1,4 +1,6 @@
 import { useRef } from "react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Tag01Icon } from "@hugeicons/core-free-icons";
 import {
   SidebarMenuSub,
   SidebarMenuSubItem,
@@ -36,7 +38,7 @@ export function PresetList({ action }: { action: ActionItem }) {
 
   return (
     <SidebarMenuSub>
-      {action.presets.map((p, i) => (
+      {action.presets.map((p) => (
         <SidebarMenuSubItem key={p.name}>
           <SidebarMenuButton
             size="sm"
@@ -45,9 +47,11 @@ export function PresetList({ action }: { action: ActionItem }) {
             onClick={() => handleClick(p.name)}
             onDoubleClick={() => handleDoubleClick(p.values)}
           >
-            <span className="flex size-5 shrink-0 items-center justify-center rounded text-xs font-medium bg-sidebar-accent text-sidebar-accent-foreground">
-              {i + 1}
-            </span>
+            <HugeiconsIcon
+              icon={Tag01Icon}
+              strokeWidth={1.75}
+              className="size-4 shrink-0 text-muted-foreground"
+            />
             <span>{p.name}</span>
           </SidebarMenuButton>
         </SidebarMenuSubItem>
