@@ -25,6 +25,9 @@ frontend/bindings/
 .vscode/
 *.swp
 
+# Claude Code（本地 skill / 工具配置，不入仓库）
+.claude/
+
 # OS
 .DS_Store
 Thumbs.db
