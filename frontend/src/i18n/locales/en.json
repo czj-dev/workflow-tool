@@ -4,6 +4,7 @@
   "sidebar.brand": "Workflow Tool",
   "sidebar.config": "Config",
   "sidebar.language": "Language",
+  "sidebar.theme": "Theme",
   "main.selectAction": "Select an action",
   "main.stop": "Stop",
   "main.clear": "Clear",
@@ -46,5 +47,8 @@
   "edit.empty": "(No actions. Put yaml in actions/)",
   "edit.runAfterSave": "Saved. Takes effect on next run.",
   "edit.tooltip": "Edit yaml",
-  "edit.exit": "Exit edit"
+  "edit.exit": "Exit edit",
+  "theme.light": "Light",
+  "theme.dark": "Dark",
+  "theme.system": "System"
 }
