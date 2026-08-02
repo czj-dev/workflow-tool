@@ -11,11 +11,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  InputGroup,
-  InputGroupAddon,
-  InputGroupInput,
-} from "@/components/ui/input-group";
+import { ButtonGroup } from "@/components/ui/button-group";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { SavePresetDialog } from "./SavePresetDialog";
 
@@ -98,31 +94,28 @@ export function ParamForm() {
         }
 
         if (p.type === "path") {
-          // 目录选择按钮作为 inline-end addon；InputGroupInput 透传 id → getByLabelText 可命中
+          // Input + 选择按钮连体（ButtonGroup：相邻子项共享圆角、去中间边框）；Input 透传 id → getByLabelText 可命中
           return (
             <Field key={p.id}>
               <FieldLabel htmlFor={p.id}>{renderLabel(p)}</FieldLabel>
-              <InputGroup>
-                <InputGroupInput
+              <ButtonGroup>
+                <Input
                   id={p.id}
                   value={formValues[p.id] ?? p.default ?? ""}
                   onChange={(e) => setFormValue(p.id, e.target.value)}
                   onDrop={(e) => onDrop(e, p.id)}
                   onDragOver={(e) => e.preventDefault()}
                 />
-                <InputGroupAddon align="inline-end">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={async () => {
-                      const d = await pickDirectory();
-                      if (d) setFormValue(p.id, d);
-                    }}
-                  >
-                    {t("main.choose")}
-                  </Button>
-                </InputGroupAddon>
-              </InputGroup>
+                <Button
+                  variant="outline"
+                  onClick={async () => {
+                    const d = await pickDirectory();
+                    if (d) setFormValue(p.id, d);
+                  }}
+                >
+                  {t("main.choose")}
+                </Button>
+              </ButtonGroup>
             </Field>
           );
         }
