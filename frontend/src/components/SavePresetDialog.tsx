@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useActionRunner } from "../hooks/useActionRunner";
 import {
@@ -34,6 +34,12 @@ export function SavePresetDialog({
     setDesc("");
     setError("");
   };
+
+  // 打开时重置，避免跨动作残留状态泄漏
+  useEffect(() => {
+    if (open) reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
 
   const handleClose = () => {
     reset();

@@ -31,6 +31,9 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   GetFragments: vi.fn().mockResolvedValue([]),
   SetFragments: vi.fn().mockResolvedValue(undefined),
   PickDirectory: mockPickDirectory,
+  OpenActionsDir: vi.fn().mockResolvedValue(undefined),
+  GetActionYaml: vi.fn().mockResolvedValue(""),
+  SetActionYaml: vi.fn().mockResolvedValue({ actions: [], errors: [] }),
   AddPreset: vi.fn().mockResolvedValue({ actions: [], errors: [] }),
 }));
 

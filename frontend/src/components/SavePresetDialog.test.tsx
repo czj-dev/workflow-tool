@@ -76,7 +76,7 @@ describe("SavePresetDialog", () => {
     await user.type(await screen.findByLabelText(/名称/), "我的预设");
     await user.click(screen.getByRole("button", { name: "保存" }));
     await screen.findByText(/名称/); // 等一拍让 async 完成
-    expect(mockAddPreset).toHaveBeenCalled();
+    expect(mockAddPreset).toHaveBeenCalledWith("a1", "我的预设", "", {});
     expect(onClose).toHaveBeenCalled();
   });
 });

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -324,6 +325,55 @@ func TestAddPresetToYAML_OverwriteSameName(t *testing.T) {
 func TestAddPresetToYAML_EmptyName(t *testing.T) {
 	if _, err := AddPresetToYAML([]byte("id: a\ntitle: A\n"), "  ", "", nil); err == nil {
 		t.Fatal("空 name 应报错")
+	}
+}
+
+func TestAddPresetToYAML_OverwriteMovesToEnd(t *testing.T) {
+	in := []byte("id: a\ntitle: A\npresets:\n  - name: A1\n    values: {K: 1}\n  - name: B1\n    values: {K: 2}\n  - name: C1\n    values: {K: 3}\ncommand:\n  shell: echo\n")
+	out, err := AddPresetToYAML(in, "B1", "", map[string]string{"K": "new"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	def, _ := ParseAction(out)
+	if len(def.Presets) != 3 {
+		t.Fatalf("want 3 presets, got %d", len(def.Presets))
+	}
+	// 覆盖 B1 → 删旧 + 追加，顺序应为 [A1, C1, B1]
+	order := []string{def.Presets[0].Name, def.Presets[1].Name, def.Presets[2].Name}
+	want := []string{"A1", "C1", "B1"}
+	for i := range want {
+		if order[i] != want[i] {
+			t.Fatalf("顺序应为 %v, got %v", want, order)
+		}
+	}
+	if def.Presets[2].Values["K"] != "new" {
+		t.Fatalf("B1 值应更新为 new, got %q", def.Presets[2].Values["K"])
+	}
+}
+
+func TestAddPresetToYAML_PreservesStandardFormat(t *testing.T) {
+	// 2 空格缩进、无 quote 的标准格式是仓库动作 yaml 的主流形态；
+	// 锁住 round-trip 后原 id/title/command/params 行原样保留、缩进仍为 2 空格。
+	in := []byte("id: a\ntitle: A\nparams:\n  - id: URL\n    label: 网址\n    type: text\ncommand:\n  shell: echo ${URL}\n")
+	out, err := AddPresetToYAML(in, "p1", "描述", map[string]string{"URL": "x"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(out)
+	for _, want := range []string{
+		"id: a\n",
+		"title: A\n",
+		"  - id: URL\n",
+		"    type: text\n",
+		"  shell: echo ${URL}\n",
+	} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("round-trip 后应保留 %q, got:\n%s", want, s)
+		}
+	}
+	// 新 preset 在末尾、含 description + flow values（标准 2 空格缩进 list）
+	if !strings.Contains(s, "  - name: p1\n") || !strings.Contains(s, "    description: 描述\n") {
+		t.Fatalf("新 preset 块缺失, got:\n%s", s)
 	}
 }
 
