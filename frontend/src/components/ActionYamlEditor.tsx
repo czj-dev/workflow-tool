@@ -66,7 +66,10 @@ export function ActionYamlEditor() {
     return () => {
       cancelled = true;
     };
-  }, [editingId, getActionYaml]);
+    // getActionYaml 来自 context 且 Provider 未 memoize，每次渲染产生新引用；
+    // 它行为稳定（仅透传 binding），故仅依赖 editingId，避免 Provider 重渲染覆盖未保存编辑。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editingId]);
 
   const onReset = async () => {
     if (!editingId) return;
@@ -149,6 +152,7 @@ export function ActionYamlEditor() {
         onChange={(e) => {
           setText(e.target.value);
           setDirty(true);
+          setNotice(null);
         }}
       />
       {error && (

@@ -99,4 +99,29 @@ describe("ActionYamlEditor", () => {
     expect(await screen.findByText(/无 Action/)).toBeInTheDocument();
     expect(screen.queryByRole("textbox")).toBeNull();
   });
+
+  it("Provider 重渲染不覆盖未保存编辑（回归）", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <SidebarProvider>
+        <ActionRunnerProvider>
+          <ActionYamlEditor />
+        </ActionRunnerProvider>
+      </SidebarProvider>
+    );
+    const ta = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
+    await waitFor(() => expect(ta.value).toContain("echo hi"));
+    await user.type(ta, "{End}x");
+    const edited = ta.value;
+    expect(edited).not.toBe("# 注释\nid: a\ntitle: 动作A\ncommand:\n  shell: echo hi\n");
+    // 强制 Provider 重渲染 → getActionYaml 新引用；修复前 effect 会重跑覆盖，修复后保留
+    rerender(
+      <SidebarProvider>
+        <ActionRunnerProvider>
+          <ActionYamlEditor />
+        </ActionRunnerProvider>
+      </SidebarProvider>
+    );
+    expect(ta.value).toBe(edited);
+  });
 });
