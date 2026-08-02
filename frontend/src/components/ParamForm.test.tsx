@@ -31,6 +31,7 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   GetFragments: vi.fn().mockResolvedValue([]),
   SetFragments: vi.fn().mockResolvedValue(undefined),
   PickDirectory: mockPickDirectory,
+  AddPreset: vi.fn().mockResolvedValue({ actions: [], errors: [] }),
 }));
 
 vi.mock("@wailsio/runtime", () => ({ Events: { On: mockOn } }));
@@ -113,5 +114,18 @@ describe("ParamForm", () => {
       "a1",
       expect.objectContaining({ URL: "https://x.com" })
     );
+  });
+
+  it("渲染保存按钮并可打开保存弹窗", async () => {
+    const user = userEvent.setup();
+    render(
+      <ActionRunnerProvider>
+        <Harness />
+      </ActionRunnerProvider>
+    );
+    const saveBtn = await screen.findByRole("button", { name: "保存" });
+    expect(saveBtn).not.toBeDisabled();
+    await user.click(saveBtn);
+    expect(await screen.findByText(/保存为预设/)).toBeInTheDocument();
   });
 });

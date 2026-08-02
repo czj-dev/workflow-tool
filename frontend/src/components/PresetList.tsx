@@ -41,7 +41,7 @@ export function PresetList({ action }: { action: ActionItem }) {
           <SidebarMenuButton
             size="sm"
             isActive={currentId === action.id && selectedPreset === p.name}
-            tooltip={p.name}
+            tooltip={p.description || p.name}
             onClick={() => handleClick(p.name)}
             onDoubleClick={() => handleDoubleClick(p.values)}
           >

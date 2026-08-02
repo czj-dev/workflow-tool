@@ -12,6 +12,7 @@
   "main.copied": "已复制",
   "main.choose": "选择",
   "main.run": "运行",
+  "main.save": "保存",
   "llm.thinking": "思考中…",
   "empty.noActions": "（无动作，在 actions/ 放 YAML）",
   "error.loadFailed": "加载失败",

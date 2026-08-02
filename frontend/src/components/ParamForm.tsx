@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +17,7 @@ import {
   InputGroupInput,
 } from "@/components/ui/input-group";
 import { useActionRunner } from "../hooks/useActionRunner";
+import { SavePresetDialog } from "./SavePresetDialog";
 
 // ParamForm 按当前动作的 ParamSpec 渲染表单（text/bool/select/path），
 // required 校验控制「运行」按钮，path 支持「选择」按钮与拖拽填值。提交调 runAction(id, formValues)。
@@ -24,6 +26,7 @@ export function ParamForm() {
   const { actions, currentId, formValues, setFormValue, runAction, pickDirectory } =
     useActionRunner();
   const action = actions.find((a) => a.id === currentId);
+  const [saveOpen, setSaveOpen] = useState(false);
   if (!action || !action.params || action.params.length === 0) return null;
 
   // required 校验：所有 required 参数都已填非空
@@ -141,6 +144,10 @@ export function ParamForm() {
       <Button disabled={!canRun} onClick={onRun}>
         {t("main.run")}
       </Button>
+      <Button variant="outline" onClick={() => setSaveOpen(true)}>
+        {t("main.save")}
+      </Button>
+      <SavePresetDialog open={saveOpen} onClose={() => setSaveOpen(false)} />
     </FieldGroup>
   );
 }

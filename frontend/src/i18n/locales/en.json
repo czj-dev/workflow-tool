@@ -12,6 +12,7 @@
   "main.copied": "Copied",
   "main.choose": "Choose",
   "main.run": "Run",
+  "main.save": "Save",
   "llm.thinking": "Thinking…",
   "empty.noActions": "(No actions. Put YAML in actions/)",
   "error.loadFailed": "Load failed",
