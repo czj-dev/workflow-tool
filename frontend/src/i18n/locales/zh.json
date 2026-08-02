@@ -3,6 +3,7 @@
   "sidebar.openDir": "打开 actions 目录",
   "sidebar.brand": "Workflow Tool",
   "sidebar.config": "配置",
+  "sidebar.language": "语言",
   "main.selectAction": "选择一个动作",
   "main.stop": "停止",
   "main.clear": "清空",

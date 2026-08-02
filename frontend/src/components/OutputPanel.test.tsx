@@ -36,8 +36,6 @@ describe("OutputPanel", () => {
     expect(screen.getByText("停止")).toBeInTheDocument();
     expect(screen.getByText("清空")).toBeInTheDocument();
     expect(screen.getByText("复制")).toBeInTheDocument();
-    // 语言切换默认显示 EN（当前中文）
-    expect(screen.getByText("EN")).toBeInTheDocument();
   });
 
   it("点击标题进入编辑视图", async () => {

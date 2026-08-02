@@ -6,7 +6,6 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Edit02Icon } from "@hugeicons/core-free-icons";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { ActionIcon } from "./ActionIcon";
-import { LangSwitch } from "./LangSwitch";
 
 // 输出区工具栏：折叠触发 + 当前动作标题 + 停止/清空/复制 + 语言切换
 export function OutputToolbar() {
@@ -66,7 +65,6 @@ export function OutputToolbar() {
         >
           {t("main.stop")}
         </Button>
-        <LangSwitch />
       </div>
     </header>
   );

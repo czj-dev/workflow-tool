@@ -15,6 +15,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Alert02Icon,
   FlashIcon,
+  Globe02Icon,
   NoteIcon,
   Settings02Icon,
 } from "@hugeicons/core-free-icons";
@@ -25,7 +26,7 @@ import { ActionItem } from "./ActionItem";
 
 // 左侧可折叠侧边栏：渲染动作列表 + 加载错误 + 底部「片段 / 全局配置」入口
 export function AppSidebar() {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
   const { actions, errors, setView, openActionsDir } = useActionRunner();
 
   return (
@@ -110,6 +111,23 @@ export function AppSidebar() {
                 className="size-4 shrink-0"
               />
               <span>{t("global.title")}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              onClick={() => {
+                const next = i18n.language?.startsWith("zh") ? "en" : "zh";
+                i18n.changeLanguage(next);
+                localStorage.setItem("lang", next);
+              }}
+              tooltip={t("sidebar.language")}
+            >
+              <HugeiconsIcon
+                icon={Globe02Icon}
+                strokeWidth={1.75}
+                className="size-4 shrink-0"
+              />
+              <span>{i18n.language?.startsWith("zh") ? "中文" : "English"}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

@@ -3,6 +3,7 @@
   "sidebar.openDir": "Open actions folder",
   "sidebar.brand": "Workflow Tool",
   "sidebar.config": "Config",
+  "sidebar.language": "Language",
   "main.selectAction": "Select an action",
   "main.stop": "Stop",
   "main.clear": "Clear",
