@@ -27,6 +27,8 @@ frontend/bindings/
 
 # Claude Code（本地 skill / 工具配置，不入仓库）
 .claude/
+.agents/
+skills-lock.json
 
 # OS
 .DS_Store
