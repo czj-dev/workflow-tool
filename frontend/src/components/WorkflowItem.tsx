@@ -1,10 +1,6 @@
 import { useRef } from "react";
 import { HugeiconsIcon } from "@hugeicons/react";
-import {
-  Cancel01Icon,
-  Loading03Icon,
-  Tick02Icon,
-} from "@hugeicons/core-free-icons";
+import { Cancel01Icon, Tick02Icon } from "@hugeicons/core-free-icons";
 import {
   SidebarMenuItem,
   SidebarMenuButton,
@@ -19,6 +15,7 @@ const DOUBLE_CLICK_DELAY = 250; // ms
 // 侧边栏单个 workflow 项：
 // 单击 —— 有 params 进配置表单，无 params 直接运行。
 // 双击 —— 始终直接运行（用默认参数）。
+// 运行指示用 Live Pulse；完成用 success 色。
 export function WorkflowItem({ workflow }: { workflow: WorkflowItemType }) {
   const { currentId, status, view, runWorkflow, selectWorkflow, setView } =
     useActionRunner();
@@ -54,17 +51,13 @@ export function WorkflowItem({ workflow }: { workflow: WorkflowItemType }) {
     runWorkflow(workflow.id, {});
   };
 
-  const statusIcon = isRunning ? (
-    <HugeiconsIcon
-      icon={Loading03Icon}
-      strokeWidth={1.75}
-      className="size-3.5 animate-spin text-muted-foreground"
-    />
+  const statusNode = isRunning ? (
+    <span className="size-1.5 shrink-0 rounded-full bg-primary live-pulse" />
   ) : isCurrent && status === "done" ? (
     <HugeiconsIcon
       icon={Tick02Icon}
       strokeWidth={1.75}
-      className="size-3.5 text-muted-foreground"
+      className="size-3.5 text-success"
     />
   ) : isCurrent && status === "error" ? (
     <HugeiconsIcon
@@ -81,10 +74,17 @@ export function WorkflowItem({ workflow }: { workflow: WorkflowItemType }) {
         tooltip={workflow.description || workflow.title}
         onClick={handleClick}
         onDoubleClick={handleDoubleClick}
+        className={
+          isCurrent
+            ? "relative before:absolute before:left-0 before:top-1.5 before:bottom-1.5 before:w-0.5 before:rounded-full before:bg-primary before:content-['']"
+            : ""
+        }
       >
         <ActionIcon name={workflow.icon || "hi:workflow"} className="shrink-0" />
         <span>{workflow.title}</span>
-        {statusIcon && <SidebarMenuBadge>{statusIcon}</SidebarMenuBadge>}
+        {statusNode && (
+          <SidebarMenuBadge className="right-2.5">{statusNode}</SidebarMenuBadge>
+        )}
       </SidebarMenuButton>
     </SidebarMenuItem>
   );

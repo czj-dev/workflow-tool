@@ -57,6 +57,7 @@
   "preset.cancel": "Cancel",
   "preset.confirm": "Save",
   "sidebar.workflows": "Workflows",
+  "workflow.steps": "Pipeline",
   "workflow.running": "Running",
   "workflow.done": "Done",
   "workflow.error": "Failed",

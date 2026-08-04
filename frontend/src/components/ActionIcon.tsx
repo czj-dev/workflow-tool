@@ -20,7 +20,7 @@ import {
   TextIcon,
   Tick02Icon,
   VoiceIcon,
-  WorkflowSquare01Icon,
+  FlowIcon,
 } from "@hugeicons/core-free-icons";
 import { cn } from "@/lib/utils";
 
@@ -31,7 +31,7 @@ const REGISTRY = {
   settings: Settings02Icon,
   alert: Alert02Icon,
   note: NoteIcon,
-  workflow: WorkflowSquare01Icon,
+  workflow: FlowIcon,
   flash: FlashIcon,
   voice: VoiceIcon,
   mic: Mic01Icon,

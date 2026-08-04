@@ -1,7 +1,7 @@
 id: demo-param-echo
 title: 参数化测试工作流
 icon: hi:workflow
-description: "演示 workflow 参数：打印参数 → 等待 1s → 再打印"
+description: "演示全部视觉效果：参数表单 → 多步骤管线 → stdout/stderr 分层 → 成败状态"
 params:
   - id: WF_MSG
     label: 消息
@@ -15,7 +15,21 @@ params:
     options:
       - fast
       - slow
+  - id: WF_VERBOSE
+    label: 详细日志
+    type: bool
+    default: "true"
+  - id: WF_OUTDIR
+    label: 输出目录
+    type: path
+    default: ""
 steps:
-  - shell: echo "msg=${WF_MSG} mode=${WF_MODE}"
-  - sleep: 1
-  - shell: echo "done ${WF_MSG}"
+  # 1. 回显参数（stdout，成功）——验证参数表单 + done 态 + 普通日志
+  - shell: echo "msg=${WF_MSG} mode=${WF_MODE} verbose=${WF_VERBOSE} out=${WF_OUTDIR}"
+  # 2. 等待 2s（sleep kind）——验证等待态 + 流光/涟漪持续时间
+  - sleep: 2
+  # 3. 推进输出（stdout，成功）——多一个 done 步骤，让管线有连续成功段
+  - shell: echo "步骤推进：处理完成"
+  # 4. 故意失败（stderr + 非零退出）——验证 error 态 + stderr 红色分层
+  # PowerShell: Write-Error 写 stderr；exit 1 让退出码非 0
+  - shell: Write-Error "演示失败：这是一条 stderr 输出"; exit 1

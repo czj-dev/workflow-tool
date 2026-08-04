@@ -29,6 +29,9 @@ import { useTheme } from "@/components/theme-provider";
 import { ActionItem } from "./ActionItem";
 import { WorkflowItem } from "./WorkflowItem";
 
+// 等宽大写 eyebrow：控制台分区标签，结构即信息
+const EYEBROW = "font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80";
+
 // 左侧可折叠侧边栏：渲染工作流 + 动作列表 + 加载错误 + 底部「片段 / 全局配置」入口
 export function AppSidebar() {
   const { t, i18n } = useTranslation();
@@ -66,7 +69,7 @@ export function AppSidebar() {
                 />
               </span>
               <div className="flex flex-col gap-0.5 leading-none">
-                <span className="text-base font-semibold">
+                <span className="text-sm font-semibold font-mono uppercase tracking-[0.14em]">
                   {t("sidebar.brand")}
                 </span>
                 <span className="text-xs text-muted-foreground">
@@ -79,7 +82,9 @@ export function AppSidebar() {
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>{t("sidebar.workflows")}</SidebarGroupLabel>
+          <SidebarGroupLabel className={EYEBROW}>
+            {t("sidebar.workflows")}
+          </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {workflows.length === 0 && workflowErrors.length === 0 && (
@@ -102,7 +107,9 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
         <SidebarGroup>
-          <SidebarGroupLabel>{t("sidebar.title")}</SidebarGroupLabel>
+          <SidebarGroupLabel className={EYEBROW}>
+            {t("sidebar.title")}
+          </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
               {actions.length === 0 && errors.length === 0 && (
@@ -126,7 +133,9 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter>
-        <SidebarGroupLabel>{t("sidebar.config")}</SidebarGroupLabel>
+        <SidebarGroupLabel className={EYEBROW}>
+          {t("sidebar.config")}
+        </SidebarGroupLabel>
         <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
