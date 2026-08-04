@@ -49,6 +49,7 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   GetGlobalConfig: mockGetGlobalConfig,
   SetGlobalConfig: mockSetGlobalConfig,
   GetFragments: vi.fn().mockResolvedValue([]),
+  GetVarReferenceCounts: vi.fn().mockResolvedValue({}),
   SetFragments: vi.fn().mockResolvedValue(undefined),
   PickDirectory: mockPickDirectory,
   GetActionYaml: mockGetActionYaml,

@@ -24,13 +24,7 @@ export function OutputPanel() {
       </main>
     );
   }
-  if (view === "global") {
-    return (
-      <main className="flex min-w-0 flex-1 flex-col">
-        <GlobalConfigEditor />
-      </main>
-    );
-  }
+  if (view === "global") return <GlobalConfigEditor />;
   if (view === "fragments") return <FragmentsView />;
   if (view === "llm") return <LlmView />;
   if (view === "form") {

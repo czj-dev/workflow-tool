@@ -2,6 +2,8 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { FieldGroup } from "@/components/ui/field";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { PlayIcon } from "@hugeicons/core-free-icons";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { ParamFields } from "./ParamFields";
 import { missingRequired } from "../lib/params";
@@ -48,9 +50,12 @@ export function WorkflowParamForm() {
               values={workflowFormValues}
               setValue={setWorkflowFormValue}
             />
-            <Button disabled={!canRun} onClick={onRun}>
-              {t("main.run")}
-            </Button>
+            <div className="flex items-center justify-end">
+              <Button disabled={!canRun} onClick={onRun}>
+                <HugeiconsIcon icon={PlayIcon} strokeWidth={1.75} className="size-4" />
+                {t("main.run")}
+              </Button>
+            </div>
           </FieldGroup>
         )}
       </div>

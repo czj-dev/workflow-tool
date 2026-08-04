@@ -8,12 +8,21 @@ Workflow Tool：基于 **Wails v3 (alpha2.119) + Go** 的桌面工具。用 YAML
 
 ## 关键命令
 
-构建（**顺序不能乱**——前端产物 embed 进二进制，binding 由 api.go 生成）：
+构建（已封装为 `build/` 脚本，Windows 用 Git Bash，跨 macOS/Linux）：
 ```bash
-cd frontend && npm install && npm run build && cd ..   # 产出 frontend/dist/
-wails3 generate bindings                                # 改 api.go 后必须重跑，否则前端 method ID 不匹配
-go build -ldflags "-H windowsgui" -o workflow-tool.exe . # -H windowsgui 仅 Windows，隐藏控制台
+bash build/build.sh        # 一键全量：前端 → bindings → 单二进制（平台自适应）
+bash build/frontend.sh     # 仅前端（依赖缺则 npm install；bindings 缺则自动生成）
+bash build/backend.sh      # 仅后端（bindings + go build；Windows 自动 windowsgui + taskkill 释放占用）
 ```
+
+构建**顺序不能乱**——前端产物 embed 进二进制，binding 由 api.go 生成（脚本已按此顺序编排）：
+```bash
+cd frontend && npm install && npm run build && cd ..    # 1. 产出 frontend/dist/（前端 import bindings，故 bindings 须先就绪）
+wails3 generate bindings                                 # 2. 改 api.go 后必须重跑，否则前端 method ID 不匹配
+go build -ldflags "-H windowsgui" -o workflow-tool.exe . # 3. -H windowsgui 仅 Windows，隐藏控制台
+```
+
+详见 [build/README.md](build/README.md)。
 
 测试：
 ```bash
@@ -51,6 +60,6 @@ internal/api/       Wails Service 绑定 + 事件 emit（唯一依赖 Wails 的�
 
 ## 改动注意
 
-- 改 `internal/api/api.go` 的 Service 方法签名/类型后，**必须** `wails3 generate bindings` → `npm run build` → `go build`，否则前端调用报 "method ID not found"。
+- 改 `internal/api/api.go` 的 Service 方法签名/类型后，**必须** `wails3 generate bindings` → `npm run build` → `go build`（或直接 `bash build/build.sh`），否则前端调用报 "method ID not found"。
 - 锁定 Wails `v3.0.0-alpha2.119`（CLI 与库同版本），**不要升到 alpha.3**（绑定机制损坏）。README 底部有 alpha2 API 速查表。
 - 新增前端静态文案只改 `frontend/src/i18n/locales/{zh,en}.json`；动作 `title/description` 与后端 stdout/stderr 不参与 i18n。

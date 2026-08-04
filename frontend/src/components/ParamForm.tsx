@@ -2,6 +2,8 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { FieldGroup } from "@/components/ui/field";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { PlayIcon } from "@hugeicons/core-free-icons";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { SavePresetDialog } from "./SavePresetDialog";
 import { ParamFields } from "./ParamFields";
@@ -35,12 +37,15 @@ export function ParamForm() {
         values={formValues}
         setValue={setFormValue}
       />
-      <Button disabled={!canRun} onClick={onRun}>
-        {t("main.run")}
-      </Button>
-      <Button variant="outline" onClick={() => setSaveOpen(true)}>
-        {t("main.save")}
-      </Button>
+      <div className="flex items-center justify-end gap-2">
+        <Button variant="outline" onClick={() => setSaveOpen(true)}>
+          {t("main.save")}
+        </Button>
+        <Button disabled={!canRun} onClick={onRun}>
+          <HugeiconsIcon icon={PlayIcon} strokeWidth={1.75} className="size-4" />
+          {t("main.run")}
+        </Button>
+      </div>
       <SavePresetDialog open={saveOpen} onClose={() => setSaveOpen(false)} />
     </FieldGroup>
   );

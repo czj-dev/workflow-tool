@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sync"
 	"time"
@@ -271,6 +272,64 @@ func (s *Service) SetFragments(list []registry.Fragment) error {
 	}
 	s.fragments = list
 	return nil
+}
+
+// varRefRe 匹配变量引用：${VAR}（runner.Expand / sh）或 $env:VAR（PowerShell）。
+var varRefRe = regexp.MustCompile(`\$\{([A-Za-z0-9_]+)\}|\$env:([A-Za-z0-9_]+)`)
+
+// GetVarReferenceCounts 统计每个变量被多少处引用：
+// 所有 action 的 shell 命令 + script 脚本文件内容 + 指令片段。
+// 同一处（一个 action 或一个片段）内重复引用只计一次，体现「是否被用到」。
+func (s *Service) GetVarReferenceCounts() map[string]int {
+	counts := make(map[string]int)
+	add := func(text string) {
+		seen := make(map[string]bool)
+		for _, m := range varRefRe.FindAllStringSubmatch(text, -1) {
+			name := m[1]
+			if name == "" {
+				name = m[2] // $env:VAR 分支
+			}
+			if !seen[name] {
+				seen[name] = true
+				counts[name]++
+			}
+		}
+	}
+	// actions：inline shell + script 脚本文件内容
+	for _, la := range s.reg.Actions {
+		add(la.Def.Command.Shell)
+		if la.Def.Command.Script != "" {
+			if data, ok := readScriptBytes(la.Def.Command.Script, s.baseDir); ok {
+				add(string(data))
+			}
+		}
+	}
+	// fragments
+	s.fMu.Lock()
+	for _, f := range s.fragments {
+		add(f.Content)
+	}
+	s.fMu.Unlock()
+	return counts
+}
+
+// readScriptBytes 读取 script 脚本内容（.sh 与 .ps1 都读并合并），相对路径基于 baseDir。
+// 两份都读是为了与运行平台解耦——统计的是「变量名是否被引用」，与实际执行哪个脚本无关。
+// 两个后缀都读不到（路径含变量、文件缺失）则返回 false。
+func readScriptBytes(script, baseDir string) ([]byte, bool) {
+	p := script
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(baseDir, p)
+	}
+	var data []byte
+	found := false
+	for _, ext := range []string{".sh", ".ps1"} {
+		if d, err := os.ReadFile(p + ext); err == nil {
+			data = append(data, d...)
+			found = true
+		}
+	}
+	return data, found
 }
 
 func (s *Service) execute(ctx context.Context, id string, la registry.LoadedAction, params map[string]any) {

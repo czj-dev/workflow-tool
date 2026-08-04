@@ -13,6 +13,7 @@ import {
   CancelAction,
   GetGlobalConfig,
   SetGlobalConfig,
+  GetVarReferenceCounts,
   GetFragments,
   SetFragments,
   PickDirectory,
@@ -54,6 +55,7 @@ export interface RunnerContextValue {
   exitInfo: ExitInfo | null;
   // Phase 3 新增
   globalConfig: Record<string, string>;
+  varRefCounts: Record<string, number | undefined>;
   formValues: Record<string, string>;
   view:
     | "output"
@@ -126,6 +128,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<Status>("idle");
   const [exitInfo, setExitInfo] = useState<ExitInfo | null>(null);
   const [globalConfig, setGlobalConfig] = useState<Record<string, string>>({});
+  const [varRefCounts, setVarRefCounts] = useState<Record<string, number | undefined>>({});
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [view, setView] = useState<
     | "output"
@@ -176,6 +179,14 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     GetFragments()
       .then((list) => setFragments(list ?? []))
       .catch(() => {});
+  }, []);
+
+  // 挂载时拉取变量引用计数（actions + fragments 综合，供全局配置展示）
+  useEffect(() => {
+    GetVarReferenceCounts()
+      .then((m) => setVarRefCounts(m ?? {}))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 挂载时拉取 workflow 列表
@@ -389,6 +400,10 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const saveFragments = async (list: Fragment[]) => {
     await SetFragments(list);
     setFragments(list);
+    // 片段改动影响引用计数，刷新
+    GetVarReferenceCounts()
+      .then((m) => setVarRefCounts(m ?? {}))
+      .catch(() => {});
   };
 
   const getActionYaml = async (id: string): Promise<string> => {
@@ -410,6 +425,10 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     const res = await SetActionYaml(id, text);
     setActions((res && res.actions) || []);
     setErrors((res && res.errors) || []);
+    // action 改动可能改变 ${VAR} 引用，刷新计数
+    GetVarReferenceCounts()
+      .then((m) => setVarRefCounts(m ?? {}))
+      .catch(() => {});
   };
 
   // addPreset：把当前 formValues 存为 currentId 动作的 preset（同名覆盖）。
@@ -454,6 +473,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     status,
     exitInfo,
     globalConfig,
+    varRefCounts,
     formValues,
     view,
     llmText,
