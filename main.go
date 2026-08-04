@@ -11,6 +11,7 @@ import (
 
 	"workflow-tool/internal/api"
 	"workflow-tool/internal/registry"
+	"workflow-tool/internal/workflow"
 )
 
 //go:embed all:frontend/dist
@@ -19,7 +20,8 @@ var assets embed.FS
 func main() {
 	baseDir := exeDir()
 	reg := registry.Load(filepath.Join(baseDir, "actions"), baseDir)
-	svc := api.New(reg, baseDir, filepath.Join(baseDir, "config.yaml"), filepath.Join(baseDir, "fragments.yaml"))
+	wfReg := workflow.Load(filepath.Join(baseDir, "workflows"))
+	svc := api.New(reg, wfReg, baseDir, filepath.Join(baseDir, "config.yaml"), filepath.Join(baseDir, "fragments.yaml"))
 
 	distFS, err := fs.Sub(assets, "frontend/dist")
 	if err != nil {

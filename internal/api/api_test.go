@@ -17,7 +17,7 @@ func TestRunActionMergesGlobalAndParams(t *testing.T) {
 	registry.SaveGlobal(cfgPath, map[string]string{"OUTPUT_DIR": "D:/pages", "NAME": "global-name"})
 
 	reg := registry.Load(dir, dir) // 空动作，仅用于占位
-	svc := New(reg, dir, cfgPath, fragPath)
+	svc := New(reg, nil, dir, cfgPath, fragPath)
 
 	// 直接测 merge 逻辑（不实际 exec）
 	merged := svc.mergeGlobalAndParams(map[string]any{"NAME": "param-name"})
@@ -33,7 +33,7 @@ func TestGetAndSetGlobalConfig(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")
 	fragPath := filepath.Join(dir, "fragments.yaml")
-	svc := New(registry.Load(dir, dir), dir, cfgPath, fragPath)
+	svc := New(registry.Load(dir, dir), nil, dir, cfgPath, fragPath)
 
 	if err := svc.SetGlobalConfig(map[string]string{"OUTPUT_DIR": "D:/new"}); err != nil {
 		t.Fatal(err)
@@ -66,7 +66,7 @@ command:
   shell: echo ${URL}
 `), 0644)
 
-	svc := New(registry.Load(dir, dir), dir, cfgPath, filepath.Join(dir, "fragments.yaml"))
+	svc := New(registry.Load(dir, dir), nil, dir, cfgPath, filepath.Join(dir, "fragments.yaml"))
 	res := svc.ListActions()
 	if len(res.Actions) != 1 {
 		t.Fatalf("want 1 action, got %d", len(res.Actions))
@@ -90,7 +90,7 @@ command:
   stream: llm
 `), 0644)
 
-	svc := New(registry.Load(dir, dir), dir, cfgPath, filepath.Join(dir, "fragments.yaml"))
+	svc := New(registry.Load(dir, dir), nil, dir, cfgPath, filepath.Join(dir, "fragments.yaml"))
 	res := svc.ListActions()
 	if len(res.Actions) != 1 {
 		t.Fatalf("want 1 action, got %d", len(res.Actions))
@@ -105,7 +105,7 @@ func TestGetActionYamlReturnsRawWithComments(t *testing.T) {
 	ad := filepath.Join(dir, "actions")
 	os.Mkdir(ad, 0755)
 	os.WriteFile(filepath.Join(ad, "a.yaml"), []byte("# 注释\nid: a\ntitle: A\ncommand:\n  shell: echo hi\n"), 0644)
-	svc := New(registry.Load(ad, dir), dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
+	svc := New(registry.Load(ad, dir), nil, dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
 	got, err := svc.GetActionYaml("a")
 	if err != nil {
 		t.Fatal(err)
@@ -120,7 +120,7 @@ func TestSetActionYamlValidWritesAndReloads(t *testing.T) {
 	ad := filepath.Join(dir, "actions")
 	os.Mkdir(ad, 0755)
 	os.WriteFile(filepath.Join(ad, "a.yaml"), []byte("id: a\ntitle: A\ncommand:\n  shell: echo hi\n"), 0644)
-	svc := New(registry.Load(ad, dir), dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
+	svc := New(registry.Load(ad, dir), nil, dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
 	res, err := svc.SetActionYaml("a", "id: a\ntitle: 改名\ncommand:\n  shell: echo bye\n")
 	if err != nil {
 		t.Fatal(err)
@@ -140,7 +140,7 @@ func TestSetActionYamlRejectsBadYAML(t *testing.T) {
 	os.Mkdir(ad, 0755)
 	orig := "id: a\ntitle: A\ncommand:\n  shell: echo hi\n"
 	os.WriteFile(filepath.Join(ad, "a.yaml"), []byte(orig), 0644)
-	svc := New(registry.Load(ad, dir), dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
+	svc := New(registry.Load(ad, dir), nil, dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
 	_, err := svc.SetActionYaml("a", "id: a\n  : : :\n")
 	if err == nil {
 		t.Fatal("非法 yaml 应报错")
@@ -156,7 +156,7 @@ func TestSetActionYamlRejectsValidation(t *testing.T) {
 	ad := filepath.Join(dir, "actions")
 	os.Mkdir(ad, 0755)
 	os.WriteFile(filepath.Join(ad, "a.yaml"), []byte("id: a\ntitle: A\ncommand:\n  shell: echo hi\n"), 0644)
-	svc := New(registry.Load(ad, dir), dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
+	svc := New(registry.Load(ad, dir), nil, dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
 	// 缺 title → Validate 失败
 	_, err := svc.SetActionYaml("a", "id: a\ncommand:\n  shell: echo\n")
 	if err == nil {
@@ -170,7 +170,7 @@ func TestSetActionYamlRejectsIDChange(t *testing.T) {
 	os.Mkdir(ad, 0755)
 	orig := "id: a\ntitle: A\ncommand:\n  shell: echo hi\n"
 	os.WriteFile(filepath.Join(ad, "a.yaml"), []byte(orig), 0644)
-	svc := New(registry.Load(ad, dir), dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
+	svc := New(registry.Load(ad, dir), nil, dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
 	_, err := svc.SetActionYaml("a", "id: b\ntitle: A\ncommand:\n  shell: echo\n")
 	if err == nil {
 		t.Fatal("改 id 应被拒绝")

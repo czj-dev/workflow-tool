@@ -14,6 +14,7 @@ import (
 
 	"workflow-tool/internal/registry"
 	"workflow-tool/internal/runner"
+	"workflow-tool/internal/workflow"
 )
 
 // Service 是暴露给前端的 Wails 服务。
@@ -29,11 +30,14 @@ type Service struct {
 	fMu       sync.Mutex // 保护 fragments 的读写
 	mu        sync.Mutex
 	running   map[string]context.CancelFunc // actionID -> cancel
+	wfReg     *workflow.WorkflowRegistry
+	wfMu      sync.Mutex
+	wfRunning map[string]context.CancelFunc // workflowID -> cancel
 }
 
 // New 创建 service。cfgPath 是全局配置 config.yaml 路径，fragPath 是 fragments.yaml 路径。
 // app 通过 SetApp 在 main 里注入（打破循环依赖）。
-func New(reg *registry.Registry, baseDir, cfgPath, fragPath string) *Service {
+func New(reg *registry.Registry, wfReg *workflow.WorkflowRegistry, baseDir, cfgPath, fragPath string) *Service {
 	g, _ := registry.LoadGlobal(cfgPath)
 	if g == nil {
 		g = map[string]string{}
@@ -41,6 +45,9 @@ func New(reg *registry.Registry, baseDir, cfgPath, fragPath string) *Service {
 	frags, _ := registry.LoadFragments(fragPath)
 	if frags == nil {
 		frags = []registry.Fragment{}
+	}
+	if wfReg == nil {
+		wfReg = &workflow.WorkflowRegistry{Workflows: map[string]workflow.LoadedWorkflow{}}
 	}
 	return &Service{
 		reg:       reg,
@@ -50,6 +57,8 @@ func New(reg *registry.Registry, baseDir, cfgPath, fragPath string) *Service {
 		global:    g,
 		fragments: frags,
 		running:   map[string]context.CancelFunc{},
+		wfReg:     wfReg,
+		wfRunning: map[string]context.CancelFunc{},
 	}
 }
 
@@ -317,4 +326,147 @@ func errStr(err error) string {
 		return ""
 	}
 	return err.Error()
+}
+
+// --- Workflow API ---
+
+// WorkflowItem 是前端可见的 workflow 描述。
+type WorkflowItem struct {
+	ID          string `json:"id"`
+	Title       string `json:"title"`
+	Icon        string `json:"icon"`
+	Description string `json:"description"`
+	StepCount   int    `json:"stepCount"`
+}
+
+// WorkflowListResult 是 ListWorkflows 的返回值。
+type WorkflowListResult struct {
+	Workflows []WorkflowItem `json:"workflows"`
+	Errors    []string       `json:"errors"`
+}
+
+// ListWorkflows 返回全部已加载 workflow + 加载错误。
+func (s *Service) ListWorkflows() WorkflowListResult {
+	items := make([]WorkflowItem, 0, len(s.wfReg.Workflows))
+	for _, lw := range s.wfReg.Workflows {
+		items = append(items, WorkflowItem{
+			ID:          lw.Def.ID,
+			Title:       lw.Def.Title,
+			Icon:        lw.Def.Icon,
+			Description: lw.Def.Description,
+			StepCount:   len(lw.Def.Steps),
+		})
+	}
+	errs := make([]string, 0, len(s.wfReg.Errors))
+	for _, e := range s.wfReg.Errors {
+		errs = append(errs, fmt.Sprintf("%s: %s", e.File, e.Error))
+	}
+	return WorkflowListResult{Workflows: items, Errors: errs}
+}
+
+// RunWorkflow 启动 workflow 执行；同一 workflow 并发运行被拒。
+func (s *Service) RunWorkflow(id string, params map[string]any) error {
+	lw, ok := s.wfReg.Workflows[id]
+	if !ok {
+		return fmt.Errorf("未知 workflow %q", id)
+	}
+	s.wfMu.Lock()
+	if _, running := s.wfRunning[id]; running {
+		s.wfMu.Unlock()
+		return fmt.Errorf("workflow %q 正在运行", id)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.wfRunning[id] = cancel
+	s.wfMu.Unlock()
+
+	go s.executeWorkflow(ctx, id, lw, params)
+	return nil
+}
+
+// CancelWorkflow 取消正在运行的 workflow。
+func (s *Service) CancelWorkflow(id string) {
+	s.wfMu.Lock()
+	cancel, ok := s.wfRunning[id]
+	s.wfMu.Unlock()
+	if ok {
+		cancel()
+	}
+}
+
+// executeWorkflow 在 goroutine 中运行 workflow，输出通过事件流推送。
+func (s *Service) executeWorkflow(ctx context.Context, id string, lw workflow.LoadedWorkflow, params map[string]any) {
+	defer func() {
+		s.wfMu.Lock()
+		delete(s.wfRunning, id)
+		s.wfMu.Unlock()
+	}()
+
+	emit := func(stream, line string) {
+		s.app.Event.Emit(workflowEventName(id, "output"), map[string]string{
+			"stream": stream, "line": line,
+		})
+	}
+
+	merged := s.mergeGlobalAndParams(params)
+	actionRun := s.makeActionRun(ctx, merged)
+	shellRun := s.makeShellRun(ctx, merged)
+
+	res := (&workflow.Executor{}).Execute(ctx, lw, actionRun, shellRun, emit)
+
+	s.app.Event.Emit(workflowEventName(id, "done"), map[string]any{
+		"exitCode": res.ExitCode,
+		"err":      errStr(res.Err),
+		"duration": res.Duration.String(),
+	})
+}
+
+// makeActionRun 构造 workflow 中 action step 的执行回调。
+// merged 是 global+workflow params 合并结果，step params 优先级最高。
+func (s *Service) makeActionRun(ctx context.Context, merged map[string]any) workflow.ActionRunFunc {
+	return func(actionID string, stepParams map[string]any, stepEmit runner.EmitFunc) runner.Result {
+		la, ok := s.reg.Actions[actionID]
+		if !ok {
+			stepEmit("stderr", fmt.Sprintf("未知动作 %q", actionID))
+			return runner.Result{ExitCode: -1, Err: fmt.Errorf("未知动作 %q", actionID)}
+		}
+		runParams := make(map[string]any, len(merged)+len(stepParams))
+		for k, v := range merged {
+			runParams[k] = v
+		}
+		for k, v := range stepParams {
+			runParams[k] = v // step 参数覆盖全局/工作流参数
+		}
+		r := &runner.ShellRunner{Cfg: runner.ShellConfig{
+			Shell:   la.Def.Command.Shell,
+			Script:  la.Def.Command.Script,
+			Cwd:     la.Cwd,
+			Timeout: la.Timeout,
+			Env:     la.Def.Command.Env,
+			BaseDir: s.baseDir,
+			Stream:  la.Def.Command.Stream,
+		}}
+		return r.Run(ctx, runParams, stepEmit)
+	}
+}
+
+// makeShellRun 构造 workflow 中 inline shell step 的执行回调。timeout 缺省 60s。
+func (s *Service) makeShellRun(ctx context.Context, merged map[string]any) workflow.ShellRunFunc {
+	return func(shellCmd, timeoutStr string, stepEmit runner.EmitFunc) runner.Result {
+		timeout := 60 * time.Second
+		if timeoutStr != "" {
+			if d, err := time.ParseDuration(timeoutStr); err == nil {
+				timeout = d
+			}
+		}
+		r := &runner.ShellRunner{Cfg: runner.ShellConfig{
+			Shell:   shellCmd,
+			Timeout: timeout,
+			BaseDir: s.baseDir,
+		}}
+		return r.Run(ctx, merged, stepEmit)
+	}
+}
+
+func workflowEventName(id, suffix string) string {
+	return fmt.Sprintf("workflow:%s:%s", id, suffix)
 }
