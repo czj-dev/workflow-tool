@@ -16,6 +16,9 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   PickDirectory: vi.fn().mockResolvedValue(""),
   GetActionYaml: vi.fn().mockResolvedValue("id: a1\ntitle: A1\n"),
   SetActionYaml: vi.fn().mockResolvedValue({ actions: [], errors: [] }),
+  ListWorkflows: vi.fn().mockResolvedValue({ workflows: [], errors: [] }),
+  RunWorkflow: vi.fn().mockResolvedValue(undefined),
+  CancelWorkflow: vi.fn(),
 }));
 vi.mock("@wailsio/runtime", () => ({ Events: { On: () => () => ({}) } }));
 

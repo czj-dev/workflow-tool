@@ -20,10 +20,20 @@ import {
   GetActionYaml,
   SetActionYaml,
   AddPreset,
+  ListWorkflows,
+  RunWorkflow,
+  CancelWorkflow,
 } from "../../bindings/workflow-tool/internal/api/service.js";
-import type { ActionItem } from "../../bindings/workflow-tool/internal/api/models.js";
+import type {
+  ActionItem,
+  WorkflowItem,
+} from "../../bindings/workflow-tool/internal/api/models.js";
 import type { Fragment } from "../../bindings/workflow-tool/internal/registry/models.js";
-import type { OutputEventData, DoneEventData } from "../types/events";
+import type {
+  OutputEventData,
+  DoneEventData,
+  WorkflowStepState,
+} from "../types/events";
 
 type Status = "idle" | "running" | "done" | "error";
 interface ExitInfo {
@@ -43,10 +53,21 @@ export interface RunnerContextValue {
   // Phase 3 新增
   globalConfig: Record<string, string>;
   formValues: Record<string, string>;
-  view: "output" | "form" | "global" | "llm" | "fragments" | "edit";
+  view:
+    | "output"
+    | "form"
+    | "global"
+    | "llm"
+    | "fragments"
+    | "edit"
+    | "workflow";
   llmText: string;
   thinkingText: string;
   fragments: Fragment[];
+  // workflow 状态
+  workflows: WorkflowItem[];
+  workflowErrors: string[];
+  workflowSteps: WorkflowStepState[];
   runAction: (id: string, params?: Record<string, any>) => Promise<void>;
   cancel: () => void;
   clearOutput: () => void;
@@ -54,13 +75,24 @@ export interface RunnerContextValue {
   selectPreset: (actionId: string, presetName: string) => void;
   saveGlobalConfig: (kv: Record<string, string>) => Promise<void>;
   saveFragments: (list: Fragment[]) => Promise<void>;
-  setView: (v: "output" | "form" | "global" | "llm" | "fragments" | "edit") => void;
+  setView: (
+    v:
+      | "output"
+      | "form"
+      | "global"
+      | "llm"
+      | "fragments"
+      | "edit"
+      | "workflow",
+  ) => void;
   setFormValue: (id: string, value: string) => void;
   pickDirectory: () => Promise<string>;
   openActionsDir: () => Promise<void>;
   getActionYaml: (id: string) => Promise<string>;
   saveActionYaml: (id: string, text: string) => Promise<void>;
   addPreset: (name: string, description: string) => Promise<void>;
+  runWorkflow: (id: string) => Promise<void>;
+  cancelWorkflow: () => void;
 }
 
 // 事件分发表：测试用 _emitForTest 触发；运行时由 Events.On 回调写入
@@ -85,11 +117,22 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [globalConfig, setGlobalConfig] = useState<Record<string, string>>({});
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [view, setView] = useState<
-    "output" | "form" | "global" | "llm" | "fragments" | "edit"
+    | "output"
+    | "form"
+    | "global"
+    | "llm"
+    | "fragments"
+    | "edit"
+    | "workflow"
   >("output");
   const [llmText, setLlmText] = useState<string>("");
   const [thinkingText, setThinkingText] = useState<string>("");
   const [fragments, setFragments] = useState<Fragment[]>([]);
+  // workflow 状态：列表、加载错误、当前订阅的 workflow id、步骤运行状态
+  const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
+  const [workflowErrors, setWorkflowErrors] = useState<string[]>([]);
+  const [workflowId, setWorkflowId] = useState<string | null>(null);
+  const [workflowSteps, setWorkflowSteps] = useState<WorkflowStepState[]>([]);
   const linesRef = useRef<string[]>([]);
   linesRef.current = lines;
 
@@ -118,6 +161,82 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       .then((list) => setFragments(list ?? []))
       .catch(() => {});
   }, []);
+
+  // 挂载时拉取 workflow 列表
+  useEffect(() => {
+    ListWorkflows()
+      .then((res) => {
+        setWorkflows((res && res.workflows) || []);
+        setWorkflowErrors((res && res.errors) || []);
+      })
+      .catch(() => {});
+  }, []);
+
+  // workflow 事件订阅：依赖 workflowId，独立于 action 的订阅
+  useEffect(() => {
+    if (!workflowId) return;
+    const unsubs: Array<() => void> = [];
+
+    const onOutput = (e: unknown) => {
+      const d = (((e as { data?: unknown })?.data) || {}) as OutputEventData;
+      if (d.stream === "step-start") {
+        const idx = parseInt(d.line, 10);
+        setWorkflowSteps((prev) => {
+          const exists = prev.find((s) => s.index === idx);
+          if (exists) {
+            return prev.map((s) =>
+              s.index === idx ? { ...s, status: "running" as const } : s,
+            );
+          }
+          return [...prev, { index: idx, status: "running" as const, lines: [] }];
+        });
+        return;
+      }
+      if (d.stream === "step-done") {
+        const parts = (d.line || "").split(":");
+        const idx = parseInt(parts[0], 10);
+        const code = parseInt(parts[1], 10);
+        setWorkflowSteps((prev) =>
+          prev.map((s) =>
+            s.index === idx
+              ? { ...s, status: code === 0 ? ("done" as const) : ("error" as const), exitCode: code }
+              : s,
+          ),
+        );
+        return;
+      }
+      // stdout/stderr：追加到最后一个 running step
+      const prefix = d.stream === "stderr" ? t("output.stderrPrefix") : "";
+      const line = prefix + (d.line || "");
+      setWorkflowSteps((prev) => {
+        const lastRunning = [...prev].reverse().find((s) => s.status === "running");
+        if (!lastRunning) return prev;
+        return prev.map((s) =>
+          s.index === lastRunning.index
+            ? { ...s, lines: [...s.lines, line] }
+            : s,
+        );
+      });
+    };
+
+    const onDone = (e: unknown) => {
+      const d = (((e as { data?: unknown })?.data) || {}) as DoneEventData;
+      setStatus(d.exitCode === 0 ? "done" : "error");
+      setExitInfo(d);
+    };
+
+    handlers[`workflow:${workflowId}:output`] = onOutput;
+    handlers[`workflow:${workflowId}:done`] = onDone;
+    unsubs.push(Events.On(`workflow:${workflowId}:output`, onOutput));
+    unsubs.push(Events.On(`workflow:${workflowId}:done`, onDone));
+
+    return () => {
+      delete handlers[`workflow:${workflowId}:output`];
+      delete handlers[`workflow:${workflowId}:done`];
+      unsubs.forEach((fn) => fn && fn());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workflowId]);
 
   // 按 currentId 订阅事件
   useEffect(() => {
@@ -181,6 +300,26 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       setLines((prev) => [...prev, t("error.startFailed") + ": " + e]);
       setStatus("error");
     }
+  };
+
+  // runWorkflow：清空步骤状态，切到 workflow 视图后启动执行
+  const runWorkflow = async (id: string) => {
+    setWorkflowSteps([]);
+    setWorkflowId(id);
+    setCurrentId(id);
+    setSelectedPreset(null);
+    setStatus("running");
+    setExitInfo(null);
+    setView("workflow");
+    try {
+      await RunWorkflow(id, {});
+    } catch {
+      setStatus("error");
+    }
+  };
+
+  const cancelWorkflow = () => {
+    if (workflowId) CancelWorkflow(workflowId);
   };
 
   // selectPreset：把预设值（+ 各 param 的 default 预填）填入 formValues，切到 form 视图。
@@ -269,6 +408,9 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     llmText,
     thinkingText,
     fragments,
+    workflows,
+    workflowErrors,
+    workflowSteps,
     runAction,
     cancel,
     clearOutput,
@@ -283,6 +425,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     getActionYaml,
     saveActionYaml,
     addPreset,
+    runWorkflow,
+    cancelWorkflow,
   };
 
   return (

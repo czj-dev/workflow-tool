@@ -12,6 +12,9 @@ const {
   mockPickDirectory,
   mockGetActionYaml,
   mockSetActionYaml,
+  mockListWorkflows,
+  mockRunWorkflow,
+  mockCancelWorkflow,
   mockOn,
   listeners,
 } = vi.hoisted(() => {
@@ -31,6 +34,9 @@ const {
       mockPickDirectory: vi.fn(),
       mockGetActionYaml: vi.fn(),
       mockSetActionYaml: vi.fn(),
+      mockListWorkflows: vi.fn(),
+      mockRunWorkflow: vi.fn(() => Promise.resolve()),
+      mockCancelWorkflow: vi.fn(),
       mockOn,
       listeners,
     };
@@ -47,6 +53,9 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   PickDirectory: mockPickDirectory,
   GetActionYaml: mockGetActionYaml,
   SetActionYaml: mockSetActionYaml,
+  ListWorkflows: mockListWorkflows,
+  RunWorkflow: mockRunWorkflow,
+  CancelWorkflow: mockCancelWorkflow,
 }));
 
 vi.mock("@wailsio/runtime", () => ({
@@ -70,6 +79,9 @@ beforeEach(() => {
   mockPickDirectory.mockReset().mockResolvedValue("");
   mockGetActionYaml.mockReset();
   mockSetActionYaml.mockReset();
+  mockListWorkflows.mockReset().mockResolvedValue({ workflows: [], errors: [] });
+  mockRunWorkflow.mockReset().mockResolvedValue(undefined);
+  mockCancelWorkflow.mockReset();
   mockOn.mockClear();
 });
 
@@ -322,5 +334,83 @@ describe("ActionRunnerProvider", () => {
     expect(mockSetActionYaml).toHaveBeenCalledWith("a", "id: a\ntitle: 新名\n");
     expect(result.current.actions).toHaveLength(1);
     expect(result.current.actions[0].title).toBe("新名");
+  });
+
+  it("挂载时拉取 workflow 列表", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    mockListWorkflows.mockResolvedValue({
+      workflows: [{ id: "w1", title: "W1", icon: "", description: "", stepCount: 2 }],
+      errors: ["bad.yaml"],
+    });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    expect(result.current.workflows).toHaveLength(1);
+    expect(result.current.workflows[0].id).toBe("w1");
+    expect(result.current.workflowErrors).toEqual(["bad.yaml"]);
+  });
+
+  it("runWorkflow 后 view=workflow、status=running 并订阅 workflow 事件", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.runWorkflow("w1");
+    });
+    expect(result.current.view).toBe("workflow");
+    expect(result.current.status).toBe("running");
+    expect(result.current.currentId).toBe("w1");
+    expect(mockRunWorkflow).toHaveBeenCalledWith("w1", {});
+    expect(mockOn).toHaveBeenCalledWith("workflow:w1:output", expect.any(Function));
+    expect(mockOn).toHaveBeenCalledWith("workflow:w1:done", expect.any(Function));
+  });
+
+  it("step-start/stdout/step-done 协议帧驱动 workflowSteps", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.runWorkflow("w1");
+    });
+    act(() => {
+      _emitForTest("workflow:w1:output", { data: { stream: "step-start", line: "0" } });
+      _emitForTest("workflow:w1:output", { data: { stream: "stdout", line: "hi" } });
+      _emitForTest("workflow:w1:output", { data: { stream: "stderr", line: "boom" } });
+      _emitForTest("workflow:w1:output", { data: { stream: "step-done", line: "0:0" } });
+      _emitForTest("workflow:w1:output", { data: { stream: "step-start", line: "1" } });
+      _emitForTest("workflow:w1:output", { data: { stream: "stdout", line: "second" } });
+      _emitForTest("workflow:w1:output", { data: { stream: "step-done", line: "1:1" } });
+    });
+    expect(result.current.workflowSteps).toEqual([
+      { index: 0, status: "done", exitCode: 0, lines: ["hi", "[stderr] boom"] },
+      { index: 1, status: "error", exitCode: 1, lines: ["second"] },
+    ]);
+  });
+
+  it("workflow done 事件置 status 与 exitInfo", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.runWorkflow("w1");
+    });
+    act(() => {
+      _emitForTest("workflow:w1:done", {
+        data: { exitCode: 1, err: "step 1 failed", duration: "2s" },
+      });
+    });
+    expect(result.current.status).toBe("error");
+    expect(result.current.exitInfo?.err).toBe("step 1 failed");
+  });
+
+  it("cancelWorkflow 调用 CancelWorkflow", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.runWorkflow("w1");
+    });
+    act(() => result.current.cancelWorkflow());
+    expect(mockCancelWorkflow).toHaveBeenCalledWith("w1");
   });
 });
