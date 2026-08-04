@@ -7,10 +7,14 @@ import { GlobalConfigEditor } from "./GlobalConfigEditor";
 import { FragmentsView } from "./FragmentsView";
 import { LlmView } from "./LlmView";
 import { ActionYamlEditor } from "./ActionYamlEditor";
+import { WorkflowView } from "./WorkflowView";
 
-// 右栏容器：按 view 切换 output（工具栏+终端）/ form（工具栏+参数表单）/ global（全局配置编辑）/ fragments
+// 右栏容器：按 view 切换 output（工具栏+终端）/ form（工具栏+参数表单）/ global（全局配置编辑）/ fragments / workflow
 export function OutputPanel() {
   const { view } = useActionRunner();
+  if (view === "workflow") {
+    return <WorkflowView />;
+  }
   if (view === "edit") {
     return (
       <main className="flex min-w-0 flex-1 flex-col">

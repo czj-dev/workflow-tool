@@ -27,11 +27,13 @@ import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { useTheme } from "@/components/theme-provider";
 import { ActionItem } from "./ActionItem";
+import { WorkflowItem } from "./WorkflowItem";
 
 // 左侧可折叠侧边栏：渲染动作列表 + 加载错误 + 底部「片段 / 全局配置」入口
 export function AppSidebar() {
   const { t, i18n } = useTranslation();
-  const { actions, errors, setView, openActionsDir } = useActionRunner();
+  const { actions, errors, workflows, workflowErrors, setView, openActionsDir } =
+    useActionRunner();
   const { theme, setTheme } = useTheme();
 
   const THEME_ICON = {
@@ -90,6 +92,29 @@ export function AppSidebar() {
               ))}
               {errors.map((e, i) => (
                 <SidebarMenuItem key={`err-${i}`}>
+                  <Alert variant="destructive" className="py-2">
+                    <HugeiconsIcon icon={Alert02Icon} strokeWidth={1.75} />
+                    <AlertDescription>{e}</AlertDescription>
+                  </Alert>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>{t("sidebar.workflows")}</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {workflows.length === 0 && workflowErrors.length === 0 && (
+                <Empty className="flex-none items-start border-none p-2 text-left">
+                  <EmptyDescription>{t("workflow.empty")}</EmptyDescription>
+                </Empty>
+              )}
+              {workflows.map((w) => (
+                <WorkflowItem key={w.id} workflow={w} />
+              ))}
+              {workflowErrors.map((e, i) => (
+                <SidebarMenuItem key={`wf-err-${i}`}>
                   <Alert variant="destructive" className="py-2">
                     <HugeiconsIcon icon={Alert02Icon} strokeWidth={1.75} />
                     <AlertDescription>{e}</AlertDescription>
