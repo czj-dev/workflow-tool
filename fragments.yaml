@@ -1,10 +1,10 @@
 fragments:
     - title: AIBOX 指令过滤
-      content: 'lnav -c ":filter-in AiosGrpcClientImpl" -c ":filter-in R4Arbiter" -c ":filter-in ProtocolConverterManager"   -c ":filter-in SemanticDispatcher:"  -c ":filter-in playTTsFullParams"    -q '
+      content: 'lnav -c ":filter-in AiosGrpcClientImpl" -c ":filter-in R4Arbiter" -c ":filter-in ProtocolConverterManager"   -c  ":filter-in SemanticDispatcher:"  -c ":filter-in playTTsFullParams"    -q '
       tags:
         - Lanv
     - title: AIUBOX Agent
-      content: 'lnav -c ":filter-in SseAgentBridge" -c ":filter-in SseCarCommandProcessor" -c ":filter-in CarManualStreamAgentVM" -c ":filter-in TinnoveIpc"  -c ":filter-in CarManualStreamAgentScene" -q '
+      content: lnav -c ":filter-in SseAgentBridge" -c ":filter-in SseCarCommandProcessor" -c ":filter-in CarManualStreamAgentVM" -c ":filter-in TinnoveIpc"  -c ":filter-in CarManualStreamAgentScene" -c ":filter-in SseAgentStreamRouter"  -c ":filter-in R4Arbiter” -q
       tags:
         - Lanv
     - title: Rg 过滤 ASR 所在文件
@@ -13,5 +13,9 @@ fragments:
         - Rg
     - title: 端状态
       content: ' rg -z -M 500 --max-columns-preview "uploadContextState appId:1A7BB7ACC7AC6B8B8158C16853C8F77D"'
+      tags:
+        - Rg
+    - title: 查找指定文本
+      content: rg -z -M 200 --max-columns-preview "车里好热啊"
       tags:
         - Rg
