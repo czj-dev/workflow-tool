@@ -1,0 +1,21 @@
+id: adb-scrcpy
+title: 投屏
+icon: hi:play
+description: 使用 scrcpy 投屏 Android 设备（可选录屏）
+params:
+  - id: RECORD
+    label: 录屏
+    type: bool
+    default: "false"
+  - id: RECORD_PATH
+    label: 录屏保存路径（录屏开启时有效）
+    type: path
+command:
+  shell: |
+    args="--window-title=Scrcpy"
+    if [ "${RECORD}" = "true" ] && [ -n "${RECORD_PATH}" ]; then
+      args="$args --record=${RECORD_PATH}/scrcpy-$(date +%Y%m%d_%H%M%S).mp4"
+    fi
+    echo "[scrcpy] 启动投屏: scrcpy $args"
+    eval scrcpy $args
+  timeout: 24h
