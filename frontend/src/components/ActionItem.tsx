@@ -21,7 +21,7 @@ const DOUBLE_CLICK_DELAY = 250; // ms
 // 单击 —— 有子项则展开/收起；无子项但有参数则进表单；两者都无则直接运行。
 // 双击 —— 始终尝试直接运行（用默认参数）。
 export function ActionItem({ action }: { action: ActionItemType }) {
-  const { currentId, status, selectedPreset, runAction, selectPreset } =
+  const { currentId, status, selectedPreset, runAction, selectPreset, setView } =
     useActionRunner();
   const [expanded, setExpanded] = useState(false);
   const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -34,6 +34,11 @@ export function ActionItem({ action }: { action: ActionItemType }) {
     if (clickTimer.current) clearTimeout(clickTimer.current);
     clickTimer.current = setTimeout(() => {
       clickTimer.current = null;
+      // 若该动作正在运行：回到其输出视图（llm 流回 llm，否则回 output）
+      if (isCurrent && status === "running") {
+        setView(action.stream === "llm" ? "llm" : "output");
+        return;
+      }
       if (hasPresets) {
         setExpanded((v) => !v);
       } else if (hasParams) {
@@ -50,6 +55,11 @@ export function ActionItem({ action }: { action: ActionItemType }) {
     if (clickTimer.current) {
       clearTimeout(clickTimer.current);
       clickTimer.current = null;
+    }
+    // 正在运行时后端会拒绝并发运行，双击同样只回到输出视图
+    if (isCurrent && status === "running") {
+      setView(action.stream === "llm" ? "llm" : "output");
+      return;
     }
     runAction(action.id, {});
   };
