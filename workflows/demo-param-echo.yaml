@@ -1,0 +1,21 @@
+id: demo-param-echo
+title: 参数化测试工作流
+icon: hi:workflow
+description: "演示 workflow 参数：打印参数 → 等待 1s → 再打印"
+params:
+  - id: WF_MSG
+    label: 消息
+    type: text
+    default: hello
+    required: true
+  - id: WF_MODE
+    label: 模式
+    type: select
+    default: fast
+    options:
+      - fast
+      - slow
+steps:
+  - shell: echo "msg=${WF_MSG} mode=${WF_MODE}"
+  - sleep: 1
+  - shell: echo "done ${WF_MSG}"

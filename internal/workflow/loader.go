@@ -21,6 +21,15 @@ type WorkflowRegistry struct {
 	Errors    []FileError
 }
 
+// ParseWorkflow 解析 YAML 字节为 WorkflowDef（供 SetWorkflowYaml 校验用）。
+func ParseWorkflow(data []byte) (*WorkflowDef, error) {
+	var def WorkflowDef
+	if err := yaml.Unmarshal(data, &def); err != nil {
+		return nil, err
+	}
+	return &def, nil
+}
+
 // Load 扫描 dir 下所有 *.yaml，返回 WorkflowRegistry。
 func Load(dir string) *WorkflowRegistry {
 	reg := &WorkflowRegistry{Workflows: map[string]LoadedWorkflow{}}

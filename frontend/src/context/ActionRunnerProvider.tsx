@@ -23,6 +23,8 @@ import {
   ListWorkflows,
   RunWorkflow,
   CancelWorkflow,
+  GetWorkflowYaml,
+  SetWorkflowYaml,
 } from "../../bindings/workflow-tool/internal/api/service.js";
 import type {
   ActionItem,
@@ -60,7 +62,9 @@ export interface RunnerContextValue {
     | "llm"
     | "fragments"
     | "edit"
-    | "workflow";
+    | "workflow"
+    | "workflow-form"
+    | "workflow-edit";
   llmText: string;
   thinkingText: string;
   fragments: Fragment[];
@@ -68,6 +72,7 @@ export interface RunnerContextValue {
   workflows: WorkflowItem[];
   workflowErrors: string[];
   workflowSteps: WorkflowStepState[];
+  workflowFormValues: Record<string, string>;
   runAction: (id: string, params?: Record<string, any>) => Promise<void>;
   cancel: () => void;
   clearOutput: () => void;
@@ -83,16 +88,22 @@ export interface RunnerContextValue {
       | "llm"
       | "fragments"
       | "edit"
-      | "workflow",
+      | "workflow"
+      | "workflow-form"
+      | "workflow-edit",
   ) => void;
   setFormValue: (id: string, value: string) => void;
+  setWorkflowFormValue: (id: string, value: string) => void;
   pickDirectory: () => Promise<string>;
   openActionsDir: () => Promise<void>;
   getActionYaml: (id: string) => Promise<string>;
   saveActionYaml: (id: string, text: string) => Promise<void>;
   addPreset: (name: string, description: string) => Promise<void>;
-  runWorkflow: (id: string) => Promise<void>;
+  runWorkflow: (id: string, params?: Record<string, any>) => Promise<void>;
   cancelWorkflow: () => void;
+  selectWorkflow: (id: string) => void;
+  getWorkflowYaml: (id: string) => Promise<string>;
+  saveWorkflowYaml: (id: string, text: string) => Promise<void>;
 }
 
 // 事件分发表：测试用 _emitForTest 触发；运行时由 Events.On 回调写入
@@ -124,6 +135,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     | "fragments"
     | "edit"
     | "workflow"
+    | "workflow-form"
+    | "workflow-edit"
   >("output");
   const [llmText, setLlmText] = useState<string>("");
   const [thinkingText, setThinkingText] = useState<string>("");
@@ -133,6 +146,9 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [workflowErrors, setWorkflowErrors] = useState<string[]>([]);
   const [workflowId, setWorkflowId] = useState<string | null>(null);
   const [workflowSteps, setWorkflowSteps] = useState<WorkflowStepState[]>([]);
+  const [workflowFormValues, setWorkflowFormValues] = useState<
+    Record<string, string>
+  >({});
   const linesRef = useRef<string[]>([]);
   linesRef.current = lines;
 
@@ -303,7 +319,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   };
 
   // runWorkflow：清空步骤状态，切到 workflow 视图后启动执行
-  const runWorkflow = async (id: string) => {
+  const runWorkflow = async (id: string, params: Record<string, any> = {}) => {
     setWorkflowSteps([]);
     setWorkflowId(id);
     setCurrentId(id);
@@ -312,10 +328,32 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setExitInfo(null);
     setView("workflow");
     try {
-      await RunWorkflow(id, {});
+      await RunWorkflow(id, params);
     } catch {
       setStatus("error");
     }
+  };
+
+  // selectWorkflow：有 params → 预填表单切 workflow-form；无 params → 直接跑
+  const selectWorkflow = (id: string) => {
+    const w = workflows.find((x) => x.id === id);
+    if (!w) return;
+    const hasParams = (w.params?.length ?? 0) > 0;
+    if (!hasParams) {
+      runWorkflow(id, {});
+      return;
+    }
+    // 用 default 预填
+    const vals: Record<string, string> = {};
+    w.params?.forEach((p) => {
+      vals[p.id] = p.default || "";
+    });
+    setWorkflowFormValues(vals);
+    setCurrentId(id);
+    setSelectedPreset(null);
+    setStatus("idle");
+    setExitInfo(null);
+    setView("workflow-form");
   };
 
   const cancelWorkflow = () => {
@@ -357,6 +395,16 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     return await GetActionYaml(id);
   };
 
+  const getWorkflowYaml = async (id: string): Promise<string> => {
+    return await GetWorkflowYaml(id);
+  };
+
+  const saveWorkflowYaml = async (id: string, text: string): Promise<void> => {
+    const res = await SetWorkflowYaml(id, text);
+    setWorkflows((res && res.workflows) || []);
+    setWorkflowErrors((res && res.errors) || []);
+  };
+
   // saveActionYaml：写回 yaml（后端校验+重载），成功后用返回的列表刷新 actions/errors。
   const saveActionYaml = async (id: string, text: string): Promise<void> => {
     const res = await SetActionYaml(id, text);
@@ -374,6 +422,9 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
 
   const setFormValue = (id: string, value: string) =>
     setFormValues((prev) => ({ ...prev, [id]: value }));
+
+  const setWorkflowFormValue = (id: string, value: string) =>
+    setWorkflowFormValues((prev) => ({ ...prev, [id]: value }));
 
   const pickDirectory = async () => {
     const p = await PickDirectory();
@@ -411,6 +462,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     workflows,
     workflowErrors,
     workflowSteps,
+    workflowFormValues,
     runAction,
     cancel,
     clearOutput,
@@ -420,6 +472,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     saveFragments,
     setView,
     setFormValue,
+    setWorkflowFormValue,
     pickDirectory,
     openActionsDir,
     getActionYaml,
@@ -427,6 +480,9 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     addPreset,
     runWorkflow,
     cancelWorkflow,
+    selectWorkflow,
+    getWorkflowYaml,
+    saveWorkflowYaml,
   };
 
   return (

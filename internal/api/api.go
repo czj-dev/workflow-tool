@@ -330,13 +330,21 @@ func errStr(err error) string {
 
 // --- Workflow API ---
 
+// WorkflowStepInfo 是前端侧边栏/概览可见的步骤摘要。
+type WorkflowStepInfo struct {
+	Kind  string `json:"kind"`  // "action" | "sleep" | "shell"
+	Label string `json:"label"` // 显示文案，如 action id / "5s" / 截断 shell
+}
+
 // WorkflowItem 是前端可见的 workflow 描述。
 type WorkflowItem struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	Icon        string `json:"icon"`
-	Description string `json:"description"`
-	StepCount   int    `json:"stepCount"`
+	ID          string               `json:"id"`
+	Title       string               `json:"title"`
+	Icon        string               `json:"icon"`
+	Description string               `json:"description"`
+	StepCount   int                  `json:"stepCount"`
+	Params      []registry.ParamSpec `json:"params"`
+	Steps       []WorkflowStepInfo   `json:"steps"`
 }
 
 // WorkflowListResult 是 ListWorkflows 的返回值。
@@ -349,12 +357,15 @@ type WorkflowListResult struct {
 func (s *Service) ListWorkflows() WorkflowListResult {
 	items := make([]WorkflowItem, 0, len(s.wfReg.Workflows))
 	for _, lw := range s.wfReg.Workflows {
+		steps := buildStepInfos(lw.Def.Steps)
 		items = append(items, WorkflowItem{
 			ID:          lw.Def.ID,
 			Title:       lw.Def.Title,
 			Icon:        lw.Def.Icon,
 			Description: lw.Def.Description,
 			StepCount:   len(lw.Def.Steps),
+			Params:      lw.Def.Params,
+			Steps:       steps,
 		})
 	}
 	errs := make([]string, 0, len(s.wfReg.Errors))
@@ -362,6 +373,68 @@ func (s *Service) ListWorkflows() WorkflowListResult {
 		errs = append(errs, fmt.Sprintf("%s: %s", e.File, e.Error))
 	}
 	return WorkflowListResult{Workflows: items, Errors: errs}
+}
+
+// buildStepInfos 把 step 列表转换为前端可用的摘要。
+func buildStepInfos(steps []workflow.Step) []WorkflowStepInfo {
+	infos := make([]WorkflowStepInfo, len(steps))
+	for i, s := range steps {
+		switch {
+		case s.Action != "":
+			infos[i] = WorkflowStepInfo{Kind: "action", Label: s.Action}
+		case s.Sleep > 0:
+			infos[i] = WorkflowStepInfo{Kind: "sleep", Label: fmt.Sprintf("%ds", s.Sleep)}
+		case s.Shell != "":
+			label := s.Shell
+			if len(label) > 40 {
+				label = label[:37] + "..."
+			}
+			infos[i] = WorkflowStepInfo{Kind: "shell", Label: label}
+		}
+	}
+	return infos
+}
+
+// ReloadWorkflows 重扫 workflows 目录重建 wfReg（编辑保存后调用）。
+func (s *Service) ReloadWorkflows() {
+	s.wfReg = workflow.Load(filepath.Join(s.baseDir, "workflows"))
+}
+
+// GetWorkflowYaml 返回指定 workflow 源文件原文（含注释与格式）。
+func (s *Service) GetWorkflowYaml(id string) (string, error) {
+	lw, ok := s.wfReg.Workflows[id]
+	if !ok {
+		return "", fmt.Errorf("未知 workflow %q", id)
+	}
+	data, err := os.ReadFile(lw.File)
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// SetWorkflowYaml 校验并写回 workflow 源文件，随后重载 wfReg，返回最新列表。
+// 禁止改 id（id 为文件锚点）；解析/校验失败时不写盘。
+func (s *Service) SetWorkflowYaml(id string, text string) (WorkflowListResult, error) {
+	lw, ok := s.wfReg.Workflows[id]
+	if !ok {
+		return WorkflowListResult{}, fmt.Errorf("未知 workflow %q", id)
+	}
+	def, err := workflow.ParseWorkflow([]byte(text))
+	if err != nil {
+		return WorkflowListResult{}, fmt.Errorf("YAML 解析失败: %w", err)
+	}
+	if def.ID != id {
+		return WorkflowListResult{}, fmt.Errorf("id 不可修改（原 %q，现 %q）", id, def.ID)
+	}
+	if err := workflow.Validate(def); err != nil {
+		return WorkflowListResult{}, err
+	}
+	if err := os.WriteFile(lw.File, []byte(text), 0644); err != nil {
+		return WorkflowListResult{}, err
+	}
+	s.ReloadWorkflows()
+	return s.ListWorkflows(), nil
 }
 
 // RunWorkflow 启动 workflow 执行；同一 workflow 并发运行被拒。

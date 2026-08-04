@@ -7,7 +7,109 @@ import (
 	"testing"
 
 	"workflow-tool/internal/registry"
+	"workflow-tool/internal/workflow"
 )
+
+// newWorkflowSvc 建一个只含 workflows 目录的 service，写入给定 yaml 内容。
+func newWorkflowSvc(t *testing.T, yamlText string) (*Service, string) {
+	t.Helper()
+	dir := t.TempDir()
+	wd := filepath.Join(dir, "workflows")
+	if err := os.Mkdir(wd, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(wd, "w.yaml"), []byte(yamlText), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ad := filepath.Join(dir, "actions")
+	os.Mkdir(ad, 0755)
+	svc := New(registry.Load(ad, dir), workflow.Load(wd), dir,
+		filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
+	return svc, dir
+}
+
+func TestListWorkflowsIncludesParamsAndSteps(t *testing.T) {
+	svc, _ := newWorkflowSvc(t, `id: w
+title: W
+params:
+  - id: TARGET
+    label: 目标
+    type: select
+    options: [a, b]
+steps:
+  - action: some-action
+  - sleep: 5
+  - shell: echo hi
+`)
+	res := svc.ListWorkflows()
+	if len(res.Workflows) != 1 {
+		t.Fatalf("期望 1 个 workflow，got %d（errors=%v）", len(res.Workflows), res.Errors)
+	}
+	w := res.Workflows[0]
+	if len(w.Params) != 1 || w.Params[0].ID != "TARGET" {
+		t.Fatalf("params 未带回：%+v", w.Params)
+	}
+	want := []WorkflowStepInfo{
+		{Kind: "action", Label: "some-action"},
+		{Kind: "sleep", Label: "5s"},
+		{Kind: "shell", Label: "echo hi"},
+	}
+	if len(w.Steps) != len(want) {
+		t.Fatalf("steps 数量不符：%+v", w.Steps)
+	}
+	for i, e := range want {
+		if w.Steps[i] != e {
+			t.Fatalf("steps[%d] = %+v，期望 %+v", i, w.Steps[i], e)
+		}
+	}
+}
+
+func TestGetWorkflowYamlReturnsRawWithComments(t *testing.T) {
+	svc, _ := newWorkflowSvc(t, "# 注释\nid: w\ntitle: W\nsteps:\n  - sleep: 1\n")
+	got, err := svc.GetWorkflowYaml("w")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "# 注释") {
+		t.Fatalf("应保留注释原文，got %q", got)
+	}
+}
+
+func TestSetWorkflowYamlValidWritesAndReloads(t *testing.T) {
+	svc, _ := newWorkflowSvc(t, "id: w\ntitle: W\nsteps:\n  - sleep: 1\n")
+	res, err := svc.SetWorkflowYaml("w", "id: w\ntitle: 改名\nsteps:\n  - sleep: 2\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Workflows[0].Title != "改名" {
+		t.Fatalf("重载后应见新标题，got %+v", res.Workflows[0])
+	}
+	persisted, _ := svc.GetWorkflowYaml("w")
+	if !strings.Contains(persisted, "改名") {
+		t.Fatalf("应落盘，got %q", persisted)
+	}
+}
+
+func TestSetWorkflowYamlRejectsBadInput(t *testing.T) {
+	orig := "id: w\ntitle: W\nsteps:\n  - sleep: 1\n"
+	cases := map[string]string{
+		"非法 yaml":   "id: w\n  : : :\n",
+		"校验失败（无 steps）": "id: w\ntitle: W\n",
+		"改 id":      "id: other\ntitle: W\nsteps:\n  - sleep: 1\n",
+	}
+	for name, text := range cases {
+		t.Run(name, func(t *testing.T) {
+			svc, _ := newWorkflowSvc(t, orig)
+			if _, err := svc.SetWorkflowYaml("w", text); err == nil {
+				t.Fatal("应报错")
+			}
+			got, _ := svc.GetWorkflowYaml("w")
+			if got != orig {
+				t.Fatalf("被拒时不该写盘，got %q", got)
+			}
+		})
+	}
+}
 
 func TestRunActionMergesGlobalAndParams(t *testing.T) {
 	// 全局 OUTPUT_DIR + 参数 NAME；参数应覆盖同名全局

@@ -37,7 +37,7 @@ const STATUS_I18N = {
 // Workflow 工具链 timeline：分步输出，可展开/折叠每步日志
 export function WorkflowView() {
   const { t } = useTranslation();
-  const { workflows, currentId, workflowSteps, status, cancelWorkflow } =
+  const { workflows, currentId, workflowSteps, status, cancelWorkflow, setView } =
     useActionRunner();
 
   const currentTitle = workflows.find((w) => w.id === currentId)?.title;
@@ -48,9 +48,15 @@ export function WorkflowView() {
       <header className="flex items-center justify-between border-b px-4 py-2">
         <div className="flex items-center gap-2">
           <SidebarTrigger />
-          <span className="font-semibold">
+          {/* 点击标题进入 yaml 编辑态（与 action 一致的交互） */}
+          <button
+            type="button"
+            className="cursor-pointer font-semibold hover:underline"
+            title={t("edit.tooltip")}
+            onClick={() => currentId && setView("workflow-edit")}
+          >
             {currentTitle ?? t("sidebar.workflows")}
-          </span>
+          </button>
         </div>
         <Button
           variant="destructive"

@@ -29,7 +29,7 @@ import { useTheme } from "@/components/theme-provider";
 import { ActionItem } from "./ActionItem";
 import { WorkflowItem } from "./WorkflowItem";
 
-// 左侧可折叠侧边栏：渲染动作列表 + 加载错误 + 底部「片段 / 全局配置」入口
+// 左侧可折叠侧边栏：渲染工作流 + 动作列表 + 加载错误 + 底部「片段 / 全局配置」入口
 export function AppSidebar() {
   const { t, i18n } = useTranslation();
   const { actions, errors, workflows, workflowErrors, setView, openActionsDir } =
@@ -79,29 +79,6 @@ export function AppSidebar() {
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
-          <SidebarGroupLabel>{t("sidebar.title")}</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {actions.length === 0 && errors.length === 0 && (
-                <Empty className="flex-none items-start border-none p-2 text-left">
-                  <EmptyDescription>{t("empty.noActions")}</EmptyDescription>
-                </Empty>
-              )}
-              {actions.map((a) => (
-                <ActionItem key={a.id} action={a} />
-              ))}
-              {errors.map((e, i) => (
-                <SidebarMenuItem key={`err-${i}`}>
-                  <Alert variant="destructive" className="py-2">
-                    <HugeiconsIcon icon={Alert02Icon} strokeWidth={1.75} />
-                    <AlertDescription>{e}</AlertDescription>
-                  </Alert>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
-        <SidebarGroup>
           <SidebarGroupLabel>{t("sidebar.workflows")}</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -115,6 +92,29 @@ export function AppSidebar() {
               ))}
               {workflowErrors.map((e, i) => (
                 <SidebarMenuItem key={`wf-err-${i}`}>
+                  <Alert variant="destructive" className="py-2">
+                    <HugeiconsIcon icon={Alert02Icon} strokeWidth={1.75} />
+                    <AlertDescription>{e}</AlertDescription>
+                  </Alert>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+        <SidebarGroup>
+          <SidebarGroupLabel>{t("sidebar.title")}</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {actions.length === 0 && errors.length === 0 && (
+                <Empty className="flex-none items-start border-none p-2 text-left">
+                  <EmptyDescription>{t("empty.noActions")}</EmptyDescription>
+                </Empty>
+              )}
+              {actions.map((a) => (
+                <ActionItem key={a.id} action={a} />
+              ))}
+              {errors.map((e, i) => (
+                <SidebarMenuItem key={`err-${i}`}>
                   <Alert variant="destructive" className="py-2">
                     <HugeiconsIcon icon={Alert02Icon} strokeWidth={1.75} />
                     <AlertDescription>{e}</AlertDescription>

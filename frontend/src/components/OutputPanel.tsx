@@ -8,13 +8,15 @@ import { FragmentsView } from "./FragmentsView";
 import { LlmView } from "./LlmView";
 import { ActionYamlEditor } from "./ActionYamlEditor";
 import { WorkflowView } from "./WorkflowView";
+import { WorkflowParamForm } from "./WorkflowParamForm";
+import { WorkflowYamlEditor } from "./WorkflowYamlEditor";
 
-// 右栏容器：按 view 切换 output（工具栏+终端）/ form（工具栏+参数表单）/ global（全局配置编辑）/ fragments / workflow
+// 右栏容器：按 view 分派到对应视图。
 export function OutputPanel() {
   const { view } = useActionRunner();
-  if (view === "workflow") {
-    return <WorkflowView />;
-  }
+  if (view === "workflow") return <WorkflowView />;
+  if (view === "workflow-form") return <WorkflowParamForm />;
+  if (view === "workflow-edit") return <WorkflowYamlEditor />;
   if (view === "edit") {
     return (
       <main className="flex min-w-0 flex-1 flex-col">
@@ -29,12 +31,8 @@ export function OutputPanel() {
       </main>
     );
   }
-  if (view === "fragments") {
-    return <FragmentsView />;
-  }
-  if (view === "llm") {
-    return <LlmView />;
-  }
+  if (view === "fragments") return <FragmentsView />;
+  if (view === "llm") return <LlmView />;
   if (view === "form") {
     return (
       <main className="flex min-w-0 flex-1 flex-col">

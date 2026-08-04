@@ -1,13 +1,8 @@
-# workflows/demo-install-broadcast.yaml
 id: demo-install-broadcast
-title: 安装后发广播
+title: 安装后拉起测试页面
 icon: hi:workflow
-description: "先安装 APK 再发车控广播（sleep 2s 等设备就绪）"
+description: "安装 APK → 等待 5s → 拉起 DebugActivity"
 steps:
   - action: adb-install
-    params:
-      apk_path: "${APK_PATH}"
-  - sleep: 2
-  - shell: adb devices
-    continue_on_error: true
-  - action: adb-car-broadcast
+  - sleep: 5
+  - action: adb-debug-activity
