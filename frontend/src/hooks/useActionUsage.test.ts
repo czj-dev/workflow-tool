@@ -224,4 +224,45 @@ describe("useActionUsage", () => {
       expect(result.current.footprintLevel("heavy")).toBe(FOOTPRINT_SEGMENTS);
     });
   });
+
+  describe("storageKey 隔离与泛型", () => {
+    it("不同 storageKey 的计数互不干扰(workflow 复用算法但数据隔离)", () => {
+      const { result: actionUsage } = renderHook(() =>
+        useActionUsage("action-usage"),
+      );
+      const { result: wfUsage } = renderHook(() =>
+        useActionUsage("workflow-usage"),
+      );
+
+      act(() => {
+        actionUsage.current.recordUsage("shared-id");
+      });
+
+      expect(actionUsage.current.getScore("shared-id")).toBeGreaterThan(0);
+      expect(wfUsage.current.getScore("shared-id")).toBe(0);
+    });
+
+    it("topActions / groupByPrefix 接受任意 { id } 形状(workflow 复用)", () => {
+      const { result } = renderHook(() => useActionUsage("workflow-usage"));
+      const wfs = [
+        { id: "demo-x", title: "t" },
+        { id: "adb-y", title: "t" },
+      ] as { id: string; title: string }[];
+
+      expect(result.current.topActions(wfs, 2).map((w) => w.id)).toEqual([
+        "demo-x",
+        "adb-y",
+      ]);
+      expect(Object.keys(result.current.groupByPrefix(wfs)).sort()).toEqual([
+        "adb",
+        "demo",
+      ]);
+    });
+
+    it("默认 storageKey 仍为 action-usage(向后兼容)", () => {
+      localStorage.setItem("action-usage", JSON.stringify({ legacy: 3 }));
+      const { result } = renderHook(() => useActionUsage());
+      expect(result.current.getScore("legacy")).toBe(3);
+    });
+  });
 });
