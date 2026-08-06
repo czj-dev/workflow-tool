@@ -1,0 +1,30 @@
+id: xdzs-device-init
+title: 设备初始化
+icon: hi:settings
+description: "adb root/remount/setenforce + 授予 codriver & voicesetting 权限"
+command:
+  shell: |
+    # ponytail: 不用 set -e —— disable-verify/setenforce 等命令会返回非零码 + stderr 提示，
+    # 但都是无害的（照抄 wt_debug.sh 的容错行为），逐条尽力执行即可
+    echo "[init] adb root & remount"
+    adb root
+    adb shell disable-verify 99
+    adb remount
+    adb shell setenforce 0
+    adb shell setprop vecentek.model 1
+    sleep 2
+
+    echo "[init] 授予权限"
+    for pkg in com.baidu.che.codriver com.baidu.che.codriver.voicesetting.demo; do
+      for perm in RECORD_AUDIO READ_EXTERNAL_STORAGE WRITE_EXTERNAL_STORAGE CALL_PHONE SYSTEM_ALERT_WINDOW ACCESS_FINE_LOCATION WRITE_SECURE_SETTINGS READ_CONTACTS WRITE_CONTACTS; do
+        adb shell pm grant "$pkg" "android.permission.$perm" || true
+      done
+    done
+
+    adb shell pm grant com.tinnove.aispace1 android.permission.WRITE_SECURE_SETTINGS || true
+    adb shell pm grant com.tinnove.aispace android.permission.WRITE_SECURE_SETTINGS || true
+    adb shell pm grant com.tinnove.aispace1 android.permission.SYSTEM_ALERT_WINDOW || true
+    adb shell pm grant com.tinnove.aispace android.permission.SYSTEM_ALERT_WINDOW || true
+
+    echo "[init] 完成"
+  timeout: 60s

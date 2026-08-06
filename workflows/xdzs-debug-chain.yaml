@@ -1,0 +1,10 @@
+id: xdzs-debug-chain
+title: 调试一键链
+icon: hi:workflow
+description: "设备初始化 → 编译 Debug → 安装 APK → 拉起测试页面"
+steps:
+  - action: xdzs-device-init
+  - action: xdzs-build-app
+    params: { VARIANT: Debug }
+  - action: adb-install
+  - action: adb-debug-activity

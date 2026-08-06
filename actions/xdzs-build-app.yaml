@@ -1,0 +1,15 @@
+id: xdzs-build-app
+title: 编译 vr-app
+icon: hi:package
+description: "在 xdzs-speech 项目根执行 gradlew vr-app:assemble<Variant>"
+params:
+  - id: VARIANT
+    label: 版本
+    type: select
+    # 值需与 Gradle 任务名大小写一致（assembleDebug / assembleRelease）
+    options: [Debug, Release]
+    default: Debug
+command:
+  shell: ./gradlew vr-app:assemble${VARIANT}
+  cwd: ${XDZS_SPEECH_DIR}
+  timeout: 10m

@@ -1,3 +1,4 @@
 LOGS_DIR: /Users/v_chenzhaojun/Documents/Logs
 OUTPUT_DIR: /Users/v_chenzhaojun/Documents/docs
 VOICE_DEBUG_OUTPUT: /Users/v_chenzhaojun/Documents/Project/baidu/asd-edc/xdzs-speech/app-vui/vr-app/build/outputs/apk/debug
+XDZS_SPEECH_DIR: /Users/v_chenzhaojun/Documents/Project/baidu/asd-edc/xdzs-speech
