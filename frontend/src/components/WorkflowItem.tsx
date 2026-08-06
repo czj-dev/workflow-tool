@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/sidebar";
 import type { WorkflowItem as WorkflowItemType } from "../../bindings/workflow-tool/internal/api/models.js";
 import { useActionRunner } from "../hooks/useActionRunner";
+import { useActionUsage } from "../hooks/useActionUsage";
 import { ActionIcon } from "./ActionIcon";
 
 const DOUBLE_CLICK_DELAY = 250; // ms
@@ -19,7 +20,9 @@ const DOUBLE_CLICK_DELAY = 250; // ms
 export function WorkflowItem({ workflow }: { workflow: WorkflowItemType }) {
   const { currentId, status, view, runningWorkflowId, runWorkflow, selectWorkflow, focusWorkflow } =
     useActionRunner();
+  const { recordUsage } = useActionUsage("workflow-usage");
   const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hasParams = (workflow.params?.length ?? 0) > 0;
 
   const isWorkflowView =
     view === "workflow" || view === "workflow-form" || view === "workflow-edit";
@@ -35,7 +38,12 @@ export function WorkflowItem({ workflow }: { workflow: WorkflowItemType }) {
         focusWorkflow(workflow.id);
         return;
       }
-      selectWorkflow(workflow.id);
+      if (hasParams) {
+        selectWorkflow(workflow.id); // 进 workflow-form
+      } else {
+        runWorkflow(workflow.id, {});
+        recordUsage(workflow.id);
+      }
     }, DOUBLE_CLICK_DELAY);
   };
 
@@ -49,6 +57,7 @@ export function WorkflowItem({ workflow }: { workflow: WorkflowItemType }) {
       return;
     }
     runWorkflow(workflow.id, {});
+    recordUsage(workflow.id);
   };
 
   const statusNode = isRunning ? (

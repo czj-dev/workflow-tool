@@ -36,8 +36,10 @@ export function AppSidebar() {
   const { actions, errors, workflows, workflowErrors, setView, openActionsDir } =
     useActionRunner();
   const { topActions } = useActionUsage();
+  const { topActions: topWorkflows } = useActionUsage("workflow-usage");
 
   const top3 = topActions(actions, 3);
+  const top3Wf = topWorkflows(workflows, 3);
 
   return (
     <Sidebar collapsible="icon">
@@ -71,7 +73,7 @@ export function AppSidebar() {
       <SidebarContent>
         <SidebarGroup>
           <SidebarGroupLabel className={EYEBROW}>
-            {t("sidebar.workflows")}
+            {t("sidebar.frequentWorkflows")}
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -80,7 +82,7 @@ export function AppSidebar() {
                   <EmptyDescription>{t("workflow.empty")}</EmptyDescription>
                 </Empty>
               )}
-              {workflows.map((w) => (
+              {top3Wf.map((w) => (
                 <WorkflowItem key={w.id} workflow={w} />
               ))}
               {workflowErrors.map((e, i) => (
@@ -91,6 +93,22 @@ export function AppSidebar() {
                   </Alert>
                 </SidebarMenuItem>
               ))}
+              {/* 全部工作流入口（对称「全部动作」） */}
+              {workflows.length > 0 && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    onClick={() => setView("workflows-grid")}
+                    tooltip={t("sidebar.allWorkflows")}
+                  >
+                    <HugeiconsIcon
+                      icon={GridViewIcon}
+                      strokeWidth={1.75}
+                      className="size-4 shrink-0"
+                    />
+                    <span>{t("sidebar.allWorkflows")}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
