@@ -12,12 +12,14 @@ import { WorkflowParamForm } from "./WorkflowParamForm";
 import { WorkflowYamlEditor } from "./WorkflowYamlEditor";
 import { SettingsView } from "./SettingsView";
 import { ActionsGridView } from "./ActionsGridView";
+import { WorkflowsGridView } from "./WorkflowsGridView";
 
 // 右栏容器：按 view 分派到对应视图。
 export function OutputPanel() {
   const { view } = useActionRunner();
   if (view === "settings") return <SettingsView />;
   if (view === "actions-grid") return <ActionsGridView />;
+  if (view === "workflows-grid") return <WorkflowsGridView />;
   if (view === "workflow") return <WorkflowView />;
   if (view === "workflow-form") return <WorkflowParamForm />;
   if (view === "workflow-edit") return <WorkflowYamlEditor />;
