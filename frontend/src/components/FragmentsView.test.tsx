@@ -63,22 +63,22 @@ function renderView() {
 }
 
 describe("FragmentsView - 使用视图", () => {
-  it("按 tag 分组展示片段标题和预览", async () => {
+  it("多 tag 片段只归到首个 tag 组，不重复显示", async () => {
     renderView();
     await screen.findByPlaceholderText("搜索 标题 / 内容 / 标签");
-    // adb / logcat 分组标题（TagList 的 chip 是 button 不是 heading，不冲突）
+    // 未选 tag 时按第一个 tag(adb) 归组，logcat 不单独成组
     expect(
       screen.getByRole("heading", { level: 3, name: /adb/i }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("heading", { level: 3, name: /logcat/i }),
-    ).toBeInTheDocument();
-    // 同一片段在两个 tag 组各出现一次
-    expect(screen.getAllByText("看日志")).toHaveLength(2);
+      screen.queryByRole("heading", { level: 3, name: /^logcat/i }),
+    ).not.toBeInTheDocument();
+    // 同一片段只出现一次
+    expect(screen.getAllByText("看日志")).toHaveLength(1);
     // 预览中变量已替换
     expect(
-      screen.getAllByText("adb logcat -d > /tmp/logs/today.log")
-    ).toHaveLength(2);
+      screen.getByText("adb logcat -d > /tmp/logs/today.log")
+    ).toBeInTheDocument();
   });
 
   it("复制时把 ${VAR} 替换为全局配置的值", async () => {
@@ -165,10 +165,16 @@ describe("FragmentsView - 编辑视图", () => {
     expect(
       screen.getByDisplayValue("adb logcat -d > ${LOGS_DIR}/today.log")
     ).toBeInTheDocument();
-    expect(screen.getByDisplayValue("adb, logcat")).toBeInTheDocument();
+    // tags 以 chip 形式展示（用移除按钮定位，避开使用视图里的同名分组标题）
+    expect(
+      screen.getByRole("button", { name: "移除标签 adb" })
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "移除标签 logcat" })
+    ).toBeInTheDocument();
   });
 
-  it("改动后保存调用 SetFragments，tags 由逗号分隔转数组", async () => {
+  it("改动后保存调用 SetFragments，tags 保持数组", async () => {
     const user = userEvent.setup();
     renderView();
     await screen.findByPlaceholderText("搜索 标题 / 内容 / 标签");
@@ -208,5 +214,29 @@ describe("FragmentsView - 编辑视图", () => {
     // 「引用」标签 + 已定义的 LOGS_DIR chip
     expect(await screen.findByText("引用")).toBeInTheDocument();
     expect(screen.getByText("LOGS_DIR")).toBeInTheDocument();
+  });
+
+  it("TagInput 回车提交整段带空格的 tag，× 单独移除", async () => {
+    const user = userEvent.setup();
+    renderView();
+    await screen.findByPlaceholderText("搜索 标题 / 内容 / 标签");
+    await user.click(screen.getByRole("tab", { name: "编辑" }));
+    await screen.findByDisplayValue("看日志");
+
+    // 空格是合法 tag 字符，不被拆分
+    await user.type(screen.getByLabelText("添加标签（回车确认）"), "Lanv AI_BOX{Enter}");
+    expect(screen.getByText("Lanv AI_BOX")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "移除标签 adb" }));
+    expect(screen.queryByText("adb")).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(mockSetFragments).toHaveBeenCalledWith([
+      {
+        title: "看日志",
+        content: "adb logcat -d > ${LOGS_DIR}/today.log",
+        tags: ["logcat", "Lanv AI_BOX"],
+      },
+    ]);
   });
 });

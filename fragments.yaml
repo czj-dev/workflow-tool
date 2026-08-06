@@ -3,10 +3,12 @@ fragments:
       content: 'lnav -c ":filter-in AiosGrpcClientImpl" -c ":filter-in R4Arbiter" -c ":filter-in ProtocolConverterManager"   -c  ":filter-in SemanticDispatcher:"  -c ":filter-in playTTsFullParams"    -q '
       tags:
         - Lanv
-    - title: AIUBOX Agent
+        - AIBOX
+    - title: AI-BOX Agent
       content: lnav -c ":filter-in SseAgentBridge" -c ":filter-in SseCarCommandProcessor" -c ":filter-in CarManualStreamAgentVM" -c ":filter-in TinnoveIpc"  -c ":filter-in CarManualStreamAgentScene" -c ":filter-in SseAgentStreamRouter"  -c ":filter-in R4Arbiter” -q
       tags:
         - Lanv
+        - AIBOX
     - title: Rg 过滤 ASR 所在文件
       content: ' rg -lz "getAsrText: 打开座椅通风"'
       tags:

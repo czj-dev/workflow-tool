@@ -22,6 +22,7 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
+  Cancel01Icon,
   CheckmarkCircle02Icon,
   Copy02Icon,
   Delete02Icon,
@@ -37,7 +38,7 @@ import { cn } from "@/lib/utils";
 interface FragmentRow {
   title: string;
   content: string;
-  tags: string; // 逗号分隔的字符串，保存时转 []string
+  tags: string[];
 }
 
 // TagChip：Tag 筛选按钮。active 高亮 primary；label 后跟计数，
@@ -110,22 +111,16 @@ function UseView() {
     return all;
   }, [fragments, activeTag, query]);
 
-  // 分组：选了 tag 只显示该 tag 一组；否则按全部 tag 分组，无 tag 归「未分类」
+  // 分组：选了 tag 归该 tag 一组；未选时按「第一个 tag」归组，避免多 tag 片段重复显示
   const groups = useMemo(() => {
     const map = new Map<string, number[]>();
     filtered.forEach(({ f, i }) => {
-      let tags: string[];
-      if (activeTag) {
-        if (!(f.tags ?? []).includes(activeTag)) return;
-        tags = [activeTag];
-      } else {
-        tags = f.tags?.length ? f.tags : [t("fragments.uncategorized")];
-      }
-      tags.forEach((tag) => {
-        const list = map.get(tag) ?? [];
-        list.push(i);
-        map.set(tag, list);
-      });
+      const primary = activeTag
+        ? activeTag
+        : f.tags?.[0] ?? t("fragments.uncategorized");
+      const list = map.get(primary) ?? [];
+      list.push(i);
+      map.set(primary, list);
     });
     return map;
   }, [filtered, activeTag, t]);
@@ -245,15 +240,99 @@ function UseView() {
   );
 }
 
+// TagInput：chip 式标签编辑。Enter / 逗号 提交，Backspace 删末尾，× 单删；
+// 空格属于合法 tag 字符（如 "Lanv AI_BOX"），故不作分隔符。
+// suggestions 走原生 datalist，无需自建下拉。
+function TagInput({
+  id,
+  tags,
+  suggestions,
+  onChange,
+}: {
+  id: string;
+  tags: string[];
+  suggestions: string[];
+  onChange: (tags: string[]) => void;
+}) {
+  const { t } = useTranslation();
+  const [draft, setDraft] = useState("");
+
+  const commit = (raw: string) => {
+    const tag = raw.trim();
+    if (!tag || tags.includes(tag)) {
+      setDraft("");
+      return;
+    }
+    onChange([...tags, tag]);
+    setDraft("");
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      commit(draft);
+    } else if (e.key === "Backspace" && !draft && tags.length > 0) {
+      onChange(tags.slice(0, -1));
+    }
+  };
+
+  const listId = `${id}-suggestions`;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-input bg-transparent px-2 py-1.5 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50">
+      {tags.map((tag) => (
+        <span
+          key={tag}
+          className="inline-flex items-center gap-1 rounded-sm bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
+        >
+          {tag}
+          <button
+            type="button"
+            aria-label={`${t("fragments.removeTag")} ${tag}`}
+            onClick={() => onChange(tags.filter((x) => x !== tag))}
+            className="text-muted-foreground/60 transition-colors hover:text-destructive"
+          >
+            <HugeiconsIcon icon={Cancel01Icon} className="size-3" />
+          </button>
+        </span>
+      ))}
+      <input
+        id={id}
+        list={listId}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={onKeyDown}
+        onBlur={() => commit(draft)}
+        placeholder={tags.length === 0 ? t("fragments.tagsPlaceholder") : ""}
+        className="min-w-24 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+      />
+      <datalist id={listId}>
+        {suggestions
+          .filter((s) => !tags.includes(s))
+          .map((s) => (
+            <option key={s} value={s} />
+          ))}
+      </datalist>
+    </div>
+  );
+}
+
 // ─── 编辑视图：CRUD + 保存；去掉骗人的序号，换变量回路 + tags chip ──────
 function EditView() {
   const { t } = useTranslation();
   const { fragments, globalConfig, saveFragments } = useActionRunner();
+
+  // 所有已存在的 tag，用于 datalist 自动建议
+  const allTags = useMemo(() => {
+    const set = new Set<string>();
+    fragments.forEach((f) => f.tags?.forEach((tag) => set.add(tag)));
+    return Array.from(set).sort();
+  }, [fragments]);
+
   const [rows, setRows] = useState<FragmentRow[]>(() =>
     fragments.map((f) => ({
       title: f.title,
       content: f.content,
-      tags: (f.tags ?? []).join(", "),
+      tags: f.tags ?? [],
     })),
   );
   const [dirty, setDirty] = useState(false);
@@ -267,18 +346,23 @@ function EditView() {
         fragments.map((f) => ({
           title: f.title,
           content: f.content,
-          tags: (f.tags ?? []).join(", "),
+          tags: f.tags ?? [],
         })),
       );
     }
   }
 
-  const update = (i: number, field: keyof FragmentRow, v: string) => {
+  const update = (i: number, field: "title" | "content", v: string) => {
     setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, [field]: v } : r)));
     setDirty(true);
   };
+  // tags 独立增删：去空、去重后写回该行
+  const setTags = (i: number, tags: string[]) => {
+    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, tags } : r)));
+    setDirty(true);
+  };
   const add = () => {
-    setRows((prev) => [...prev, { title: "", content: "", tags: "" }]);
+    setRows((prev) => [...prev, { title: "", content: "", tags: [] }]);
     setDirty(true);
   };
   const remove = (i: number) => {
@@ -291,10 +375,7 @@ function EditView() {
       .map((r) => ({
         title: r.title.trim(),
         content: r.content,
-        tags: r.tags
-          .split(",")
-          .map((s) => s.trim())
-          .filter(Boolean),
+        tags: r.tags,
       }));
     await saveFragments(list);
     setDirty(false);
@@ -325,10 +406,6 @@ function EditView() {
         )}
         {rows.map((r, i) => {
           const vars = extractVars(r.content);
-          const tagChips = r.tags
-            .split(",")
-            .map((s) => s.trim())
-            .filter(Boolean);
           return (
             <Card key={i} className="relative p-4">
               <IconButton
@@ -389,24 +466,12 @@ function EditView() {
                   <FieldLabel htmlFor={`frag-${i}-tags`}>
                     {t("fragments.tagsPlaceholder")}
                   </FieldLabel>
-                  <Input
+                  <TagInput
                     id={`frag-${i}-tags`}
-                    value={r.tags}
-                    onChange={(e) => update(i, "tags", e.target.value)}
-                    placeholder={t("fragments.tagsPlaceholder")}
+                    tags={r.tags}
+                    suggestions={allTags}
+                    onChange={(tags) => setTags(i, tags)}
                   />
-                  {tagChips.length > 0 && (
-                    <div className="mt-1.5 flex flex-wrap gap-1.5">
-                      {tagChips.map((tag, ti) => (
-                        <span
-                          key={ti}
-                          className="rounded-sm bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
-                        >
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
                 </Field>
               </FieldGroup>
             </Card>
