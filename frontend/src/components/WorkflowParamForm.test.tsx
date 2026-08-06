@@ -86,4 +86,35 @@ describe("WorkflowParamForm", () => {
     await user.click(title);
     expect(screen.getByTestId("view-probe")).toHaveTextContent("workflow-edit");
   });
+
+  it("返回按钮切回 workflows-grid", async () => {
+    const user = userEvent.setup();
+    mockListWorkflows.mockResolvedValue({
+      workflows: [
+        {
+          id: "wf1",
+          title: "参数化WF",
+          icon: "hi:workflow",
+          description: "",
+          params: [
+            { id: "MSG", label: "消息", type: "text", required: false, default: "", options: [] },
+          ],
+          steps: [{ action: "x" }],
+        },
+      ],
+      errors: [],
+    });
+    render(
+      <ActionRunnerProvider>
+        <SidebarProvider>
+          <Setup />
+          <WorkflowParamForm />
+          <ViewProbe />
+        </SidebarProvider>
+      </ActionRunnerProvider>,
+    );
+    const back = await screen.findByRole("button", { name: "全部工作流" });
+    await user.click(back);
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("workflows-grid");
+  });
 });
