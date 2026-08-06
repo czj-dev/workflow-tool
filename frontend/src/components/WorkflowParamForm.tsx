@@ -19,6 +19,7 @@ export function WorkflowParamForm() {
     workflowFormValues,
     setWorkflowFormValue,
     runWorkflow,
+    setView,
   } = useActionRunner();
 
   const { recordUsage } = useActionUsage("workflow-usage");
@@ -43,7 +44,15 @@ export function WorkflowParamForm() {
     <main className="flex min-w-0 flex-1 flex-col">
       <header className="flex items-center gap-2 border-b px-4 py-2">
         <SidebarTrigger />
-        <span className="font-semibold">{workflow.title}</span>
+        {/* 标题点击进入 yaml 编辑态（与 WorkflowView 一致） */}
+        <button
+          type="button"
+          className="cursor-pointer font-semibold hover:underline"
+          title={t("edit.tooltip")}
+          onClick={() => currentId && setView("workflow-edit")}
+        >
+          {workflow.title}
+        </button>
       </header>
       <div className="flex flex-col gap-4 p-4">
         <WorkflowStepsOverview steps={workflow.steps ?? []} />
