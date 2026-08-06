@@ -38,6 +38,7 @@ if ($PACKAGE) {
 }
 
 Write-Output "写入: $out"
+adb logcat -c 2>$null   # 抓取前清空 logcat 缓冲区，避免混入历史日志
 # 关键：必须用单条管道流式落盘——PowerShell 逐行读取 adb 的 stdout 并写文件。
 # 严禁 $lines = & adb logcat 再过滤（会阻塞至 logcat 结束，违背流式）。
 # Where-Object 条件：参数空时透传（-not $X 短路）；非空时各负其责。

@@ -39,4 +39,5 @@ stage_include() { if [ -n "${INCLUDE:-}" ]; then grep -Ei --line-buffered "$INCL
 stage_exclude() { if [ -n "${EXCLUDE:-}" ]; then grep -v -Ei --line-buffered "$EXCLUDE"; else cat; fi; }
 
 echo "写入: $OUT" >&2
+adb logcat -c 2>/dev/null   # 抓取前清空 logcat 缓冲区，避免混入历史日志
 adb logcat "$@" | stage_pid | stage_include | stage_exclude > "$OUT"
