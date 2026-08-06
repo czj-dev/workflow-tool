@@ -2,6 +2,8 @@ import { useTranslation } from "react-i18next";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Edit02Icon } from "@hugeicons/core-free-icons";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { Badge } from "@/components/ui/badge";
+import { IconButton } from "./IconButton";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { useActionUsage, groupLabel, FOOTPRINT_SEGMENTS, MISC_KEY } from "../hooks/useActionUsage";
 import { ActionIcon } from "./ActionIcon";
@@ -151,16 +153,13 @@ function ActionCard({ action, running, level, onRun, onEdit, onPresetRun, onPres
         </div>
         {/* edit 按钮：仅有 params 时显示 */}
         {hasParams && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onEdit(); }}
-            className="size-6 rounded-md border border-transparent grid place-items-center text-muted-foreground
-              opacity-0 group-hover:opacity-100 transition-opacity
-              hover:bg-muted hover:text-foreground hover:border-border"
-            title={t("grid.editParams")}
-          >
-            <HugeiconsIcon icon={Edit02Icon} strokeWidth={1.75} className="size-3.5" />
-          </button>
+          <span className="opacity-0 group-hover:opacity-100 transition-opacity">
+            <IconButton
+              icon={Edit02Icon}
+              label={t("grid.editParams")}
+              onClick={(e) => { e?.stopPropagation?.(); onEdit(); }}
+            />
+          </span>
         )}
       </div>
 
@@ -180,8 +179,10 @@ function ActionCard({ action, running, level, onRun, onEdit, onPresetRun, onPres
       {action.presets && action.presets.length > 0 && (
         <div className="flex flex-wrap gap-1.5 pt-0.5">
           {action.presets.map((p) => (
-            <span
+            <Badge
               key={p.name}
+              variant="outline"
+              className="group/chip cursor-pointer bg-muted/60 font-mono text-[11px] tracking-[0.02em] hover:border-primary/60 hover:bg-primary/8"
               role="button"
               tabIndex={0}
               onClick={(e) => { e.stopPropagation(); onPresetRun(p.values as Record<string, string>); }}
@@ -192,23 +193,29 @@ function ActionCard({ action, running, level, onRun, onEdit, onPresetRun, onPres
                   onPresetRun(p.values as Record<string, string>);
                 }
               }}
-              className="group/chip relative inline-flex items-center gap-1.5 rounded-full border border-border
-                bg-muted/60 px-2.5 py-0.5 font-mono text-[11px] tracking-[0.02em] cursor-pointer
-                transition-colors hover:border-primary/60 hover:bg-primary/8"
             >
               <span className="text-primary text-[10px]">▸</span>
               {p.name}
-              <button
-                type="button"
+              <span
+                role="button"
+                tabIndex={0}
+                aria-label={t("grid.editPreset")}
                 onClick={(e) => { e.stopPropagation(); onPresetEdit(p.name); }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    onPresetEdit(p.name);
+                  }
+                }}
                 className="size-4 rounded grid place-items-center text-muted-foreground
                   opacity-0 group-hover/chip:opacity-100 transition-opacity
-                  hover:bg-card hover:text-foreground"
+                  hover:bg-card hover:text-foreground cursor-pointer"
                 title={t("grid.editPreset")}
               >
                 <HugeiconsIcon icon={Edit02Icon} strokeWidth={2} className="size-2.5" />
-              </button>
-            </span>
+              </span>
+            </Badge>
           ))}
         </div>
       )}

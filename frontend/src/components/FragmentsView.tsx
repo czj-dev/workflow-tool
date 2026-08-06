@@ -19,6 +19,7 @@ import {
   InputGroupAddon,
   InputGroupInput,
 } from "@/components/ui/input-group";
+import { Badge } from "@/components/ui/badge";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
@@ -55,22 +56,16 @@ function TagChip({
   onClick: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      aria-pressed={active}
-      className={cn(
-        "inline-flex items-center rounded-md px-2 py-0.5 font-mono text-[11px] uppercase tracking-wide transition-colors",
-        active
-          ? "bg-primary text-primary-foreground"
-          : "bg-muted text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-      )}
+    <Badge
+      variant={active ? "default" : "secondary"}
+      className="cursor-pointer font-mono text-[11px] uppercase tracking-wide"
+      render={
+        <button type="button" onClick={onClick} aria-pressed={active} />
+      }
     >
       {label}
-      <span className={cn("ml-1", active ? "opacity-70" : "opacity-50")}>
-        {count}
-      </span>
-    </button>
+      <span className={active ? "opacity-70" : "opacity-50"}>{count}</span>
+    </Badge>
   );
 }
 
@@ -447,17 +442,18 @@ function EditView() {
                     {vars.map((v) => {
                       const defined = v in globalConfig;
                       return (
-                        <span
+                        <Badge
                           key={v}
+                          variant={defined ? "default" : "destructive"}
                           className={cn(
-                            "rounded-sm px-1.5 py-0.5 font-mono text-[10px]",
+                            "rounded-sm font-mono text-[10px]",
                             defined
                               ? "bg-primary/10 text-primary"
-                              : "border border-destructive/50 text-destructive",
+                              : "border-destructive/50 bg-transparent",
                           )}
                         >
                           {v}
-                        </span>
+                        </Badge>
                       );
                     })}
                   </div>

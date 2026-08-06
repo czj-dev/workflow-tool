@@ -2,6 +2,7 @@ import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Input } from "@/components/ui/input";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { Badge } from "@/components/ui/badge";
 import { Add01Icon, Delete02Icon, FloppyDiskIcon } from "@hugeicons/core-free-icons";
 import { IconButton } from "./IconButton";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
@@ -131,18 +132,18 @@ export function GlobalConfigEditor() {
                       placeholder={t("global.valuePlaceholder")}
                     />
                     {/* 变量回路 badge：被引用次数 / 未使用 / 重复键名 */}
-                    <span
+                    <Badge
+                      variant={isDup ? "destructive" : "default"}
                       className={cn(
-                        "flex-none rounded-full px-2 py-0.5 text-center font-mono text-[10px] tabular-nums",
-                        isDup
-                          ? "bg-destructive/10 text-destructive"
-                          : ref > 0
+                        "flex-none font-mono text-[10px] tabular-nums",
+                        !isDup &&
+                          (ref > 0
                             ? "bg-primary/10 text-primary"
-                            : "bg-muted text-muted-foreground/50",
+                            : "bg-muted text-muted-foreground/50"),
                       )}
                     >
                       {isDup ? t("global.dup") : ref > 0 ? t("global.refCount", { count: ref }) : t("global.unused")}
-                    </span>
+                    </Badge>
                     <IconButton
                       icon={Delete02Icon}
                       label={t("global.remove")}
