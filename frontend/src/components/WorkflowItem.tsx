@@ -17,24 +17,24 @@ const DOUBLE_CLICK_DELAY = 250; // ms
 // 双击 —— 始终直接运行（用默认参数）。
 // 运行指示用 Live Pulse；完成用 success 色。
 export function WorkflowItem({ workflow }: { workflow: WorkflowItemType }) {
-  const { currentId, status, view, runWorkflow, selectWorkflow, setView } =
+  const { currentId, status, view, runningWorkflowId, runWorkflow, selectWorkflow, focusWorkflow } =
     useActionRunner();
   const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isWorkflowView =
     view === "workflow" || view === "workflow-form" || view === "workflow-edit";
   const isCurrent = currentId === workflow.id && isWorkflowView;
-  const isRunning = isCurrent && status === "running";
+  // 该 workflow 正在运行（无论 currentId 是否已切走）
+  const isRunning = runningWorkflowId === workflow.id;
 
   const handleClick = () => {
     if (clickTimer.current) clearTimeout(clickTimer.current);
     clickTimer.current = setTimeout(() => {
       clickTimer.current = null;
       if (isRunning) {
-        setView("workflow");
+        focusWorkflow(workflow.id);
         return;
       }
-      // selectWorkflow：有 params 进表单，无 params 直接跑
       selectWorkflow(workflow.id);
     }, DOUBLE_CLICK_DELAY);
   };
@@ -45,7 +45,7 @@ export function WorkflowItem({ workflow }: { workflow: WorkflowItemType }) {
       clickTimer.current = null;
     }
     if (isRunning) {
-      setView("workflow");
+      focusWorkflow(workflow.id);
       return;
     }
     runWorkflow(workflow.id, {});

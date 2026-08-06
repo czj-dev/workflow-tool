@@ -82,9 +82,12 @@ export interface RunnerContextValue {
   workflowErrors: string[];
   workflowSteps: WorkflowStepState[];
   workflowFormValues: Record<string, string>;
+  runningWorkflowId: string | null;
   runAction: (id: string, params?: Record<string, any>) => Promise<void>;
   // 把 id 切回 currentId 并切视图（用于点侧栏"运行中的动作"回到其输出）
   focusRunning: (id: string, targetView: "output" | "llm") => void;
+  // 把仍在运行的 workflow 切回 workflow 视图（点侧栏运行中 workflow 用）
+  focusWorkflow: (id: string) => void;
   cancel: () => void;
   clearOutput: () => void;
   copyOutput: () => Promise<void>;
@@ -155,6 +158,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const wfUnsubRef = useRef<(() => void) | null>(null);
   // 当前正在运行的 workflow id（供 cancelWorkflow 使用，无需触发重渲染）
   const workflowIdRef = useRef<string | null>(null);
+  // 正在运行中的 workflow id（持久标记，点其他 action 再点回来时仍能识别）
+  const [runningWorkflowId, setRunningWorkflowId] = useState<string | null>(null);
 
   // 挂载时拉取动作列表
   useEffect(() => {
@@ -258,6 +263,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       const d = (((e as { data?: unknown })?.data) || {}) as DoneEventData;
       setStatus(d.exitCode === 0 ? "done" : "error");
       setExitInfo(d);
+      setRunningWorkflowId(null);
     };
 
     handlers[`workflow:${wfid}:output`] = onOutput;
@@ -375,6 +381,15 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setView(targetView);
   };
 
+  // focusWorkflow：切回仍在运行的 workflow，不清 steps（保留已跑到的进度）。
+  // 与 focusRunning（action）语义类似，但不重置 status：workflow 的 status 由 done 事件更新，
+  // 切回时若仍在跑，status 已是 "running"；若已完成，保留 done/error 徽标。
+  const focusWorkflow = (id: string) => {
+    setCurrentId(id);
+    setSelectedPreset(null);
+    setView("workflow");
+  };
+
   // runWorkflow：先同步订阅事件再启动执行，确保不漏首帧
   const runWorkflow = async (id: string, params: Record<string, any> = {}) => {
     setWorkflowSteps([]);
@@ -384,11 +399,13 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setExitInfo(null);
     setView("workflow");
     workflowIdRef.current = id;
+    setRunningWorkflowId(id);
     subscribeWorkflow(id);
     try {
       await RunWorkflow(id, params);
     } catch {
       setStatus("error");
+      setRunningWorkflowId(null);
     }
   };
 
@@ -531,8 +548,10 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     workflowErrors,
     workflowSteps,
     workflowFormValues,
+    runningWorkflowId,
     runAction,
     focusRunning,
+    focusWorkflow,
     cancel,
     clearOutput,
     copyOutput,
