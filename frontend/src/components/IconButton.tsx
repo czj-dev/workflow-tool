@@ -12,7 +12,7 @@ interface IconButtonProps {
   size?: ComponentProps<typeof Button>["size"];
   className?: string;
   disabled?: boolean;
-  onClick?: () => void;
+  onClick?: (e?: React.MouseEvent) => void;
 }
 
 // 统一的图标按钮：视觉无文字，hover 显 tooltip。label 同时作 aria-label，

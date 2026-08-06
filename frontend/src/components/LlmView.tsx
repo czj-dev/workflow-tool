@@ -3,6 +3,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon, Cancel01Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { IconButton } from "./IconButton";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { ActionIcon } from "./ActionIcon";
 import {
@@ -54,14 +55,11 @@ export function LlmView() {
       <header className="flex items-center justify-between border-b px-4 py-2">
         <div className="flex items-center gap-2">
           <SidebarTrigger />
-          <button
-            type="button"
+          <IconButton
+            icon={ArrowLeft01Icon}
+            label={t("sidebar.allActions")}
             onClick={() => setView("actions-grid")}
-            title={t("sidebar.allActions")}
-            className="flex items-center gap-1 rounded px-1 text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
-          >
-            <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={1.75} className="size-4" />
-          </button>
+          />
           {current && (
             <span className="flex items-center gap-1.5 rounded px-1 font-semibold">
               <ActionIcon name={current.icon ?? "hi:play"} />
