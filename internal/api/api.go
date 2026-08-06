@@ -295,15 +295,29 @@ func (s *Service) GetVarReferenceCounts() map[string]int {
 			}
 		}
 	}
-	// actions：inline shell + script 脚本文件内容
+	// actions：inline shell + cwd + env values + script 脚本文件内容
 	for _, la := range s.reg.Actions {
 		add(la.Def.Command.Shell)
+		add(la.Def.Command.Cwd)
+		for _, v := range la.Def.Command.Env {
+			add(v)
+		}
 		if la.Def.Command.Script != "" {
 			if data, ok := readScriptBytes(la.Def.Command.Script, s.baseDir); ok {
 				add(string(data))
 			}
 		}
 	}
+	// workflows：step params values
+	s.wfMu.Lock()
+	for _, lw := range s.wfReg.Workflows {
+		for _, step := range lw.Def.Steps {
+			for _, v := range step.Params {
+				add(v)
+			}
+		}
+	}
+	s.wfMu.Unlock()
 	// fragments
 	s.fMu.Lock()
 	for _, f := range s.fragments {
