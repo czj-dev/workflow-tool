@@ -5,6 +5,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { PlayIcon } from "@hugeicons/core-free-icons";
 import { useActionRunner } from "../hooks/useActionRunner";
+import { useActionUsage } from "../hooks/useActionUsage";
 import { ParamFields } from "./ParamFields";
 import { missingRequired } from "../lib/params";
 import { WorkflowStepsOverview } from "./WorkflowStepsOverview";
@@ -20,6 +21,8 @@ export function WorkflowParamForm() {
     runWorkflow,
   } = useActionRunner();
 
+  const { recordUsage } = useActionUsage("workflow-usage");
+
   const workflow = workflows.find((w) => w.id === currentId);
   if (!workflow) return null;
 
@@ -33,6 +36,7 @@ export function WorkflowParamForm() {
       p[spec.id] = workflowFormValues[spec.id] ?? spec.default ?? "";
     });
     runWorkflow(workflow.id, p);
+    recordUsage(workflow.id);
   };
 
   return (
