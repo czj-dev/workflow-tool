@@ -1,4 +1,10 @@
 @import "tailwindcss";
+
+/* Tailwind v4 默认把 hover 变体包进 @media (hover: hover)，触摸屏设备
+   ((hover: none)) 上所有 hover/group-hover 样式会失效（卡片上浮、编辑图标等全部不显示）。
+   本应用是 Wails 桌面工具，鼠标 hover 应始终生效，故复刻 v3 行为：只用 :hover 伪类。 */
+@custom-variant hover (&:hover);
+
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
 @import "tw-shimmer";
