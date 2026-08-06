@@ -88,7 +88,9 @@
   "theme.dark": "Dark",
   "theme.system": "System",
   "sidebar.frequentActions": "Frequent",
+  "sidebar.frequentWorkflows": "Frequent",
   "sidebar.allActions": "All Actions",
+  "sidebar.allWorkflows": "All Workflows",
   "sidebar.settings": "Settings",
   "grid.title": "All Actions",
   "grid.itemsCount": "{{count}} items",
@@ -99,6 +101,8 @@
   "grid.presetsCount": "{{count}} presets",
   "grid.editParams": "Edit params",
   "grid.editPreset": "Edit preset params",
+  "grid.wfTitle": "All Workflows",
+  "grid.stepsCount": "{{count}} steps",
   "settings.title": "Settings",
   "settings.theme": "Theme",
   "settings.language": "Language"

@@ -88,7 +88,9 @@
   "theme.dark": "深色",
   "theme.system": "跟随系统",
   "sidebar.frequentActions": "常用动作",
+  "sidebar.frequentWorkflows": "常用工作流",
   "sidebar.allActions": "全部动作",
+  "sidebar.allWorkflows": "全部工作流",
   "sidebar.settings": "设置",
   "grid.title": "全部动作",
   "grid.itemsCount": "{{count}} 项",
@@ -99,6 +101,8 @@
   "grid.presetsCount": "{{count}} 预设",
   "grid.editParams": "编辑参数",
   "grid.editPreset": "编辑预设参数",
+  "grid.wfTitle": "全部工作流",
+  "grid.stepsCount": "{{count}} 步",
   "settings.title": "设置",
   "settings.theme": "主题",
   "settings.language": "语言"
