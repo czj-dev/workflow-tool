@@ -264,5 +264,28 @@ describe("useActionUsage", () => {
       const { result } = renderHook(() => useActionUsage());
       expect(result.current.getScore("legacy")).toBe(3);
     });
+
+    it("持久化层按 storageKey 隔离:一个 key 的记录在另一个 key 的新实例中读不到", () => {
+      // 实例1 用 action-usage 记录后卸载(强制下次重读 storage)
+      const { result: a, unmount: unmountA } = renderHook(() =>
+        useActionUsage("action-usage"),
+      );
+      act(() => {
+        a.current.recordUsage("shared-id");
+      });
+      unmountA();
+
+      // 实例2 用 workflow-usage 重新 mount(从 storage 读)
+      const { result: w } = renderHook(() =>
+        useActionUsage("workflow-usage"),
+      );
+      expect(w.current.getScore("shared-id")).toBe(0);
+
+      // 实例3 用 action-usage 重新 mount,应读到(验证持久化确实生效,非空跑)
+      const { result: a2 } = renderHook(() =>
+        useActionUsage("action-usage"),
+      );
+      expect(a2.current.getScore("shared-id")).toBeGreaterThan(0);
+    });
   });
 });
