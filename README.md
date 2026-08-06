@@ -103,6 +103,8 @@ presets:
 
 变量替换优先级：**动作参数 > 全局配置 > 环境变量**。
 
+> 完整字段说明见 [Action 定义指南](docs/action.md)。
+
 ## 工作流定义（workflows/*.yaml）
 
 ```yaml
@@ -119,6 +121,8 @@ steps:
     retry: 2
     continue_on_error: true
 ```
+
+> 完整字段说明见 [Workflow 定义指南](docs/workflow.md)。
 
 ## 测试
 
@@ -153,7 +157,7 @@ workflow-tool/
 │   ├── bindings/       wails3 generate bindings 产物
 │   └── dist/           vite 构建产物（embed 目标）
 ├── deploy/             构建脚本（build.sh / frontend.sh / backend.sh）
-├── docs/               设计文档与计划
+├── docs/               文档（action.md / workflow.md / 截图 / 设计文档）
 ├── main.go             应用入口
 └── go.mod
 ```

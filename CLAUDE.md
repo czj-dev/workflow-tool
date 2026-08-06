@@ -60,9 +60,13 @@ internal/api/       Wails Service 绑定 + 事件 emit（唯一依赖 Wails 的�
 
 `id`（`^[a-z0-9-]+$` 全局唯一）+ `title` 必填；`command.shell` 与 `command.script` 互斥必选其一。`script` 路径不含扩展名，按 OS 自动加 `.sh`/`.ps1`，相对路径基于 exe 目录。`command.stream` 只允许 `""` 或 `"llm"`。`params`（type: text|bool|select|path，select 必带 options）驱动前端表单；`presets` 是作者预设的整套参数值。可选 `icon`：写 `hi:<key>`（key 见 `frontend/src/components/ActionIcon.tsx` 注册表）渲染 hugeicons 矢量图标，或直接写 emoji/文本（原样显示，向后兼容）。校验逻辑在 `registry.validate`。
 
+完整字段文档：[docs/action.md](docs/action.md)。
+
 ## 工作流 YAML（workflows/*.yaml）
 
 `id` + `title` + `steps` 必填。每个 step 三选一：`action`（引用已有 action id，可用 `params` 覆盖参数）、`shell`（内联 shell 命令，可选 `timeout`）、`sleep`（等待 N 秒）。可选 `retry`（失败重试次数）和 `continue_on_error`（失败不中断后续步骤）。workflow 可自带 `params`（同 action 的 ParamSpec），运行时作为全局变量注入各 step。校验逻辑在 `workflow.Validate`。
+
+完整字段文档：[docs/workflow.md](docs/workflow.md)。
 
 ## 片段 YAML（fragments.yaml）
 
@@ -74,3 +78,4 @@ internal/api/       Wails Service 绑定 + 事件 emit（唯一依赖 Wails 的�
 - 锁定 Wails `v3.0.0-alpha2.119`（CLI 与库同版本），**不要升到 alpha.3**（绑定机制损坏）。
 - 新增前端静态文案只改 `frontend/src/i18n/locales/{zh,en}.json`；动作 `title/description` 与后端 stdout/stderr 不参与 i18n。
 - 前端组件优先复用已装 shadcn 原子（`components/ui/` 下 25 个）；`IconButton` 是项目封装（Button + Tooltip + aria-label），需要图标按钮时优先用它，避免重新手写 `<button>` + tailwind。
+- 修改 action / workflow 的 **YAML schema**（字段增删改、校验逻辑变动）后，**必须同步更新** `docs/action.md` 和 `docs/workflow.md`——这两份文档是面向使用者的完整字段参考，schema 改了文档不跟等于挖坑。
