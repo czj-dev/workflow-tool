@@ -113,7 +113,12 @@ function ActionCard({ action, running, level, onRun, onEdit, onPresetRun, onPres
       role="button"
       tabIndex={0}
       onClick={handleCardClick}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") handleCardClick(); }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handleCardClick();
+        }
+      }}
       className={`
         group relative flex flex-col gap-2.5 rounded-lg border p-3.5 cursor-pointer
         transition-all duration-150 ease-out
@@ -180,7 +185,13 @@ function ActionCard({ action, running, level, onRun, onEdit, onPresetRun, onPres
               role="button"
               tabIndex={0}
               onClick={(e) => { e.stopPropagation(); onPresetRun(p.values as Record<string, string>); }}
-              onKeyDown={(e) => { if (e.key === "Enter") { e.stopPropagation(); onPresetRun(p.values as Record<string, string>); } }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  onPresetRun(p.values as Record<string, string>);
+                }
+              }}
               className="group/chip relative inline-flex items-center gap-1.5 rounded-full border border-border
                 bg-muted/60 px-2.5 py-0.5 font-mono text-[11px] tracking-[0.02em] cursor-pointer
                 transition-colors hover:border-primary/60 hover:bg-primary/8"

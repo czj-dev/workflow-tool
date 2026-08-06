@@ -97,7 +97,7 @@ export function useActionUsage() {
     for (const action of actions) {
       const dash = action.id.indexOf("-");
       const key = dash > 0 ? action.id.slice(0, dash) : MISC_KEY;
-      groups[key] = [...(groups[key] ?? []), action];
+      (groups[key] ??= []).push(action);
     }
     return groups;
   }, []);

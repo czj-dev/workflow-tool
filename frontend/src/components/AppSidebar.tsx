@@ -17,6 +17,7 @@ import {
   FlashIcon,
   GridViewIcon,
   NoteIcon,
+  PreferenceHorizontalIcon,
   Settings02Icon,
 } from "@hugeicons/core-free-icons";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -172,7 +173,7 @@ export function AppSidebar() {
               tooltip={t("sidebar.settings")}
             >
               <HugeiconsIcon
-                icon={Settings02Icon}
+                icon={PreferenceHorizontalIcon}
                 strokeWidth={1.75}
                 className="size-4 shrink-0"
               />
