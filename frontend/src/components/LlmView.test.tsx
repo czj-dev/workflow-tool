@@ -33,6 +33,7 @@ vi.mock("@wailsio/runtime", () => ({ Events: { On: () => () => ({}) } }));
 
 import { ActionRunnerProvider, _emitForTest } from "../context/ActionRunnerProvider";
 import { useActionRunner } from "../hooks/useActionRunner";
+import { SidebarProvider } from "@/components/ui/sidebar";
 import { LlmView } from "./LlmView";
 
 // 挂载后触发 runAction（建立事件订阅），再由外部 _emitForTest 注入 llm 文本
@@ -45,13 +46,20 @@ function Drive() {
   return <LlmView />;
 }
 
+function renderDrive() {
+  // LlmView 头部含 SidebarTrigger，需 SidebarProvider 包裹
+  return render(
+    <ActionRunnerProvider>
+      <SidebarProvider>
+        <Drive />
+      </SidebarProvider>
+    </ActionRunnerProvider>,
+  );
+}
+
 describe("LlmView", () => {
   it("渲染 llmText 文本", async () => {
-    render(
-      <ActionRunnerProvider>
-        <Drive />
-      </ActionRunnerProvider>
-    );
+    renderDrive();
     await act(() => Promise.resolve());
     await act(() => Promise.resolve());
     await act(() => Promise.resolve());
@@ -62,11 +70,7 @@ describe("LlmView", () => {
   });
 
   it("渲染 thinkingText 思考过程", async () => {
-    render(
-      <ActionRunnerProvider>
-        <Drive />
-      </ActionRunnerProvider>
-    );
+    renderDrive();
     await act(() => Promise.resolve());
     await act(() => Promise.resolve());
     await act(() => Promise.resolve());

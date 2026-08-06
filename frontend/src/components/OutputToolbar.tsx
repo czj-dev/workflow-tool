@@ -4,11 +4,11 @@ import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Edit02Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, Edit02Icon } from "@hugeicons/core-free-icons";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { ActionIcon } from "./ActionIcon";
 
-// 输出区工具栏：折叠触发 + 当前动作标题 + 运行状态/耗时 + 停止/清空/复制 + 编辑
+// 输出区工具栏：折叠触发 + 返回 Grid + 当前动作标题 + 运行状态/耗时 + 停止/清空/复制 + 编辑
 export function OutputToolbar() {
   const { t } = useTranslation();
   const {
@@ -54,6 +54,14 @@ export function OutputToolbar() {
     <header className="flex items-center justify-between border-b px-4 py-2">
       <div className="flex items-center gap-2">
         <SidebarTrigger />
+        <button
+          type="button"
+          onClick={() => setView("actions-grid")}
+          title={t("sidebar.allActions")}
+          className="flex items-center gap-1 rounded px-1 text-muted-foreground hover:text-foreground hover:bg-accent cursor-pointer"
+        >
+          <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={1.75} className="size-4" />
+        </button>
         <button
           type="button"
           onClick={() => setView("edit")}
