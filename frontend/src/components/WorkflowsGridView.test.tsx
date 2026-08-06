@@ -26,7 +26,14 @@ vi.mock("@wailsio/runtime", () => ({ Events: { On: mockOn } }));
 
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { ActionRunnerProvider } from "../context/ActionRunnerProvider";
+import { useActionRunner } from "../hooks/useActionRunner";
 import { WorkflowsGridView } from "./WorkflowsGridView";
+
+// ViewProbe：暴露 provider 内部 view 状态，让用例可断言点击后的视图路由。
+function ViewProbe() {
+  const { view } = useActionRunner();
+  return <div data-testid="view-probe">{view}</div>;
+}
 
 beforeEach(() => {
   mockListWorkflows.mockReset();
@@ -40,6 +47,7 @@ function wrap() {
     <ActionRunnerProvider>
       <SidebarProvider>
         <WorkflowsGridView />
+        <ViewProbe />
       </SidebarProvider>
     </ActionRunnerProvider>
   );
@@ -83,7 +91,7 @@ describe("WorkflowsGridView", () => {
     expect(localStorage.getItem("workflow-usage")).toContain("demo-run");
   });
 
-  it("点击有参数 workflow 卡片进表单,不直接运行", async () => {
+  it("点击有参数 workflow 卡片进入表单视图(不直接运行)", async () => {
     const user = userEvent.setup();
     mockListWorkflows.mockResolvedValue({
       workflows: [
@@ -105,6 +113,8 @@ describe("WorkflowsGridView", () => {
     render(wrap());
     await user.click(await screen.findByText("带参"));
     expect(mockRunWorkflow).not.toHaveBeenCalled();
+    // 覆盖 onEdit → selectWorkflow → setView("workflow-form") 链路
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("workflow-form");
   });
 
   it("渲染个性图标(emoji 原样显示)", async () => {
