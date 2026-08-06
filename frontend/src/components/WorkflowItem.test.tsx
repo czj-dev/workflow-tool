@@ -80,5 +80,7 @@ describe("WorkflowItem", () => {
     render(wrap());
     await user.dblClick(await screen.findByText("带参"));
     expect(mockRunWorkflow).toHaveBeenCalledWith("w-form", {});
+    // 双击路径同步触发 recordUsage（userEvent.dblClick 清掉单击延时定时器，无需 await）
+    expect(localStorage.getItem("workflow-usage")).toContain("w-form");
   });
 });
