@@ -3,6 +3,13 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Edit02Icon } from "@hugeicons/core-free-icons";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -14,14 +21,14 @@ function errMsg(e: unknown): string {
   return String(e);
 }
 
-// Workflow YAML 编辑器：加载原文 → Textarea 编辑 → 保存写盘热重载。
+// Workflow yaml 原文编辑器：Select 切换 workflow + Textarea 编辑原文 + 保存写盘热重载。
+// editingId 独立于 currentId（运行焦点），与 ActionYamlEditor 一致；切换 workflow 丢弃未保存改动。
 export function WorkflowYamlEditor() {
   const { t } = useTranslation();
   const { workflows, currentId, getWorkflowYaml, saveWorkflowYaml, setView } =
     useActionRunner();
 
-  const workflow = workflows.find((w) => w.id === currentId);
-
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -29,15 +36,21 @@ export function WorkflowYamlEditor() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
+  // workflows 到达后初始化 editingId（currentId 优先，否则首个）。
+  if (!editingId && workflows.length > 0) {
+    setEditingId(currentId ?? workflows[0].id);
+  }
+
+  // editingId 变化时拉取原文
   useEffect(() => {
-    if (!currentId) return;
+    if (!editingId) return;
     let cancelled = false;
     // 同步置 loading 后异步取数据：与 ActionYamlEditor 同一豁免约定。
     // eslint-disable-next-line react-hooks/set-state-in-effect
     setLoading(true);
     setError(null);
     setNotice(null);
-    getWorkflowYaml(currentId)
+    getWorkflowYaml(editingId)
       .then((raw) => {
         if (cancelled) return;
         setText(raw);
@@ -53,14 +66,14 @@ export function WorkflowYamlEditor() {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentId]);
+  }, [editingId]);
 
   const onReset = async () => {
-    if (!currentId) return;
+    if (!editingId) return;
     setError(null);
     setNotice(null);
     try {
-      const raw = await getWorkflowYaml(currentId);
+      const raw = await getWorkflowYaml(editingId);
       setText(raw);
       setDirty(false);
     } catch (e) {
@@ -69,12 +82,12 @@ export function WorkflowYamlEditor() {
   };
 
   const onSave = async () => {
-    if (!currentId) return;
+    if (!editingId) return;
     setSaving(true);
     setError(null);
     setNotice(null);
     try {
-      await saveWorkflowYaml(currentId, text);
+      await saveWorkflowYaml(editingId, text);
       setDirty(false);
       setNotice(t("edit.runAfterSave"));
     } catch (e) {
@@ -84,14 +97,35 @@ export function WorkflowYamlEditor() {
     }
   };
 
+  if (workflows.length === 0) {
+    return (
+      <main className="flex min-w-0 flex-1 flex-col">
+        <header className="flex items-center gap-2 border-b px-4 py-2">
+          <SidebarTrigger />
+          <span className="font-semibold">{t("edit.wfTitle")}</span>
+        </header>
+        <div className="p-4 text-muted-foreground">{t("edit.wfEmpty")}</div>
+      </main>
+    );
+  }
+
   return (
     <main className="flex min-w-0 flex-1 flex-col">
       <header className="flex items-center justify-between gap-2 border-b px-4 py-2">
         <div className="flex items-center gap-2">
           <SidebarTrigger />
-          <span className="font-semibold">
-            {workflow?.title ?? t("sidebar.workflows")}
-          </span>
+          <Select value={editingId ?? undefined} onValueChange={(v) => setEditingId(v)}>
+            <SelectTrigger className="w-56">
+              <SelectValue placeholder={t("edit.wfPlaceholder")} />
+            </SelectTrigger>
+            <SelectContent>
+              {workflows.map((w) => (
+                <SelectItem key={w.id} value={w.id}>
+                  {w.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex items-center gap-2">
           <Button

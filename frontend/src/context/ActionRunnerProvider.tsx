@@ -57,7 +57,8 @@ export type RunnerView =
   | "workflow-form"
   | "workflow-edit"
   | "settings"
-  | "actions-grid";
+  | "actions-grid"
+  | "workflows-grid";
 
 export interface RunnerContextValue {
   actions: ActionItem[];

@@ -13,6 +13,9 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 import { useActionRunner } from "../hooks/useActionRunner";
 import type { WorkflowStepState } from "../types/events";
+import { ActionIcon } from "./ActionIcon";
+import { IconButton } from "./IconButton";
+import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
 
 // step status → i18n key 映射
 const STATUS_I18N: Record<WorkflowStepState["status"], string> = {
@@ -76,13 +79,19 @@ export function WorkflowView() {
       <header className="flex items-center justify-between border-b px-4 py-2">
         <div className="flex items-center gap-2">
           <SidebarTrigger />
-          {/* 点击标题进入 yaml 编辑态（与 action 一致的交互） */}
+          <IconButton
+            icon={ArrowLeft01Icon}
+            label={t("sidebar.allWorkflows")}
+            onClick={() => setView("workflows-grid")}
+          />
+          {/* 点击标题进入 yaml 编辑态；hover/icon 样式与 action OutputToolbar 一致 */}
           <button
             type="button"
-            className="cursor-pointer font-semibold hover:underline"
+            className="flex items-center gap-1.5 rounded px-1 font-semibold hover:bg-accent cursor-pointer"
             title={t("edit.tooltip")}
             onClick={() => currentId && setView("workflow-edit")}
           >
+            <ActionIcon name={current?.icon || "hi:workflow"} />
             {currentTitle ?? t("sidebar.workflows")}
           </button>
           {status === "running" && (

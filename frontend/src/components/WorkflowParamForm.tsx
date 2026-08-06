@@ -3,8 +3,11 @@ import { Button } from "@/components/ui/button";
 import { FieldGroup } from "@/components/ui/field";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { PlayIcon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, PlayIcon } from "@hugeicons/core-free-icons";
 import { useActionRunner } from "../hooks/useActionRunner";
+import { useActionUsage } from "../hooks/useActionUsage";
+import { ActionIcon } from "./ActionIcon";
+import { IconButton } from "./IconButton";
 import { ParamFields } from "./ParamFields";
 import { missingRequired } from "../lib/params";
 import { WorkflowStepsOverview } from "./WorkflowStepsOverview";
@@ -18,7 +21,10 @@ export function WorkflowParamForm() {
     workflowFormValues,
     setWorkflowFormValue,
     runWorkflow,
+    setView,
   } = useActionRunner();
+
+  const { recordUsage } = useActionUsage("workflow-usage");
 
   const workflow = workflows.find((w) => w.id === currentId);
   if (!workflow) return null;
@@ -33,13 +39,28 @@ export function WorkflowParamForm() {
       p[spec.id] = workflowFormValues[spec.id] ?? spec.default ?? "";
     });
     runWorkflow(workflow.id, p);
+    recordUsage(workflow.id);
   };
 
   return (
     <main className="flex min-w-0 flex-1 flex-col">
       <header className="flex items-center gap-2 border-b px-4 py-2">
         <SidebarTrigger />
-        <span className="font-semibold">{workflow.title}</span>
+        <IconButton
+          icon={ArrowLeft01Icon}
+          label={t("sidebar.allWorkflows")}
+          onClick={() => setView("workflows-grid")}
+        />
+        {/* 标题点击进入 yaml 编辑态；hover/icon 样式与 action OutputToolbar 一致 */}
+        <button
+          type="button"
+          className="flex items-center gap-1.5 rounded px-1 font-semibold hover:bg-accent cursor-pointer"
+          title={t("edit.tooltip")}
+          onClick={() => currentId && setView("workflow-edit")}
+        >
+          <ActionIcon name={workflow.icon || "hi:workflow"} />
+          {workflow.title}
+        </button>
       </header>
       <div className="flex flex-col gap-4 p-4">
         <WorkflowStepsOverview steps={workflow.steps ?? []} />

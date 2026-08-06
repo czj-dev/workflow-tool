@@ -1,6 +1,6 @@
 id: xdzs-debug-chain
 title: 调试一键链
-icon: hi:workflow
+icon: hi:flash
 description: "设备初始化 → 编译 Debug → 安装 APK → 拉起测试页面"
 steps:
   - action: xdzs-device-init

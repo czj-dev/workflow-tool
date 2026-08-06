@@ -1,7 +1,6 @@
 import { useCallback, useState } from "react";
-import type { ActionItem } from "../../bindings/workflow-tool/internal/api/models.js";
+// topActions/groupByPrefix 泛型化后不再依赖 ActionItem 形状，只要求 { id: string }
 
-const STORAGE_KEY = "action-usage";
 // 每次记录时对全体历史分数衰减：最近用的自然领先，长期不用的自然沉底。
 // 无时间戳——排序效果对 UI 足够，省掉状态迁移成本。
 const DECAY_FACTOR = 0.95;
@@ -20,9 +19,9 @@ export const MISC_KEY = "__misc__";
 
 type UsageMap = Record<string, number>;
 
-function readUsage(): UsageMap {
+function readUsage(key: string): UsageMap {
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) return {};
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
@@ -37,9 +36,9 @@ function readUsage(): UsageMap {
   }
 }
 
-function writeUsage(map: UsageMap): void {
+function writeUsage(key: string, map: UsageMap): void {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(map));
+    localStorage.setItem(key, JSON.stringify(map));
   } catch {
     // localStorage 写失败（隐私模式/配额）不该打断运行，退化为纯内存计数
   }
@@ -62,42 +61,43 @@ export function groupLabel(key: string): string {
   return PREFIX_LABELS[key] ?? key.charAt(0).toUpperCase() + key.slice(1);
 }
 
-// 使用频次：驱动侧边栏 top 3 排序，同时给 Grid 卡片的足迹条提供分数。
-// 一份数据两处消费——记录点在 runAction 的各个调用方。
-export function useActionUsage() {
-  const [usage, setUsage] = useState<UsageMap>(readUsage);
+// 使用频次：默认 action-usage；workflow 复用本 hook 时传 "workflow-usage" 实现数据隔离。
+// 算法（衰减/分组/足迹）完全共享，仅 storageKey 不同。
+export function useActionUsage(storageKey = "action-usage") {
+  const [usage, setUsage] = useState<UsageMap>(() => readUsage(storageKey));
 
   const recordUsage = useCallback((id: string) => {
     setUsage((prev) => {
       const next = decayAndBump(prev, id);
-      writeUsage(next);
+      writeUsage(storageKey, next);
       return next;
     });
-  }, []);
+  }, [storageKey]);
 
   const getScore = useCallback((id: string) => usage[id] ?? 0, [usage]);
 
-  // 按分数降序取前 n；分数相同（含全为 0 的首次启动）保持 actions 原顺序
+  // 按分数降序取前 n；分数相同（含全为 0 的首次启动）保持原顺序。
+  // 泛型 <T extends { id: string }>：action 与 workflow 复用同一排序。
   const topActions = useCallback(
-    (actions: ActionItem[], n: number = DEFAULT_TOP_N) =>
-      actions
-        .map((action, index) => ({ action, index }))
+    <T extends { id: string }>(items: T[], n: number = DEFAULT_TOP_N) =>
+      items
+        .map((item, index) => ({ item, index }))
         .sort((a, b) => {
-          const diff = (usage[b.action.id] ?? 0) - (usage[a.action.id] ?? 0);
+          const diff = (usage[b.item.id] ?? 0) - (usage[a.item.id] ?? 0);
           return diff !== 0 ? diff : a.index - b.index;
         })
         .slice(0, n)
-        .map(({ action }) => action),
+        .map(({ item }) => item),
     [usage],
   );
 
-  // 按 id 第一段前缀分组；无 "-" 分隔符的归 MISC_KEY。组内保持 actions 原顺序。
-  const groupByPrefix = useCallback((actions: ActionItem[]) => {
-    const groups: Record<string, ActionItem[]> = {};
-    for (const action of actions) {
-      const dash = action.id.indexOf("-");
-      const key = dash > 0 ? action.id.slice(0, dash) : MISC_KEY;
-      (groups[key] ??= []).push(action);
+  // 按 id 第一段前缀分组；无 "-" 分隔符的归 MISC_KEY。组内保持原顺序。
+  const groupByPrefix = useCallback(<T extends { id: string }>(items: T[]) => {
+    const groups: Record<string, T[]> = {};
+    for (const item of items) {
+      const dash = item.id.indexOf("-");
+      const key = dash > 0 ? item.id.slice(0, dash) : MISC_KEY;
+      (groups[key] ??= []).push(item);
     }
     return groups;
   }, []);

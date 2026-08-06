@@ -17,6 +17,9 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
+//go:embed assets/icon.png
+var appIcon []byte
+
 func main() {
 	baseDir := exeDir()
 	reg := registry.Load(filepath.Join(baseDir, "actions"), baseDir)
@@ -31,6 +34,7 @@ func main() {
 	app := application.New(application.Options{
 		Name:        "Workflow Tool",
 		Description: "一键触发命令/脚本的 workflow 工具",
+		Icon:        appIcon,
 		Services: []application.Service{
 			application.NewService(svc),
 		},

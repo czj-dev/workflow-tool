@@ -3,10 +3,11 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 // mock bindings 与 runtime（hoisted 模式，便于引用）
-const { mockListActions, mockRunAction, mockOn, listeners } = vi.hoisted(() => {
+const { mockListActions, mockListWorkflows, mockRunAction, mockOn, listeners } = vi.hoisted(() => {
   const listeners: Record<string, (e: unknown) => void> = {};
   return {
     mockListActions: vi.fn(),
+    mockListWorkflows: vi.fn(),
     mockRunAction: vi.fn(() => Promise.resolve()),
     mockOn: vi.fn((name: string, cb: (e: unknown) => void) => {
       listeners[name] = cb;
@@ -28,7 +29,7 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   GetVarReferenceCounts: vi.fn().mockResolvedValue({}),
   SetFragments: vi.fn().mockResolvedValue(undefined),
   PickDirectory: vi.fn().mockResolvedValue(""),
-  ListWorkflows: vi.fn().mockResolvedValue({ workflows: [], errors: [] }),
+  ListWorkflows: mockListWorkflows,
   RunWorkflow: vi.fn().mockResolvedValue(undefined),
   CancelWorkflow: vi.fn(),
 }));
@@ -42,6 +43,7 @@ import { AppSidebar } from "./AppSidebar";
 beforeEach(() => {
   Object.keys(listeners).forEach((k) => delete listeners[k]);
   mockListActions.mockReset();
+  mockListWorkflows.mockReset().mockResolvedValue({ workflows: [], errors: [] });
   mockRunAction.mockReset().mockResolvedValue(undefined);
   mockOn.mockClear();
   // 主题测试需要：jsdom 无 matchMedia，mock 之；清 storage 保证初始态
@@ -122,5 +124,32 @@ describe("AppSidebar", () => {
     expect(await screen.findByText("设置")).toBeInTheDocument();
     expect(screen.queryByText("浅色")).not.toBeInTheDocument();
     expect(screen.queryByText("深色")).not.toBeInTheDocument();
+  });
+
+  it("workflow 超过 3 个时侧栏只展示前 3 个 + 全部工作流入口", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    mockListWorkflows.mockResolvedValue({
+      workflows: [
+        { id: "w1", title: "W1", icon: "hi:workflow", description: "", params: [], steps: [{ action: "x" }] },
+        { id: "w2", title: "W2", icon: "hi:workflow", description: "", params: [], steps: [{ action: "x" }] },
+        { id: "w3", title: "W3", icon: "hi:workflow", description: "", params: [], steps: [{ action: "x" }] },
+        { id: "w4", title: "W4", icon: "hi:workflow", description: "", params: [], steps: [{ action: "x" }] },
+      ],
+      errors: [],
+    });
+    render(wrap());
+    expect(await screen.findByText("常用工作流")).toBeInTheDocument();
+    expect(screen.getByText("W1")).toBeInTheDocument();
+    expect(screen.getByText("W3")).toBeInTheDocument();
+    expect(screen.queryByText("W4")).not.toBeInTheDocument();
+    expect(screen.getByText("全部工作流")).toBeInTheDocument();
+  });
+
+  it("workflow 为空时显示空提示,不显示全部入口", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    mockListWorkflows.mockResolvedValue({ workflows: [], errors: [] });
+    render(wrap());
+    expect(await screen.findByText(/无工作流/)).toBeInTheDocument();
+    expect(screen.queryByText("全部工作流")).not.toBeInTheDocument();
   });
 });
