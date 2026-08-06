@@ -8,6 +8,7 @@ import {
 } from "@/components/ui/sidebar";
 import type { ActionItem as ActionItemType } from "../../bindings/workflow-tool/internal/api/models.js";
 import { useActionRunner } from "../hooks/useActionRunner";
+import { useActionUsage } from "../hooks/useActionUsage";
 import { PresetList } from "./PresetList";
 import { ActionIcon } from "./ActionIcon";
 
@@ -18,8 +19,9 @@ const DOUBLE_CLICK_DELAY = 250; // ms
 // 双击 —— 始终尝试直接运行（用默认参数）。
 // 运行指示用 Live Pulse（呼吸点）替代转圈；完成用 success 色，失败 destructive。
 export function ActionItem({ action }: { action: ActionItemType }) {
-  const { currentId, status, selectedPreset, runAction, selectPreset, setView } =
+  const { currentId, status, isRunning, focusRunning, selectedPreset, runAction, selectPreset } =
     useActionRunner();
+  const { recordUsage } = useActionUsage();
   const [expanded, setExpanded] = useState(false);
   const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -27,24 +29,30 @@ export function ActionItem({ action }: { action: ActionItemType }) {
   const active = isCurrent && !selectedPreset;
   const hasPresets = (action.presets?.length ?? 0) > 0;
   const hasParams = (action.params?.length ?? 0) > 0;
+  // 该动作是否仍在后台运行（即使 currentId 已切走）
+  const actionRunning = isRunning(action.id);
+
+  // 回到运行中动作：把它设回 currentId（重订阅输出 + 停止按钮作用于它）并切视图。
+  // ponytail: 历史输出行不恢复——lines 是单缓冲，被其他 action 运行时清掉了；
+  // scrcpy 这类只关心「在跑/能停」，够用。要留存历史需 per-id buffer，YAGNI。
+  const backToRunning = () =>
+    focusRunning(action.id, action.stream === "llm" ? "llm" : "output");
 
   const handleClick = () => {
     if (clickTimer.current) clearTimeout(clickTimer.current);
     clickTimer.current = setTimeout(() => {
       clickTimer.current = null;
-      // 若该动作正在运行：回到其输出视图（llm 流回 llm，否则回 output）
-      if (isCurrent && status === "running") {
-        setView(action.stream === "llm" ? "llm" : "output");
+      if (actionRunning) {
+        backToRunning();
         return;
       }
       if (hasPresets) {
         setExpanded((v) => !v);
       } else if (hasParams) {
-        // 无子项但有参数：进表单（selectPreset 预填 default + 切 form 视图 + 设 currentId）
         selectPreset(action.id, "");
       } else {
-        // 既无子项也无参数：无表单可进，直接运行
         runAction(action.id, {});
+        recordUsage(action.id);
       }
     }, DOUBLE_CLICK_DELAY);
   };
@@ -54,31 +62,30 @@ export function ActionItem({ action }: { action: ActionItemType }) {
       clearTimeout(clickTimer.current);
       clickTimer.current = null;
     }
-    // 正在运行时后端会拒绝并发运行，双击同样只回到输出视图
-    if (isCurrent && status === "running") {
-      setView(action.stream === "llm" ? "llm" : "output");
+    if (actionRunning) {
+      backToRunning();
       return;
     }
     runAction(action.id, {});
+    recordUsage(action.id);
   };
 
-  // 运行状态徽标（仅 current 动作显示）：呼吸点 / 完成 / 失败
-  const statusNode =
-    status === "running" ? (
-      <span className="size-1.5 shrink-0 rounded-full bg-primary live-pulse" />
-    ) : status === "done" ? (
-      <HugeiconsIcon
-        icon={Tick02Icon}
-        strokeWidth={1.75}
-        className="size-3.5 text-success"
-      />
-    ) : status === "error" ? (
-      <HugeiconsIcon
-        icon={Cancel01Icon}
-        strokeWidth={1.75}
-        className="size-3.5 text-destructive"
-      />
-    ) : null;
+  // 运行状态徽标：呼吸点（运行中，不看 currentId）/ 完成 / 失败（仅 current）
+  const statusNode = actionRunning ? (
+    <span className="size-1.5 shrink-0 rounded-full bg-primary live-pulse" />
+  ) : isCurrent && status === "done" ? (
+    <HugeiconsIcon
+      icon={Tick02Icon}
+      strokeWidth={1.75}
+      className="size-3.5 text-success"
+    />
+  ) : isCurrent && status === "error" ? (
+    <HugeiconsIcon
+      icon={Cancel01Icon}
+      strokeWidth={1.75}
+      className="size-3.5 text-destructive"
+    />
+  ) : null;
 
   return (
     <SidebarMenuItem>
@@ -95,7 +102,7 @@ export function ActionItem({ action }: { action: ActionItemType }) {
       >
         <ActionIcon name={action.icon} className="shrink-0" />
         <span>{action.title}</span>
-        {isCurrent && statusNode && (
+        {statusNode && (
           <SidebarMenuBadge className="right-2.5">{statusNode}</SidebarMenuBadge>
         )}
       </SidebarMenuButton>

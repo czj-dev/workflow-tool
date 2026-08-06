@@ -74,7 +74,7 @@ function wrap() {
 }
 
 describe("AppSidebar", () => {
-  it("渲染动作列表与标题", async () => {
+  it("渲染动作列表与常用动作分区标题", async () => {
     mockListActions.mockResolvedValue({
       actions: [
         { id: "a1", title: "打个招呼", icon: "👋", description: "d", params: [], presets: [] },
@@ -83,7 +83,7 @@ describe("AppSidebar", () => {
     });
     render(wrap());
     expect(await screen.findByText("打个招呼")).toBeInTheDocument();
-    expect(screen.getByText("动作")).toBeInTheDocument();
+    expect(screen.getByText("常用动作")).toBeInTheDocument();
   });
 
   it("渲染底部全局配置入口", async () => {
@@ -115,17 +115,12 @@ describe("AppSidebar", () => {
     expect(await screen.findByText("首页")).toBeInTheDocument();
   });
 
-  it("主题按钮循环 light→dark→system→light", async () => {
-    const user = userEvent.setup();
+  it("底部 Footer 展示设置入口，不再直接显示主题按钮", async () => {
     mockListActions.mockResolvedValue({ actions: [], errors: [] });
     render(wrap());
-    // defaultTheme="light" + localStorage 空 → 初始「浅色」
-    const themeBtn = await screen.findByText("浅色");
-    await user.click(themeBtn);
-    expect(screen.getByText("深色")).toBeInTheDocument();
-    await user.click(screen.getByText("深色"));
-    expect(screen.getByText("跟随系统")).toBeInTheDocument();
-    await user.click(screen.getByText("跟随系统"));
-    expect(screen.getByText("浅色")).toBeInTheDocument();
+    // 主题/语言归拢进「设置」页；侧边栏只剩入口按钮
+    expect(await screen.findByText("设置")).toBeInTheDocument();
+    expect(screen.queryByText("浅色")).not.toBeInTheDocument();
+    expect(screen.queryByText("深色")).not.toBeInTheDocument();
   });
 });

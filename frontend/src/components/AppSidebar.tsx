@@ -14,48 +14,35 @@ import {
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Alert02Icon,
-  ContrastIcon,
   FlashIcon,
-  Globe02Icon,
-  Moon02Icon,
+  GridViewIcon,
   NoteIcon,
   Settings02Icon,
-  Sun03Icon,
 } from "@hugeicons/core-free-icons";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { useActionRunner } from "../hooks/useActionRunner";
-import { useTheme } from "@/components/theme-provider";
+import { useActionUsage } from "../hooks/useActionUsage";
 import { ActionItem } from "./ActionItem";
 import { WorkflowItem } from "./WorkflowItem";
 
 // 等宽大写 eyebrow：控制台分区标签，结构即信息
 const EYEBROW = "font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80";
 
-// 左侧可折叠侧边栏：渲染工作流 + 动作列表 + 加载错误 + 底部「片段 / 全局配置」入口
+// 左侧可折叠侧边栏：渲染工作流 + 常用 top 3 动作 + 全部动作入口 + 底部「片段 / 全局配置 / 设置」
 export function AppSidebar() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const { actions, errors, workflows, workflowErrors, setView, openActionsDir } =
     useActionRunner();
-  const { theme, setTheme } = useTheme();
+  const { topActions } = useActionUsage();
 
-  const THEME_ICON = {
-    light: Sun03Icon,
-    dark: Moon02Icon,
-    system: ContrastIcon,
-  } as const;
-
-  const cycleTheme = () =>
-    setTheme(
-      theme === "light" ? "dark" : theme === "dark" ? "system" : "light",
-    );
+  const top3 = topActions(actions, 3);
 
   return (
     <Sidebar collapsible="icon">
       <SidebarHeader>
         <SidebarMenu>
           <SidebarMenuItem>
-            {/* 折叠为 icon 时只显命令图标，展开时显图标+标题（由 SidebarMenuButton 自带样式控制） */}
             <SidebarMenuButton
               size="lg"
               onClick={openActionsDir}
@@ -108,7 +95,7 @@ export function AppSidebar() {
         </SidebarGroup>
         <SidebarGroup>
           <SidebarGroupLabel className={EYEBROW}>
-            {t("sidebar.title")}
+            {t("sidebar.frequentActions")}
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
@@ -117,7 +104,7 @@ export function AppSidebar() {
                   <EmptyDescription>{t("empty.noActions")}</EmptyDescription>
                 </Empty>
               )}
-              {actions.map((a) => (
+              {top3.map((a) => (
                 <ActionItem key={a.id} action={a} />
               ))}
               {errors.map((e, i) => (
@@ -128,6 +115,22 @@ export function AppSidebar() {
                   </Alert>
                 </SidebarMenuItem>
               ))}
+              {/* 全部动作入口 */}
+              {actions.length > 0 && (
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    onClick={() => setView("actions-grid")}
+                    tooltip={t("sidebar.allActions")}
+                  >
+                    <HugeiconsIcon
+                      icon={GridViewIcon}
+                      strokeWidth={1.75}
+                      className="size-4 shrink-0"
+                    />
+                    <span>{t("sidebar.allActions")}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              )}
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
@@ -164,30 +167,16 @@ export function AppSidebar() {
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <SidebarMenuButton onClick={cycleTheme} tooltip={t("sidebar.theme")}>
-              <HugeiconsIcon
-                icon={THEME_ICON[theme]}
-                strokeWidth={1.75}
-                className="size-4 shrink-0"
-              />
-              <span>{t(`theme.${theme}`)}</span>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
             <SidebarMenuButton
-              onClick={() => {
-                const next = i18n.language?.startsWith("zh") ? "en" : "zh";
-                i18n.changeLanguage(next);
-                localStorage.setItem("lang", next);
-              }}
-              tooltip={t("sidebar.language")}
+              onClick={() => setView("settings")}
+              tooltip={t("sidebar.settings")}
             >
               <HugeiconsIcon
-                icon={Globe02Icon}
+                icon={Settings02Icon}
                 strokeWidth={1.75}
                 className="size-4 shrink-0"
               />
-              <span>{i18n.language?.startsWith("zh") ? "中文" : "English"}</span>
+              <span>{t("sidebar.settings")}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

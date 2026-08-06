@@ -85,5 +85,20 @@
   "workflow.empty": "（无工作流，在 workflows/ 放 YAML）",
   "theme.light": "浅色",
   "theme.dark": "深色",
-  "theme.system": "跟随系统"
+  "theme.system": "跟随系统",
+  "sidebar.frequentActions": "常用动作",
+  "sidebar.allActions": "全部动作",
+  "sidebar.settings": "设置",
+  "grid.title": "全部动作",
+  "grid.itemsCount": "{{count}} 项",
+  "grid.groupsCount": "{{count}} 组",
+  "grid.groupMisc": "其它",
+  "grid.noParams": "无参数",
+  "grid.paramsCount": "{{count}} 参数",
+  "grid.presetsCount": "{{count}} 预设",
+  "grid.editParams": "编辑参数",
+  "grid.editPreset": "编辑预设参数",
+  "settings.title": "设置",
+  "settings.theme": "主题",
+  "settings.language": "语言"
 }

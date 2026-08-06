@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { FieldGroup } from "@/components/ui/field";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { PlayIcon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, PlayIcon } from "@hugeicons/core-free-icons";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { SavePresetDialog } from "./SavePresetDialog";
 import { ParamFields } from "./ParamFields";
@@ -13,7 +13,7 @@ import { missingRequired } from "../lib/params";
 // 字段渲染复用 ParamFields（与 workflow 参数表单共用）。提交调 runAction(id, formValues)。
 export function ParamForm() {
   const { t } = useTranslation();
-  const { actions, currentId, formValues, setFormValue, runAction } =
+  const { actions, currentId, formValues, setFormValue, runAction, setView } =
     useActionRunner();
   const action = actions.find((a) => a.id === currentId);
   const [saveOpen, setSaveOpen] = useState(false);
@@ -37,14 +37,24 @@ export function ParamForm() {
         values={formValues}
         setValue={setFormValue}
       />
-      <div className="flex items-center justify-end gap-2">
-        <Button variant="outline" onClick={() => setSaveOpen(true)}>
-          {t("main.save")}
+      <div className="flex items-center justify-between gap-2">
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => setView("actions-grid")}
+        >
+          <HugeiconsIcon icon={ArrowLeft01Icon} strokeWidth={1.75} className="size-4" />
+          {t("sidebar.allActions")}
         </Button>
-        <Button disabled={!canRun} onClick={onRun}>
-          <HugeiconsIcon icon={PlayIcon} strokeWidth={1.75} className="size-4" />
-          {t("main.run")}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={() => setSaveOpen(true)}>
+            {t("main.save")}
+          </Button>
+          <Button disabled={!canRun} onClick={onRun}>
+            <HugeiconsIcon icon={PlayIcon} strokeWidth={1.75} className="size-4" />
+            {t("main.run")}
+          </Button>
+        </div>
       </div>
       <SavePresetDialog open={saveOpen} onClose={() => setSaveOpen(false)} />
     </FieldGroup>

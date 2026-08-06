@@ -337,6 +337,37 @@ describe("ActionRunnerProvider", () => {
     expect(result.current.actions[0].title).toBe("新名");
   });
 
+  it("切走再回来仍显示运行中（isRunning 按 id 记录，不随 currentId 切换丢失）", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    // 启动长跑动作 scrcpy
+    await act(async () => {
+      await result.current.runAction("adb-scrcpy", {});
+    });
+    expect(result.current.isRunning("adb-scrcpy")).toBe(true);
+    // 切去跑另一个动作并让它结束
+    await act(async () => {
+      await result.current.runAction("other", {});
+    });
+    act(() => {
+      _emitForTest("action:other:done", { data: { exitCode: 0, err: "", duration: "1s" } });
+    });
+    // scrcpy 未 done，仍应是运行中；currentId 已是 other
+    expect(result.current.isRunning("adb-scrcpy")).toBe(true);
+    expect(result.current.isRunning("other")).toBe(false);
+    // 点回 scrcpy → status 恢复 running
+    act(() => result.current.focusRunning("adb-scrcpy", "output"));
+    expect(result.current.currentId).toBe("adb-scrcpy");
+    expect(result.current.status).toBe("running");
+    expect(result.current.exitInfo).toBeNull();
+    // scrcpy 结束后 isRunning 转 false
+    act(() => {
+      _emitForTest("action:adb-scrcpy:done", { data: { exitCode: 0, err: "", duration: "9s" } });
+    });
+    expect(result.current.isRunning("adb-scrcpy")).toBe(false);
+  });
+
   it("挂载时拉取 workflow 列表", async () => {
     mockListActions.mockResolvedValue({ actions: [], errors: [] });
     mockListWorkflows.mockResolvedValue({

@@ -9,6 +9,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 FRONTEND="$ROOT/frontend"
 
+# 确保 GOPATH/bin 在 PATH 中（wails3 等 go install 的工具在此）
+export PATH="${PATH}:$(go env GOPATH)/bin"
+
 # 平台判定（Git Bash 报 MINGW*/MSYS*）
 case "$(uname -s)" in
   MINGW*|MSYS*|CYGWIN*) IS_WIN=1 ;;
