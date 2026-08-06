@@ -1,6 +1,6 @@
 id: demo-param-echo
 title: 参数化测试工作流
-icon: hi:workflow
+icon: hi:test
 description: "演示全部视觉效果：参数表单 → 多步骤管线 → stdout/stderr 分层 → 成败状态"
 params:
   - id: WF_MSG
