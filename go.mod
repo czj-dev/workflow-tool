@@ -3,6 +3,7 @@ module workflow-tool
 go 1.25.0
 
 require (
+	github.com/expr-lang/expr v1.17.8
 	github.com/wailsapp/wails/v3 v3.0.0-alpha2.119
 	gopkg.in/yaml.v3 v3.0.1
 )
