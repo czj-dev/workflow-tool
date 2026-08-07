@@ -97,7 +97,7 @@ presets:                       # 可选，预设参数组合
 
 当 action 被 workflow 引用时，变量优先级变为：
 
-params（step.params）> workflow.env > step.env > config.yaml > 系统环境变量
+params（step.params）> step.env > workflow.env > config.yaml > 系统环境变量
 
 `stream: llm` action 在 workflow 中运行时，即使 `capture_output: false`，仍会提取结构化 outputs（text/thinking/session_id/cost_usd/total_tokens），因为这些来自 stream-json 语义解析而非原始 stdout 转储。
 
