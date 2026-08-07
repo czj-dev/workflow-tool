@@ -86,6 +86,7 @@
   "workflow.stepRunning": "运行中",
   "workflow.stepDone": "完成",
   "workflow.stepError": "失败",
+  "workflow.stepSkipped": "已跳过",
   "workflow.empty": "（无工作流，在 workflows/ 放 YAML）",
   "theme.light": "浅色",
   "theme.dark": "深色",

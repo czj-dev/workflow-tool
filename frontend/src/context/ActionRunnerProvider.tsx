@@ -246,6 +246,19 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         );
         return;
       }
+      if (d.stream === "step-skip") {
+        const idx = parseInt(d.line, 10);
+        setWorkflowSteps((prev) => {
+          const exists = prev.find((s) => s.index === idx);
+          if (exists) {
+            return prev.map((s) =>
+              s.index === idx ? { ...s, status: "skipped" as const } : s,
+            );
+          }
+          return [...prev, { index: idx, status: "skipped" as const, lines: [] }];
+        });
+        return;
+      }
       // stdout/stderr：追加到最后一个 running step
       const prefix = d.stream === "stderr" ? t("output.stderrPrefix") : "";
       const line = prefix + (d.line || "");

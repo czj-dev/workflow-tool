@@ -23,6 +23,7 @@ const STATUS_I18N: Record<WorkflowStepState["status"], string> = {
   running: "workflow.stepRunning",
   done: "workflow.stepDone",
   error: "workflow.stepError",
+  skipped: "workflow.stepSkipped",
 };
 
 // 合并后的步骤视图：定义态（name）+ 运行态（status/lines/exitCode）
@@ -54,11 +55,12 @@ export function WorkflowView() {
           return {
             index: i,
             name:
-              info.kind === "sleep"
+              (info as { name?: string }).name ||
+              (info.kind === "sleep"
                 ? t("workflow.stepSleep", {
                     seconds: info.label.replace(/s$/, ""),
                   })
-                : info.label,
+                : info.label),
             status: st?.status ?? "pending",
             exitCode: st?.exitCode,
             lines: st?.lines ?? [],
@@ -127,18 +129,22 @@ export function WorkflowView() {
                   "bg-primary shadow-[0_0_0_3px_color-mix(in_oklch,var(--primary)_22%,transparent)] live-pulse",
                 done: "bg-success",
                 error: "bg-destructive",
+                skipped:
+                  "bg-transparent border-2 border-dashed border-muted-foreground/40 opacity-50",
               }[st];
               const lineCls = {
                 pending: "spine-pending",
                 running: "spine-running",
                 done: "bg-border",
                 error: "bg-border",
+                skipped: "spine-pending opacity-50",
               }[st];
               const badgeCls = {
                 pending: "text-muted-foreground",
                 running: "border-primary/40 text-primary bg-primary/10",
                 done: "border-success/40 text-success bg-success/10",
                 error: "border-destructive/40 text-destructive bg-destructive/10",
+                skipped: "border-dashed text-muted-foreground opacity-70",
               }[st];
               return (
                 <div key={step.index} className="flex gap-3.5">
@@ -154,7 +160,12 @@ export function WorkflowView() {
                   {/* content 列：mb-3 撑大 row，让 spine 线贯穿到下一节点 */}
                   <div className="mb-3 min-w-0 flex-1">
                     <Collapsible defaultOpen={st === "running" || st === "error"}>
-                      <Card className="overflow-hidden p-0">
+                      <Card
+                        className={cn(
+                          "overflow-hidden p-0",
+                          st === "skipped" && "border-dashed opacity-60",
+                        )}
+                      >
                         <CollapsibleTrigger className="flex w-full cursor-pointer items-center gap-3 px-4 py-2.5 hover:bg-muted/50">
                           <span className="font-mono text-xs text-muted-foreground">
                             {String(step.index + 1).padStart(2, "0")}

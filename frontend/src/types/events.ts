@@ -7,7 +7,8 @@ export interface OutputEventData {
     | "llm"
     | "llm-thinking"
     | "step-start"
-    | "step-done";
+    | "step-done"
+    | "step-skip";
   line: string;
 }
 
@@ -21,7 +22,7 @@ export interface DoneEventData {
 // workflow 单个步骤的运行状态（前端根据协议帧维护）
 export interface WorkflowStepState {
   index: number;
-  status: "pending" | "running" | "done" | "error";
+  status: "pending" | "running" | "done" | "error" | "skipped";
   exitCode?: number;
   lines: string[];
 }

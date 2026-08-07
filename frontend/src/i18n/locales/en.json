@@ -86,6 +86,7 @@
   "workflow.stepRunning": "Running",
   "workflow.stepDone": "Done",
   "workflow.stepError": "Failed",
+  "workflow.stepSkipped": "Skipped",
   "workflow.empty": "(No workflows. Put YAML in workflows/)",
   "theme.light": "Light",
   "theme.dark": "Dark",
