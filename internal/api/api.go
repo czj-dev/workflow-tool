@@ -20,13 +20,13 @@ import (
 
 // Service 是暴露给前端的 Wails 服务。
 type Service struct {
-	app     *application.App
-	reg     *registry.Registry
-	baseDir string
-	cfgPath  string // config.yaml 路径
-	fragPath string // fragments.yaml 路径
-	global   map[string]string
-	gMu      sync.Mutex // 保护 global 的读写
+	app       *application.App
+	reg       *registry.Registry
+	baseDir   string
+	cfgPath   string // config.yaml 路径
+	fragPath  string // fragments.yaml 路径
+	global    map[string]string
+	gMu       sync.Mutex // 保护 global 的读写
 	fragments []registry.Fragment
 	fMu       sync.Mutex // 保护 fragments 的读写
 	mu        sync.Mutex
@@ -557,7 +557,7 @@ func (s *Service) executeWorkflow(ctx context.Context, id string, lw workflow.Lo
 	actionRun := s.makeActionRun(ctx, merged)
 	shellRun := s.makeShellRun(ctx, merged)
 
-	res := (&workflow.Executor{}).Execute(ctx, lw, actionRun, shellRun, emit)
+	res := (&workflow.Executor{}).Execute(ctx, lw, actionRun, shellRun, merged, emit)
 
 	s.app.Event.Emit(workflowEventName(id, "done"), map[string]any{
 		"exitCode": res.ExitCode,
@@ -569,27 +569,45 @@ func (s *Service) executeWorkflow(ctx context.Context, id string, lw workflow.Lo
 // makeActionRun 构造 workflow 中 action step 的执行回调。
 // merged 是 global+workflow params 合并结果，step params 优先级最高。
 func (s *Service) makeActionRun(ctx context.Context, merged map[string]any) workflow.ActionRunFunc {
-	return func(actionID string, stepParams map[string]any, stepEmit runner.EmitFunc) runner.Result {
+	return func(actionID string, stepParams map[string]any, env map[string]string, captureOutput *bool, stepEmit runner.EmitFunc) runner.Result {
 		la, ok := s.reg.Actions[actionID]
 		if !ok {
 			stepEmit("stderr", fmt.Sprintf("未知动作 %q", actionID))
 			return runner.Result{ExitCode: -1, Err: fmt.Errorf("未知动作 %q", actionID)}
 		}
-		runParams := make(map[string]any, len(merged)+len(stepParams))
+		runParams := make(map[string]any, len(merged)+len(stepParams)+len(env))
 		for k, v := range merged {
 			runParams[k] = v
 		}
+		// env（workflow.env + step.env）覆盖 config/global，供 runner.Expand 解析 ${VAR}
+		for k, v := range env {
+			runParams[k] = v
+		}
 		for k, v := range stepParams {
-			runParams[k] = v // step 参数覆盖全局/工作流参数
+			runParams[k] = v // step.params 优先级最高
+		}
+		// env 分层：action 定义的 env + workflow/step 注入的 env（后者覆盖前者）
+		mergedEnv := make(map[string]string, len(la.Def.Command.Env)+len(env))
+		for k, v := range la.Def.Command.Env {
+			mergedEnv[k] = v
+		}
+		for k, v := range env {
+			mergedEnv[k] = v
+		}
+		// captureOutput 优先级：step 显式设置 > action 定义
+		capture := la.Def.Command.CaptureOutput
+		if captureOutput != nil {
+			capture = captureOutput
 		}
 		r := &runner.ShellRunner{Cfg: runner.ShellConfig{
-			Shell:   la.Def.Command.Shell,
-			Script:  la.Def.Command.Script,
-			Cwd:     la.Cwd,
-			Timeout: la.Timeout,
-			Env:     la.Def.Command.Env,
-			BaseDir: s.baseDir,
-			Stream:  la.Def.Command.Stream,
+			Shell:         la.Def.Command.Shell,
+			Script:        la.Def.Command.Script,
+			Cwd:           la.Cwd,
+			Timeout:       la.Timeout,
+			Env:           mergedEnv,
+			BaseDir:       s.baseDir,
+			Stream:        la.Def.Command.Stream,
+			CaptureOutput: capture,
 		}}
 		return r.Run(ctx, runParams, stepEmit)
 	}
@@ -597,19 +615,32 @@ func (s *Service) makeActionRun(ctx context.Context, merged map[string]any) work
 
 // makeShellRun 构造 workflow 中 inline shell step 的执行回调。timeout 缺省 60s。
 func (s *Service) makeShellRun(ctx context.Context, merged map[string]any) workflow.ShellRunFunc {
-	return func(shellCmd, timeoutStr string, stepEmit runner.EmitFunc) runner.Result {
+	return func(shellCmd, timeoutStr string, env map[string]string, captureOutput *bool, params map[string]any, stepEmit runner.EmitFunc) runner.Result {
 		timeout := 60 * time.Second
 		if timeoutStr != "" {
 			if d, err := time.ParseDuration(timeoutStr); err == nil {
 				timeout = d
 			}
 		}
+		// 合并 merged params + env(workflow.env/step.env) + 传入 params，优先级从低到高
+		runParams := make(map[string]any, len(merged)+len(env)+len(params))
+		for k, v := range merged {
+			runParams[k] = v
+		}
+		for k, v := range env {
+			runParams[k] = v
+		}
+		for k, v := range params {
+			runParams[k] = v
+		}
 		r := &runner.ShellRunner{Cfg: runner.ShellConfig{
-			Shell:   shellCmd,
-			Timeout: timeout,
-			BaseDir: s.baseDir,
+			Shell:         shellCmd,
+			Timeout:       timeout,
+			Env:           env,
+			BaseDir:       s.baseDir,
+			CaptureOutput: captureOutput,
 		}}
-		return r.Run(ctx, merged, stepEmit)
+		return r.Run(ctx, runParams, stepEmit)
 	}
 }
 
