@@ -49,6 +49,8 @@ type Command struct {
 	Timeout string            `yaml:"timeout"`
 	Env     map[string]string `yaml:"env"`
 	Stream  string            `yaml:"stream"` // "" 普通逐行；"llm" 按 stream-json 解析
+	// nil/true=默认捕获；false=关闭（scrcpy/logcat 等长跑用）
+	CaptureOutput *bool `yaml:"capture_output"`
 }
 
 // LoadedAction 是已校验、字段已解析的动作。

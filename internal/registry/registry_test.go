@@ -377,6 +377,39 @@ func TestAddPresetToYAML_PreservesStandardFormat(t *testing.T) {
 	}
 }
 
+func TestParseAction_CaptureOutputField(t *testing.T) {
+	yamlSrc := []byte(`
+id: test-capture
+title: 测试
+command:
+  shell: echo hi
+  capture_output: false
+`)
+	def, err := ParseAction(yamlSrc)
+	if err != nil {
+		t.Fatalf("ParseAction error: %v", err)
+	}
+	if def.Command.CaptureOutput == nil || *def.Command.CaptureOutput != false {
+		t.Fatalf("CaptureOutput = %v, want pointer to false", def.Command.CaptureOutput)
+	}
+}
+
+func TestParseAction_CaptureOutputDefaultNil(t *testing.T) {
+	yamlSrc := []byte(`
+id: test-capture-default
+title: 测试
+command:
+  shell: echo hi
+`)
+	def, err := ParseAction(yamlSrc)
+	if err != nil {
+		t.Fatalf("ParseAction error: %v", err)
+	}
+	if def.Command.CaptureOutput != nil {
+		t.Fatalf("CaptureOutput 未写时应为 nil（表示默认 true），got %v", *def.Command.CaptureOutput)
+	}
+}
+
 func TestAddPresetToYAML_PreservesComments(t *testing.T) {
 	in := []byte("# 顶部注释\nid: a\ntitle: A\ncommand:\n  shell: echo\n")
 	out, err := AddPresetToYAML(in, "p1", "", map[string]string{"K": "v"})
