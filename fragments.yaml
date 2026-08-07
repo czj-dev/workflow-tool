@@ -21,3 +21,11 @@ fragments:
       content: rg -z -M 200 --max-columns-preview "车里好热啊"
       tags:
         - Rg
+    - title: 全时免唤醒
+      content: |-
+        adb shell settings put global tinnove_wakeup_switch  1
+        adb shell settings put global tinnove_fulltime_wakeup_switch 1
+        adb shell settings put global tinnove_continuous_conversation_duration 1
+        adb shell am force-stop com.baidu.che.codriver
+      tags:
+        - adb

@@ -17,8 +17,8 @@ import (
 //go:embed all:frontend/dist
 var assets embed.FS
 
-//go:embed assets/icon.png
-var appIcon []byte
+// appIcon 在 icon_darwin.go / icon_other.go 中按平台定义。
+// macOS 留 nil，避免 [NSApp setApplicationIconImage:] 用单张位图覆盖 bundle 的 .icns 多分辨率图标。
 
 func main() {
 	baseDir := exeDir()
