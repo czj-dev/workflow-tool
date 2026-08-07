@@ -172,6 +172,69 @@ func TestBuildCommandWindowsShellUsesPowerShell(t *testing.T) {
 	}
 }
 
+func TestShellRunner_CaptureOutput_DefaultOn(t *testing.T) {
+	r := &ShellRunner{Cfg: ShellConfig{
+		Shell:   `echo "hello"; echo "err" 1>&2`,
+		Timeout: 5 * time.Second,
+	}}
+	res := r.Run(context.Background(), nil, func(string, string) {})
+	if res.ExitCode != 0 {
+		t.Fatalf("exit code = %d, want 0", res.ExitCode)
+	}
+	if res.Stdout != "hello\n" {
+		t.Fatalf("stdout = %q, want %q", res.Stdout, "hello\n")
+	}
+	if res.Stderr != "err\n" {
+		t.Fatalf("stderr = %q, want %q", res.Stderr, "err\n")
+	}
+	if res.Outputs["exit_code"] != "0" || res.Outputs["success"] != "true" {
+		t.Fatalf("outputs = %+v, want exit_code=0 success=true", res.Outputs)
+	}
+}
+
+func TestShellRunner_CaptureOutput_ExplicitOff(t *testing.T) {
+	off := false
+	r := &ShellRunner{Cfg: ShellConfig{
+		Shell:         `echo "hello"`,
+		Timeout:       5 * time.Second,
+		CaptureOutput: &off,
+	}}
+	res := r.Run(context.Background(), nil, func(string, string) {})
+	if res.Stdout != "" {
+		t.Fatalf("stdout = %q, want empty when capture_output=false", res.Stdout)
+	}
+	if res.Outputs["exit_code"] != "0" {
+		t.Fatalf("exit_code output 仍应存在（不依赖 capture_output）: %+v", res.Outputs)
+	}
+}
+
+func TestShellRunner_CaptureOutput_ProtocolLine(t *testing.T) {
+	r := &ShellRunner{Cfg: ShellConfig{
+		Shell:   `echo "normal line"; echo "##[output build_id=42]"`,
+		Timeout: 5 * time.Second,
+	}}
+	res := r.Run(context.Background(), nil, func(string, string) {})
+	if res.Outputs["build_id"] != "42" {
+		t.Fatalf("outputs[build_id] = %q, want 42; outputs=%+v", res.Outputs["build_id"], res.Outputs)
+	}
+	// 协议行仍照常流式输出（不吞掉），保持现有前端行为不变
+	if !strings.Contains(res.Stdout, "##[output build_id=42]") {
+		t.Fatalf("协议行应仍出现在原始 stdout 里: %q", res.Stdout)
+	}
+}
+
+func TestShellRunner_CaptureOutput_ReservedKeyOverride(t *testing.T) {
+	r := &ShellRunner{Cfg: ShellConfig{
+		Shell:   `echo "##[output exit_code=999]"`,
+		Timeout: 5 * time.Second,
+	}}
+	res := r.Run(context.Background(), nil, func(string, string) {})
+	// 协议值覆盖 reserved key（已在 spec 中确认此优先级）
+	if res.Outputs["exit_code"] != "999" {
+		t.Fatalf("reserved key 应被协议行覆盖，got %q", res.Outputs["exit_code"])
+	}
+}
+
 // TestStripANSI 验证剥离 ANSI 颜色/样式控制序列，避免前端把 PowerShell 等输出的
 // 彩色码（如 \x1b[31;1m）渲染成可见乱码。
 func TestStripANSI(t *testing.T) {

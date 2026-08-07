@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"runtime"
+	"strings"
 	"time"
 )
 
@@ -19,7 +20,8 @@ type ShellConfig struct {
 	Timeout time.Duration     // 超时
 	Env     map[string]string // 额外环境变量
 	BaseDir string            // exe 目录，用于解析相对 script 路径
-	Stream  string            // "" 普通逐行；"llm" 走 pumpLLM 解析 stream-json
+	Stream        string            // "" 普通逐行；"llm" 走 pumpLLM 解析 stream-json
+	CaptureOutput *bool             // nil 或指向 true = 捕获全量 stdout/stderr 供 outputs 使用；指向 false = 关闭（长跑/持续输出 action 用）
 }
 
 // ShellRunner 执行单条 shell 命令或脚本文件，流式输出。
@@ -65,14 +67,22 @@ func (r *ShellRunner) Run(ctx context.Context, params map[string]any, emit EmitF
 		return Result{Err: fmt.Errorf("start: %w", err), Duration: time.Since(start)}
 	}
 
+	captureOn := cfg.CaptureOutput == nil || *cfg.CaptureOutput
+	var stdoutBuf, stderrBuf *strings.Builder
+	outputs := map[string]string{}
+	if captureOn {
+		stdoutBuf = &strings.Builder{}
+		stderrBuf = &strings.Builder{}
+	}
+
 	doneOut := make(chan struct{})
 	doneErr := make(chan struct{})
 	if cfg.Stream == "llm" {
 		go pumpLLM(stdoutPipe, emit, doneOut)
 	} else {
-		go pump(stdoutPipe, "stdout", emit, doneOut)
+		go pump(stdoutPipe, "stdout", emit, doneOut, stdoutBuf, outputs)
 	}
-	go pump(stderrPipe, "stderr", emit, doneErr)
+	go pump(stderrPipe, "stderr", emit, doneErr, stderrBuf, nil)
 
 	waitCh := make(chan error, 1)
 	go func() {
@@ -85,7 +95,12 @@ func (r *ShellRunner) Run(ctx context.Context, params map[string]any, emit EmitF
 	case <-timeoutCtx.Done():
 		killGroup(cmd) // ponytail: 杀进程组而非单进程，否则 sh -c 的子进程(如 adb logcat)残留
 		<-waitCh
-		return Result{ExitCode: -1, Err: timeoutCtx.Err(), Duration: time.Since(start)}
+		exitCode := -1
+		stdout, stderr := bufString(stdoutBuf), bufString(stderrBuf)
+		return Result{
+			ExitCode: exitCode, Err: timeoutCtx.Err(), Duration: time.Since(start),
+			Stdout: stdout, Stderr: stderr, Outputs: finalizeOutputs(outputs, exitCode, stdout, stderr),
+		}
 	case werr := <-waitCh:
 		exitCode := 0
 		if werr != nil {
@@ -95,7 +110,11 @@ func (r *ShellRunner) Run(ctx context.Context, params map[string]any, emit EmitF
 				return Result{Err: fmt.Errorf("wait: %w", werr), Duration: time.Since(start)}
 			}
 		}
-		return Result{ExitCode: exitCode, Duration: time.Since(start)}
+		stdout, stderr := bufString(stdoutBuf), bufString(stderrBuf)
+		return Result{
+			ExitCode: exitCode, Duration: time.Since(start),
+			Stdout: stdout, Stderr: stderr, Outputs: finalizeOutputs(outputs, exitCode, stdout, stderr),
+		}
 	}
 }
 
@@ -147,12 +166,49 @@ func buildEnv(params map[string]any, cfgEnv map[string]string) []string {
 	return env
 }
 
-// pump 逐行读取 r 并 emit。
-func pump(r io.Reader, stream string, emit EmitFunc, done chan<- struct{}) {
+// pump 逐行读取 r 并 emit；buf 非 nil 时同时把整行 append 进 buf，
+// outputs 非 nil 时对每行尝试解析 ##[output key=value] 协议写入 outputs。
+func pump(r io.Reader, stream string, emit EmitFunc, done chan<- struct{}, buf *strings.Builder, outputs map[string]string) {
 	defer close(done)
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
 	for sc.Scan() {
-		emit(stream, stripANSI(sc.Text()))
+		line := stripANSI(sc.Text())
+		emit(stream, line)
+		if buf != nil {
+			buf.WriteString(line)
+			buf.WriteString("\n")
+		}
+		if outputs != nil {
+			if key, value, ok := parseOutputLine(line); ok {
+				outputs[key] = value
+			}
+		}
 	}
+}
+
+// bufString 返回 buf 内容；buf 为 nil（capture_output=false）时返回空字符串。
+func bufString(buf *strings.Builder) string {
+	if buf == nil {
+		return ""
+	}
+	return buf.String()
+}
+
+// finalizeOutputs 补齐通用 Layer 1 outputs：exit_code/stdout/stderr/success。
+// 协议行已提前写入 outputs，若与 reserved key 同名则协议值优先（不覆盖回退）。
+func finalizeOutputs(outputs map[string]string, exitCode int, stdout, stderr string) map[string]string {
+	if _, ok := outputs["exit_code"]; !ok {
+		outputs["exit_code"] = fmt.Sprint(exitCode)
+	}
+	if _, ok := outputs["stdout"]; !ok {
+		outputs["stdout"] = stdout
+	}
+	if _, ok := outputs["stderr"]; !ok {
+		outputs["stderr"] = stderr
+	}
+	if _, ok := outputs["success"]; !ok {
+		outputs["success"] = fmt.Sprint(exitCode == 0)
+	}
+	return outputs
 }
