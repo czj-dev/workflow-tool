@@ -18,6 +18,7 @@ command:
   stream: ""                   # 可选，"" 普通逐行 | "llm" 解析 stream-json
   env:                         # 可选，追加到进程环境变量
     KEY: value
+  capture_output: true         # 可选，默认 true；false 关闭全量 stdout/stderr 捕获
 
 params:                        # 可选，参数表单
   - id: URL                    # 参数 ID，用于 ${URL} 引用
@@ -53,6 +54,7 @@ presets:                       # 可选，预设参数组合
 | `timeout` | Go duration 格式（`30s` / `5m` / `1h`），默认 `60s` |
 | `stream` | 空 = 普通逐行输出；`"llm"` = 解析 stream-json 格式（见下） |
 | `env` | 键值对，追加到当前环境变量 |
+| `capture_output` | 布尔（默认 true）；`false` = 不捕获全量 stdout/stderr，长跑/持续输出 action 用 |
 
 ### params（参数表单）
 
@@ -90,6 +92,14 @@ presets:                       # 可选，预设参数组合
 3. **环境变量**
 
 三者都未定义则保留 `${VAR}` 原样 + 控制台 warning。
+
+### workflow 中的变量优先级扩展
+
+当 action 被 workflow 引用时，变量优先级变为：
+
+params（step.params）> workflow.env > step.env > config.yaml > 系统环境变量
+
+`stream: llm` action 在 workflow 中运行时，即使 `capture_output: false`，仍会提取结构化 outputs（text/thinking/session_id/cost_usd/total_tokens），因为这些来自 stream-json 语义解析而非原始 stdout 转储。
 
 ## LLM 流式模式（stream: llm）
 

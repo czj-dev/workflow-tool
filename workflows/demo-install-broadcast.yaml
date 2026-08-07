@@ -3,6 +3,12 @@ title: 安装后拉起测试页面
 icon: hi:package
 description: "安装 APK → 等待 5s → 拉起 DebugActivity"
 steps:
-  - action: adb-install
-  - sleep: 5
-  - action: adb-debug-activity
+  - id: install
+    name: 安装 APK
+    action: adb-install
+  - id: wait
+    name: 等待安装落地
+    sleep: 5
+  - id: launch
+    name: 拉起 DebugActivity
+    action: adb-debug-activity

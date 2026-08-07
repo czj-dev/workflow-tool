@@ -3,8 +3,16 @@ title: 调试一键链
 icon: hi:flash
 description: "设备初始化 → 编译 Debug → 安装 APK → 拉起测试页面"
 steps:
-  - action: xdzs-device-init
-  - action: xdzs-build-app
+  - id: device-init
+    name: 设备初始化
+    action: xdzs-device-init
+  - id: build
+    name: 编译 Debug
+    action: xdzs-build-app
     params: { VARIANT: Debug }
-  - action: adb-install
-  - action: adb-debug-activity
+  - id: install
+    name: 安装 APK
+    action: adb-install
+  - id: launch
+    name: 拉起测试页面
+    action: adb-debug-activity

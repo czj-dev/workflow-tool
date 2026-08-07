@@ -19,3 +19,4 @@ command:
     echo "[scrcpy] 启动投屏: scrcpy $args"
     eval scrcpy $args
   timeout: 24h
+  capture_output: false          # 投屏持续输出，禁止内存累积

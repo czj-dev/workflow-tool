@@ -60,11 +60,13 @@ internal/api/       Wails Service 绑定 + 事件 emit（唯一依赖 Wails 的�
 
 `id`（`^[a-z0-9-]+$` 全局唯一）+ `title` 必填；`command.shell` 与 `command.script` 互斥必选其一。`script` 路径不含扩展名，按 OS 自动加 `.sh`/`.ps1`，相对路径基于 exe 目录。`command.stream` 只允许 `""` 或 `"llm"`。`params`（type: text|bool|select|path，select 必带 options）驱动前端表单；`presets` 是作者预设的整套参数值。可选 `icon`：写 `hi:<key>`（key 见 `frontend/src/components/ActionIcon.tsx` 注册表）渲染 hugeicons 矢量图标，或直接写 emoji/文本（原样显示，向后兼容）。校验逻辑在 `registry.validate`。
 
+`command` 新增可选 `capture_output`（布尔，默认 true；false 关闭全量 stdout/stderr 捕获，长跑/持续输出 action 如 scrcpy/logcat 用）。
+
 完整字段文档：[docs/action.md](docs/action.md)。
 
 ## 工作流 YAML（workflows/*.yaml）
 
-`id` + `title` + `steps` 必填。每个 step 三选一：`action`（引用已有 action id，可用 `params` 覆盖参数）、`shell`（内联 shell 命令，可选 `timeout`）、`sleep`（等待 N 秒）。可选 `retry`（失败重试次数）和 `continue_on_error`（失败不中断后续步骤）。workflow 可自带 `params`（同 action 的 ParamSpec），运行时作为全局变量注入各 step。校验逻辑在 `workflow.Validate`。
+`id` + `title` + `steps` 必填。每个 step 三选一：`action`（引用已有 action id，可用 `params` 覆盖参数）、`shell`（内联 shell 命令，可选 `timeout`）、`sleep`（等待 N 秒）。可选 `id`（步骤标识，供 outputs/if 引用，未写用索引兜底——**索引兜底键 `"0"`/`"1"` 需 bracket 语法引用：`steps["0"].outputs.exit_code`，expr 点语法不接受数字开头的键**）、`name`（Pipeline Spine 显示文案）、`if`（expr 表达式条件，false → SKIPPED）、`env`（step 级环境变量）、`capture_output`（默认 true）、`retry`（失败重试次数）、`continue_on_error`（失败不中断后续步骤）。workflow 可自带顶层 `env`（注入所有 step，优先级低于 params 高于 config.yaml）与 `params`（同 action 的 ParamSpec，`id` 不可用 `steps`/`env`/`params`/`config` 保留字）。每个 step 执行完自动产出 `outputs`（exit_code/stdout/stderr/success，脚本可用 `##[output key=value]` 追加自定义 key），供后续 step 通过 `${{ steps.<id>.outputs.<key> }}` 或 `if` 表达式引用。校验逻辑在 `workflow.Validate`。
 
 完整字段文档：[docs/workflow.md](docs/workflow.md)。
 

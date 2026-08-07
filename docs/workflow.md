@@ -10,6 +10,9 @@ title: 我的工作流               # 必填
 icon: hi:workflow              # 可选，hugeicons key 或 emoji
 description: 简要说明           # 可选
 
+env:                           # 可选，workflow 级默认环境变量，注入所有 step
+  KEY: value
+
 params:                        # 可选，工作流级参数（注入所有 step）
   - id: WF_MSG
     label: 消息
@@ -19,8 +22,14 @@ params:                        # 可选，工作流级参数（注入所有 step
     options: []                # select 必填
 
 steps:                         # 必填，至少一步
-  - action: adb-install        # 形态 A：引用已有 action
+  - id: install                # 可选，步骤标识（供 outputs/if 引用），未写用索引兜底
+    name: 安装 APK              # 可选，Pipeline Spine 显示文案，未写用 label 兜底
+    if: steps.prev.outputs.success == 'true'  # 可选，expr 表达式，false → SKIPPED
+    action: adb-install        # 形态 A：引用已有 action
     params: { KEY: value }     # 可选，覆盖该 action 的参数
+    env:                       # 可选，step 级 env，覆盖 workflow.env 同名 key
+      KEY: override
+    capture_output: true       # 可选，默认 true；false 关闭全量 stdout/stderr 捕获
 
   - sleep: 5                   # 形态 B：等待 N 秒
 
@@ -98,6 +107,46 @@ steps:
 
 失败时 emit `continue_on_error: 跳过失败继续` 到 stderr。
 
+## step outputs（步骤间数据传递）
+
+每个 step 执行完毕后自动生成 outputs，供后续 step 的 `if` 表达式与 `${{ }}` 引用：
+
+### Layer 1（通用，capture_output=true 时自动填充）
+
+- `steps.<id>.outputs.exit_code`
+- `steps.<id>.outputs.stdout`
+- `steps.<id>.outputs.stderr`
+- `steps.<id>.outputs.success`
+
+### Layer 2（协议，脚本主动写）
+
+stdout 中 `##[output key=value]` 行会被解析为 `steps.<id>.outputs.key`。
+
+### LLM step（stream: llm）
+
+- `outputs.text` / `outputs.thinking` / `outputs.session_id` / `outputs.cost_usd` / `outputs.total_tokens`
+
+**未写 `id` 的 step 引用注意**：未写 `id` 的 step 用索引兜底（键为 `"0"`/`"1"`…），此时**必须**用 bracket 语法引用：`steps["0"].outputs.exit_code`（expr 的点语法不接受数字开头的键，`steps.0.outputs.exit_code` 无法解析）。推荐给需要被引用的 step 都显式写 `id`，用 `steps.<id>.outputs.<key>` 点语法引用即可。
+
+## 条件执行（if）
+
+`if` 字段为 expr 表达式（[expr-lang/expr](https://github.com/expr-lang/expr)），支持 `==`/`!=`/`&&`/`||`/`!` 及引擎原生的所有运算符。变量通过点路径引用：
+
+- `steps.<id>.outputs.<key>`（未写 `id` 的 step 需用 `steps["0"].outputs.<key>` bracket 语法，见上节）
+- `env.<KEY>`
+- `params.<ID>`
+- `config.<KEY>`
+
+`if` 求值为 false → 该 step 状态为 SKIPPED，不执行，不计入 retry/continue_on_error。
+
+**保留字**：`params[].id` 不能是 `steps` / `env` / `params` / `config`。
+
+## workflow.env
+
+workflow 级 `env` 注入所有 step（优先级低于 params、高于 config.yaml）。step 级 `env` 可覆盖同名。
+
+变量引用：`env.KEY`（expr 中）/ `${KEY}`（shell 中，由 runner.Expand 查优先级链）。
+
 ## 工作流参数
 
 工作流可自带 `params`，字段格式与 action 的 `params` 完全一致（`text` / `bool` / `select` / `path`）。
@@ -121,7 +170,7 @@ steps:
 工作流运行时右侧展示 **Pipeline Spine**（垂直管线视图）：
 
 - 每个 step 一个节点，左侧竖线连接
-- 节点状态：`PENDING`（待执行）/ `RUNNING`（执行中，带流光）/ `DONE`（成功）/ `ERROR`（失败）
+- 节点状态：`PENDING`（待执行）/ `RUNNING`（执行中，带流光）/ `DONE`（成功）/ `ERROR`（失败）/ `SKIPPED`（条件跳过，灰色虚线）
 - step 输出可折叠展开，stdout / stderr 分层着色
 - 顶部显示整体运行状态与 Stop 按钮
 
@@ -134,12 +183,48 @@ steps:
 ```yaml
 id: demo-install-broadcast
 title: 安装后拉起测试页面
-icon: hi:workflow
+icon: hi:package
 description: "安装 APK → 等待 5s → 拉起 DebugActivity"
 steps:
-  - action: adb-install
-  - sleep: 5
-  - action: adb-debug-activity
+  - id: install
+    name: 安装 APK
+    action: adb-install
+  - id: wait
+    name: 等待安装落地
+    sleep: 5
+  - id: launch
+    name: 拉起 DebugActivity
+    action: adb-debug-activity
+```
+
+### 条件执行 + step outputs
+
+```yaml
+id: demo-if-outputs
+title: "演示: 条件执行与步骤输出"
+icon: hi:workflow
+description: "展示 step id/outputs/if 条件跳过 + ##[output] 协议 + SKIPPED 状态"
+
+env:
+  GREETING: hello
+
+steps:
+  - id: produce
+    name: 生产数据
+    shell: |
+      echo "开始执行..."
+      echo "##[output build_id=42]"
+      echo "完成"
+
+  - id: consume
+    name: 消费数据
+    if: steps.produce.outputs.exit_code == '0'
+    shell: echo "build_id=${{ steps.produce.outputs.build_id }}, greeting=${GREETING}"
+
+  - id: skip-this
+    name: 条件跳过
+    if: steps.produce.outputs.exit_code == '99'
+    shell: echo "这行不会被执行"
 ```
 
 ### 参数化 + 混合形态
@@ -170,13 +255,21 @@ params:
     default: ""
 steps:
   # 1. 回显参数（stdout，成功）
-  - shell: echo "msg=${WF_MSG} mode=${WF_MODE} verbose=${WF_VERBOSE} out=${WF_OUTDIR}"
+  - id: echo-params
+    name: 回显参数
+    shell: echo "msg=${WF_MSG} mode=${WF_MODE} verbose=${WF_VERBOSE} out=${WF_OUTDIR}"
   # 2. 等待 2s
-  - sleep: 2
+  - id: wait
+    name: 等待 2s
+    sleep: 2
   # 3. 推进输出
-  - shell: echo "步骤推进：处理完成"
+  - id: progress
+    name: 推进输出
+    shell: echo "步骤推进：处理完成"
   # 4. 故意失败（验证 error 态 + stderr 着色）
-  - shell: Write-Error "演示失败：这是一条 stderr 输出"; exit 1
+  - id: fail-demo
+    name: 演示失败
+    shell: Write-Error "演示失败：这是一条 stderr 输出"; exit 1
 ```
 
 ## 校验规则
@@ -187,7 +280,8 @@ steps:
 - `title` 必填
 - `steps` 不能为空
 - 每个 step 必须指定 `action` / `sleep` / `shell` 之一（三者互斥）
-- `params[].id` 必填
+- step 的 `id` 若填写必须匹配 `^[a-z0-9-]+$` 且同一 workflow 内唯一
+- `params[].id` 必填，且不能是保留字 `steps` / `env` / `params` / `config`
 - `params[].type` 只允许 `text` / `bool` / `select` / `path`
 - `select` 类型必须提供 `options`
 - 同一目录下 id 不可重复

@@ -1,0 +1,25 @@
+id: demo-if-outputs
+title: "演示: 条件执行与步骤输出"
+icon: hi:workflow
+description: "展示 step id/outputs/if 条件跳过 + ##[output] 协议 + SKIPPED 状态"
+
+env:
+  GREETING: hello
+
+steps:
+  - id: produce
+    name: 生产数据
+    shell: |
+      echo "开始执行..."
+      echo "##[output build_id=42]"
+      echo "完成"
+
+  - id: consume
+    name: 消费数据
+    if: steps.produce.outputs.exit_code == '0'
+    shell: echo "build_id=${{ steps.produce.outputs.build_id }}, greeting=${GREETING}"
+
+  - id: skip-this
+    name: 条件跳过
+    if: steps.produce.outputs.exit_code == '99'
+    shell: echo "这行不会被执行"

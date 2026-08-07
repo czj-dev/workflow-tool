@@ -22,6 +22,7 @@ params:
 command:
   script: ./scripts/adb-logcat
   timeout: 24h
+  capture_output: false          # 日志流持续输出
 presets:
   - name: 语音
     description: 语音进程
