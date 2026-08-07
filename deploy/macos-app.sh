@@ -41,6 +41,42 @@ cp -R "$ROOT/workflows" "$MACOS/workflows"
 cp "$ROOT/config.yaml"    "$MACOS/config.yaml"
 cp "$ROOT/fragments.yaml" "$MACOS/fragments.yaml"
 
+# 自动扫描 actions/*.yaml 里 script: 字段引用的目录，保证全部拷进 bundle。
+# 这样新增 action 引用新脚本目录时不需要手动改打包脚本。
+# BSD grep/sed 不支持 \s，用 POSIX 字符类 [[:space:]]；`|| true` 防 set -e+pipefail 下 grep 无匹配终止脚本。
+echo "→ 扫描 action script 依赖目录"
+SCRIPT_DIRS=$( (grep -h '^[[:space:]]*script:' "$ROOT"/actions/*.yaml 2>/dev/null || true) \
+  | sed 's/.*script:[[:space:]]*//' | sed 's/#.*//' | xargs -I{} dirname {} | sort -u )
+for d in $SCRIPT_DIRS; do
+  d="${d#./}"  # 去掉 ./ 前缀
+  src="$ROOT/$d"
+  if [ -d "$src" ]; then
+    echo "   拷贝依赖目录: $d/"
+    cp -R "$src" "$MACOS/$d"
+  fi
+done
+
+# 校验：确认 bundle 内所有 script 引用至少有 .sh 或 .ps1 之一存在。
+# macOS runtime 只用 .sh，Windows 只用 .ps1，两者缺一是可接受的（只跨平台脚本才需两者都有）。
+echo "→ 校验 bundle 完整性"
+MISSING=0
+for yaml in "$MACOS"/actions/*.yaml; do
+  scripts=$( (grep -h '^[[:space:]]*script:' "$yaml" 2>/dev/null || true) \
+    | sed 's/.*script:[[:space:]]*//' | sed 's/#.*//' )
+  for s in $scripts; do
+    s="${s#./}"
+    if [ ! -f "$MACOS/$s.sh" ] && [ ! -f "$MACOS/$s.ps1" ]; then
+      echo "   ✗ 缺失: $s.{sh,ps1}（引用自 $(basename "$yaml")，两个后缀均无）" >&2
+      MISSING=1
+    fi
+  done
+done
+if [ "$MISSING" -eq 1 ]; then
+  echo "✗ bundle 缺失依赖文件，请检查打包逻辑" >&2
+  exit 1
+fi
+echo "   ✓ 所有 script 引用均已就位"
+
 echo "→ 写 Info.plist"
 cat > "$CONTENTS/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>

@@ -11,6 +11,7 @@ import (
 
 	"workflow-tool/internal/api"
 	"workflow-tool/internal/registry"
+	"workflow-tool/internal/runner"
 	"workflow-tool/internal/workflow"
 )
 
@@ -21,6 +22,11 @@ var assets embed.FS
 // macOS 留 nil，避免 [NSApp setApplicationIconImage:] 用单张位图覆盖 bundle 的 .icns 多分辨率图标。
 
 func main() {
+	// darwin GUI 启动的 .app 由 launchd 派生，PATH 极简（无 /usr/local/bin、homebrew、
+	// Android SDK 等），adb/claude/gradlew 依赖的 java 会全部 command not found。
+	// 抓真实登录 shell PATH 合并进来，非 darwin 空操作。
+	runner.FixPath()
+
 	baseDir := exeDir()
 	reg := registry.Load(filepath.Join(baseDir, "actions"), baseDir)
 	wfReg := workflow.Load(filepath.Join(baseDir, "workflows"))
