@@ -55,7 +55,7 @@ export function WorkflowView() {
           return {
             index: i,
             name:
-              (info as { name?: string }).name ||
+              info.name ||
               (info.kind === "sleep"
                 ? t("workflow.stepSleep", {
                     seconds: info.label.replace(/s$/, ""),

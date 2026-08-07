@@ -407,6 +407,7 @@ func errStr(err error) string {
 type WorkflowStepInfo struct {
 	Kind  string `json:"kind"`  // "action" | "sleep" | "shell"
 	Label string `json:"label"` // 显示文案，如 action id / "5s" / 截断 shell
+	Name  string `json:"name"`  // step.name 人类可读标签（可为空）
 }
 
 // WorkflowItem 是前端可见的 workflow 描述。
@@ -452,18 +453,23 @@ func (s *Service) ListWorkflows() WorkflowListResult {
 func buildStepInfos(steps []workflow.Step) []WorkflowStepInfo {
 	infos := make([]WorkflowStepInfo, len(steps))
 	for i, s := range steps {
+		info := WorkflowStepInfo{Name: s.Name}
 		switch {
 		case s.Action != "":
-			infos[i] = WorkflowStepInfo{Kind: "action", Label: s.Action}
+			info.Kind = "action"
+			info.Label = s.Action
 		case s.Sleep > 0:
-			infos[i] = WorkflowStepInfo{Kind: "sleep", Label: fmt.Sprintf("%ds", s.Sleep)}
+			info.Kind = "sleep"
+			info.Label = fmt.Sprintf("%ds", s.Sleep)
 		case s.Shell != "":
 			label := s.Shell
 			if len(label) > 40 {
 				label = label[:37] + "..."
 			}
-			infos[i] = WorkflowStepInfo{Kind: "shell", Label: label}
+			info.Kind = "shell"
+			info.Label = label
 		}
+		infos[i] = info
 	}
 	return infos
 }
