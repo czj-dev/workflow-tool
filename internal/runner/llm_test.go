@@ -1,6 +1,9 @@
 package runner
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestParseLLMLineAssistantText(t *testing.T) {
 	// 真实 assistant text 事件（简化）
@@ -50,5 +53,36 @@ func TestParseLLMLineGarbageSkipped(t *testing.T) {
 	kind, delta, ok := parseLLMLine("这不是 JSON")
 	if ok || kind != "" || delta != "" {
 		t.Fatalf("非 JSON 行应跳过，got (%q,%q,%v)", kind, delta, ok)
+	}
+}
+
+func TestPumpLLM_StructuredOutputs(t *testing.T) {
+	input := strings.Join([]string{
+		`{"type":"system","subtype":"init","session_id":"sess-abc-123"}`,
+		`{"type":"assistant","message":{"content":[{"type":"thinking","thinking":"思考中"}]}}`,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"你好"}]}}`,
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"，世界"}]}}`,
+		`{"type":"result","total_cost_usd":0.0123,"usage":{"input_tokens":100,"output_tokens":50}}`,
+	}, "\n")
+
+	outputs := map[string]string{}
+	done := make(chan struct{})
+	pumpLLM(strings.NewReader(input), func(string, string) {}, done, outputs)
+	<-done
+
+	if outputs["session_id"] != "sess-abc-123" {
+		t.Fatalf("session_id = %q, want sess-abc-123", outputs["session_id"])
+	}
+	if outputs["text"] != "你好，世界" {
+		t.Fatalf("text = %q, want 你好，世界", outputs["text"])
+	}
+	if outputs["thinking"] != "思考中" {
+		t.Fatalf("thinking = %q, want 思考中", outputs["thinking"])
+	}
+	if outputs["cost_usd"] != "0.0123" {
+		t.Fatalf("cost_usd = %q, want 0.0123", outputs["cost_usd"])
+	}
+	if outputs["total_tokens"] != "150" {
+		t.Fatalf("total_tokens = %q, want 150", outputs["total_tokens"])
 	}
 }

@@ -14,12 +14,12 @@ import (
 
 // ShellConfig 是已解析、待执行的命令配置。
 type ShellConfig struct {
-	Shell   string            // 内联命令（与 Script 二选一）
-	Script  string            // 脚本路径不含扩展名（与 Shell 二选一）
-	Cwd     string            // 工作目录（必须存在）
-	Timeout time.Duration     // 超时
-	Env     map[string]string // 额外环境变量
-	BaseDir string            // exe 目录，用于解析相对 script 路径
+	Shell         string            // 内联命令（与 Script 二选一）
+	Script        string            // 脚本路径不含扩展名（与 Shell 二选一）
+	Cwd           string            // 工作目录（必须存在）
+	Timeout       time.Duration     // 超时
+	Env           map[string]string // 额外环境变量
+	BaseDir       string            // exe 目录，用于解析相对 script 路径
 	Stream        string            // "" 普通逐行；"llm" 走 pumpLLM 解析 stream-json
 	CaptureOutput *bool             // nil 或指向 true = 捕获全量 stdout/stderr 供 outputs 使用；指向 false = 关闭（长跑/持续输出 action 用）
 }
@@ -78,7 +78,7 @@ func (r *ShellRunner) Run(ctx context.Context, params map[string]any, emit EmitF
 	doneOut := make(chan struct{})
 	doneErr := make(chan struct{})
 	if cfg.Stream == "llm" {
-		go pumpLLM(stdoutPipe, emit, doneOut)
+		go pumpLLM(stdoutPipe, emit, doneOut, outputs)
 	} else {
 		go pump(stdoutPipe, "stdout", emit, doneOut, stdoutBuf, outputs)
 	}
