@@ -13,6 +13,9 @@ type Result struct {
 	ExitCode int
 	Err      error
 	Duration time.Duration
+	Stdout   string            // capture_output=true 时填充：全部 stdout 原文
+	Stderr   string            // capture_output=true 时填充：全部 stderr 原文
+	Outputs  map[string]string // ##[output key=value] 协议解析结果 + reserved key
 }
 
 // Runner 是执行单元接口。Phase 1 唯一实现是 ShellRunner。
