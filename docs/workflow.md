@@ -128,6 +128,36 @@ stdout 中 `##[output key=value]` 行会被解析为 `steps.<id>.outputs.key`。
 
 **未写 `id` 的 step 引用注意**：未写 `id` 的 step 用索引兜底（键为 `"0"`/`"1"`…），此时**必须**用 bracket 语法引用：`steps["0"].outputs.exit_code`（expr 的点语法不接受数字开头的键，`steps.0.outputs.exit_code` 无法解析）。推荐给需要被引用的 step 都显式写 `id`，用 `steps.<id>.outputs.<key>` 点语法引用即可。
 
+### 安全提示：${{ }} 直接拼接进 shell
+
+`${{ expr }}` 的求值结果会被**未经转义**地字符串拼接进 shell 命令，再交给 `sh -c` / `powershell -Command` 执行。这与 GitHub Actions 的取向一致——是设计取向，不是 bug，但**使用者必须留意**：
+
+- 值来自 `##[output key=value]` 协议（脚本内部可控）时风险有限
+- 值来自 **LLM step 的 `outputs.text`** 时**完全是外来数据**：一次提示词注入即可任意执行本地命令
+- 值中包含 `;`、`` ` ``、`$( )`、`&&`、换行等 shell 元字符时，会被 shell 解释而非当成字面量
+
+举例：若某 step output 值为 `x; rm -rf /tmp/pwned`，则
+```yaml
+- shell: echo ${{ steps.a.outputs.v }}
+```
+会被展开为 `echo x; rm -rf /tmp/pwned` 并执行。
+
+**规避写法**：`${{ }}` 目前**只在 `shell` 命令字符串里被展开**（`env` / `params` 的值不经过 `${{ }}` 求值），因此规避的关键是把占位符包进引号，让展开后的值落进「字面量」区间而非命令解析区间：
+
+```yaml
+# sh / bash：单引号内所有元字符（; ` $() 换行 等）都按字面量处理
+- id: consume
+  shell: echo '${{ steps.llm.outputs.text }}'
+```
+
+```yaml
+# PowerShell：单引号字符串不做插值/子表达式展开
+- id: consume
+  shell: Write-Output '${{ steps.llm.outputs.text }}'
+```
+
+**残余风险**：单引号只能挡住除单引号以外的元字符——若值本身含 `'`（sh）就仍可能越界。所以当值来源**完全不可控**（尤其是 LLM 的 `outputs.text`）时，最稳妥的是**根本不要把它拼进 shell 命令**，改用一个专门的 `action` 脚本，由脚本自行按 `argv` 或从文件读取处理。**不要用 `${{ }}` 直接拼未经引号包裹的命令行。**
+
 ## 条件执行（if）
 
 `if` 字段为 expr 表达式（[expr-lang/expr](https://github.com/expr-lang/expr)），支持 `==`/`!=`/`&&`/`||`/`!` 及引擎原生的所有运算符。变量通过点路径引用：
