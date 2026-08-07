@@ -15,6 +15,11 @@ var validParamTypes = map[string]bool{
 	"text": true, "bool": true, "select": true, "path": true,
 }
 
+// reservedParamIDs 是 params[].id 不能占用的保留字（用于 expr 表达式的扁平顶层命名空间）。
+var reservedParamIDs = map[string]bool{
+	"steps": true, "env": true, "params": true, "config": true,
+}
+
 // WorkflowDef 是 workflow YAML 的原始结构。
 // Params 由 workflow 自行声明（不从 step 引用的 action 聚合），运行时作为全局变量注入各 step。
 type WorkflowDef struct {
@@ -22,18 +27,24 @@ type WorkflowDef struct {
 	Title       string               `yaml:"title"`
 	Icon        string               `yaml:"icon"`
 	Description string               `yaml:"description"`
+	Env         map[string]string    `yaml:"env"` // workflow 级默认环境变量
 	Params      []registry.ParamSpec `yaml:"params"`
 	Steps       []Step               `yaml:"steps"`
 }
 
 // Step 是 workflow 中的一步。action / sleep / shell 三者互斥。
 type Step struct {
-	Action          string            `yaml:"action"`          // 引用已有 action id
-	Params          map[string]string `yaml:"params"`          // 覆盖 action 的参数
-	Sleep           int               `yaml:"sleep"`           // sleep N 秒
-	Shell           string            `yaml:"shell"`           // 直接执行 shell 命令
-	Timeout         string            `yaml:"timeout"`         // 仅 shell step 有效
-	Retry           int               `yaml:"retry"`           // 可选重试次数
+	ID              string            `yaml:"id"`                // 可选；未写用 steps[i] 索引兜底
+	Name            string            `yaml:"name"`              // 可选；Pipeline Spine 显示用
+	If              string            `yaml:"if"`                // 可选；expr 表达式，false → SKIPPED
+	Action          string            `yaml:"action"`            // 引用已有 action id
+	Params          map[string]string `yaml:"params"`            // 覆盖 action 的参数
+	Sleep           int               `yaml:"sleep"`             // sleep N 秒
+	Shell           string            `yaml:"shell"`             // 直接执行 shell 命令
+	Timeout         string            `yaml:"timeout"`           // 仅 shell step 有效
+	Env             map[string]string `yaml:"env"`               // step 级 env，覆盖 workflow.env 同名 key
+	CaptureOutput   *bool             `yaml:"capture_output"`    // nil/true=默认；false=关闭
+	Retry           int               `yaml:"retry"`             // 可选重试次数
 	ContinueOnError bool              `yaml:"continue_on_error"` // 失败时继续
 }
 
@@ -58,6 +69,9 @@ func Validate(def *WorkflowDef) error {
 		if p.ID == "" {
 			return fmt.Errorf("params[%d]: id 必填", i)
 		}
+		if reservedParamIDs[p.ID] {
+			return fmt.Errorf("params[%d]: id %q 为保留字（steps/env/params/config 不可用作 param id）", i, p.ID)
+		}
 		if p.Type != "" && !validParamTypes[p.Type] {
 			return fmt.Errorf("params[%d]: type 非法 %q（text|bool|select|path）", i, p.Type)
 		}
@@ -65,6 +79,7 @@ func Validate(def *WorkflowDef) error {
 			return fmt.Errorf("params[%d]: select 必须提供 options", i)
 		}
 	}
+	seenStepID := map[string]int{}
 	for i, s := range def.Steps {
 		count := 0
 		if s.Action != "" {
@@ -81,6 +96,15 @@ func Validate(def *WorkflowDef) error {
 		}
 		if count > 1 {
 			return fmt.Errorf("steps[%d]: action、sleep、shell 三者互斥", i)
+		}
+		if s.ID != "" {
+			if !idPattern.MatchString(s.ID) {
+				return fmt.Errorf("steps[%d].id 必须匹配 ^[a-z0-9-]+$，got %q", i, s.ID)
+			}
+			if prev, ok := seenStepID[s.ID]; ok {
+				return fmt.Errorf("steps[%d].id 重复（与 steps[%d] 冲突）: %q", i, prev, s.ID)
+			}
+			seenStepID[s.ID] = i
 		}
 	}
 	return nil
