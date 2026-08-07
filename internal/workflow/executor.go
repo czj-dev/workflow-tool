@@ -4,35 +4,79 @@ package workflow
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
 	"workflow-tool/internal/runner"
 )
 
-// ActionRunFunc 执行已有 action（api 层负责查 registry + 合并 params + 构造 ShellRunner）。
-type ActionRunFunc func(actionID string, params map[string]any, emit runner.EmitFunc) runner.Result
+// ActionRunFunc 执行已有 action。env/captureOutput 由 workflow 决定，注入进 ShellRunner。
+type ActionRunFunc func(
+	actionID string,
+	params map[string]any,
+	env map[string]string,
+	captureOutput *bool,
+	emit runner.EmitFunc,
+) runner.Result
 
-// ShellRunFunc 执行 inline shell（api 层负责构造 ShellRunner）。
-type ShellRunFunc func(shell, timeout string, emit runner.EmitFunc) runner.Result
+// ShellRunFunc 执行 inline shell step。
+type ShellRunFunc func(
+	shell, timeout string,
+	env map[string]string,
+	captureOutput *bool,
+	params map[string]any,
+	emit runner.EmitFunc,
+) runner.Result
 
 // Executor 按顺序执行 workflow 的 steps。
 type Executor struct{}
 
-// Execute 串行执行 wf 的每个 step，支持 retry 和 continue_on_error。
+// Execute 串行执行 wf 的每个 step。
+// baseParams 是 config.yaml 合并 workflow 表单参数的结果（api 层构造）。
 func (e *Executor) Execute(
 	ctx context.Context,
 	wf LoadedWorkflow,
 	actionRun ActionRunFunc,
 	shellRun ShellRunFunc,
+	baseParams map[string]any,
 	emit runner.EmitFunc,
 ) runner.Result {
 	start := time.Now()
+	stepCtx := &StepContext{
+		Steps:  map[string]StepOutput{},
+		Env:    resolveEnv(wf.Def.Env, baseParams),
+		Params: baseParams,
+	}
+
 	for i, step := range wf.Def.Steps {
+		key := stepKey(step, i)
+
+		// if 求值
+		shouldRun, err := EvalCondition(step.If, stepCtx)
+		if err != nil {
+			emit("stderr", err.Error())
+			return runner.Result{ExitCode: -1, Err: err, Duration: time.Since(start)}
+		}
+		if !shouldRun {
+			emit("step-skip", fmt.Sprintf("%d", i))
+			stepCtx.Steps[key] = StepOutput{Outputs: map[string]string{
+				"exit_code": "-1", "success": "false", "skipped": "true",
+			}}
+			continue
+		}
+
 		emit("step-start", fmt.Sprintf("%d", i))
-
-		res := e.runStep(ctx, step, actionRun, shellRun, emit)
-
+		res := e.runStep(ctx, step, actionRun, shellRun, stepCtx, emit)
 		emit("step-done", fmt.Sprintf("%d:%d", i, res.ExitCode))
+
+		// 累积 outputs
+		if res.Outputs == nil {
+			res.Outputs = map[string]string{
+				"exit_code": strconv.Itoa(res.ExitCode),
+				"success":   fmt.Sprint(res.ExitCode == 0),
+			}
+		}
+		stepCtx.Steps[key] = StepOutput{Outputs: res.Outputs}
 
 		if res.ExitCode != 0 {
 			if step.ContinueOnError {
@@ -46,21 +90,22 @@ func (e *Executor) Execute(
 	return runner.Result{ExitCode: 0, Duration: time.Since(start)}
 }
 
-// runStep 执行单个 step，含 retry 逻辑。
+// runStep 执行单个 step，含 retry 与 ${{ }} 预处理。
 func (e *Executor) runStep(
 	ctx context.Context,
 	step Step,
 	actionRun ActionRunFunc,
 	shellRun ShellRunFunc,
+	stepCtx *StepContext,
 	emit runner.EmitFunc,
 ) runner.Result {
-	res := e.dispatch(ctx, step, actionRun, shellRun, emit)
+	res := e.dispatch(ctx, step, actionRun, shellRun, stepCtx, emit)
 	if res.ExitCode == 0 || step.Retry <= 0 {
 		return res
 	}
 	for attempt := 1; attempt <= step.Retry; attempt++ {
 		emit("stdout", fmt.Sprintf("retry %d/%d", attempt, step.Retry))
-		res = e.dispatch(ctx, step, actionRun, shellRun, emit)
+		res = e.dispatch(ctx, step, actionRun, shellRun, stepCtx, emit)
 		if res.ExitCode == 0 {
 			return res
 		}
@@ -74,18 +119,56 @@ func (e *Executor) dispatch(
 	step Step,
 	actionRun ActionRunFunc,
 	shellRun ShellRunFunc,
+	stepCtx *StepContext,
 	emit runner.EmitFunc,
 ) runner.Result {
+	stepEnv := mergeEnv(stepCtx.Env, step.Env)
 	switch {
 	case step.Sleep > 0:
 		return (&runner.SleepRunner{Seconds: step.Sleep}).Run(ctx, nil, emit)
 	case step.Action != "":
-		return actionRun(step.Action, toAnyMap(step.Params), emit)
+		return actionRun(step.Action, toAnyMap(step.Params), stepEnv, step.CaptureOutput, emit)
 	case step.Shell != "":
-		return shellRun(step.Shell, step.Timeout, emit)
+		substituted, err := Substitute(step.Shell, stepCtx)
+		if err != nil {
+			emit("stderr", err.Error())
+			return runner.Result{ExitCode: -1, Err: err}
+		}
+		return shellRun(substituted, step.Timeout, stepEnv, step.CaptureOutput, stepCtx.Params, emit)
 	default:
 		return runner.Result{ExitCode: -1, Err: fmt.Errorf("step 无有效 kind")}
 	}
+}
+
+// stepKey 返回 step 在 context 中的键：有 id 用 id，否则用索引字符串。
+func stepKey(s Step, i int) string {
+	if s.ID != "" {
+		return s.ID
+	}
+	return strconv.Itoa(i)
+}
+
+// resolveEnv 用 baseParams 对 workflow.Env 的值做 ${VAR} 展开。
+func resolveEnv(rawEnv map[string]string, baseParams map[string]any) map[string]string {
+	if len(rawEnv) == 0 {
+		return map[string]string{}
+	}
+	return runner.ExpandMap(rawEnv, baseParams)
+}
+
+// mergeEnv 合并 workflow.env 与 step.env（step 覆盖同名）。
+func mergeEnv(wfEnv, stepEnv map[string]string) map[string]string {
+	if len(wfEnv) == 0 && len(stepEnv) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(wfEnv)+len(stepEnv))
+	for k, v := range wfEnv {
+		out[k] = v
+	}
+	for k, v := range stepEnv {
+		out[k] = v
+	}
+	return out
 }
 
 // toAnyMap 将 map[string]string 转为 map[string]any。
