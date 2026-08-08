@@ -105,7 +105,8 @@ params（step.params）> step.env > workflow.env > config.yaml > 系统环境变
 
 为 `claude -p` 等逐 token 输出的 LLM 命令设计。标记 `stream: llm` 后：
 
-- 后端解析 stdout 的 stream-json 格式
+- api 层按 `Command.Stream` 选择执行器：`"llm"` 用 `LLMRunner`，其余用 `ShellRunner`（原先是 `ShellRunner` 内部按 `Stream` 字段分支处理，现改为 api 层选型；YAML 字段本身的 `""`/`"llm"` 语义不变，向后兼容不受影响）
+- `LLMRunner` 解析 stdout 的 stream-json 格式
 - 只提取 assistant 的 **thinking**（思考过程）和 **text**（回复）增量推送前端
 - 前端切换到专用 LLM 视图：可折叠思考块 + Markdown 流式渲染
 - system / hook / result 及无法解析的行静默跳过

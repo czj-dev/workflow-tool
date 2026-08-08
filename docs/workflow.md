@@ -169,6 +169,8 @@ stdout 中 `##[output key=value]` 行会被解析为 `steps.<id>.outputs.key`。
 
 `if` 求值为 false → 该 step 状态为 SKIPPED，不执行，不计入 retry/continue_on_error。
 
+`if` 表达式若引用了不存在的 step id，或引用了排在当前 step **后面**才声明的 step id（前向引用），会在 workflow 加载时报错（而非等到运行时才失败）。只能引用当前 step 之前已声明并即将/已经执行过的 step id。
+
 **保留字**：`params[].id` 不能是 `steps` / `env` / `params` / `config`。
 
 ## workflow.env
