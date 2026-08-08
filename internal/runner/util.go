@@ -28,3 +28,38 @@ func resolveScript(script, ext, baseDir string) (string, error) {
 	}
 	return p, nil
 }
+
+// maxCaptureBytes 是 Stdout/Stderr 累积的软上限：超出只保留尾部，
+// 防长跑输出（如误开 capture_output 的持续输出 action）撑爆内存。
+// contains/matches 场景通常只关心最近输出，保留尾部足够。
+const maxCaptureBytes = 256 * 1024
+
+// capBuffer 是带总量上限的行累积器，超限保留尾部（丢弃最旧内容）。
+type capBuffer struct {
+	limit int
+	buf   []byte
+}
+
+func newCapBuffer(limit int) *capBuffer {
+	return &capBuffer{limit: limit}
+}
+
+// WriteLine 追加一行（自动补 \n）；超过 limit 时从头部截断，只留尾部。
+func (c *capBuffer) WriteLine(line string) {
+	if c == nil {
+		return
+	}
+	c.buf = append(c.buf, line...)
+	c.buf = append(c.buf, '\n')
+	if len(c.buf) > c.limit {
+		c.buf = c.buf[len(c.buf)-c.limit:]
+	}
+}
+
+// String 返回累积内容；c 为 nil（capture_output=false）时返回空字符串。
+func (c *capBuffer) String() string {
+	if c == nil {
+		return ""
+	}
+	return string(c.buf)
+}
