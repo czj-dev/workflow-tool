@@ -1,10 +1,8 @@
 package runner
 
 import (
-	"bufio"
 	"encoding/json"
 	"fmt"
-	"io"
 	"strings"
 )
 
@@ -58,39 +56,6 @@ func parseLLMLine(line string) (kind string, delta string, ok bool) {
 		return "thinking", thinking.String(), true
 	}
 	return "", "", false // assistant 但无可显示块（如纯 tool_use）
-}
-
-// pumpLLM 逐行读取 r，按 stream-json 解析，把 assistant text/thinking 增量 emit，
-// 并把结构化字段（session_id/text/thinking/cost_usd/total_tokens）累积写入 outputs。
-// text → emit("llm", delta)；thinking → emit("llm-thinking", delta)。
-func pumpLLM(r io.Reader, emit EmitFunc, done chan<- struct{}, outputs map[string]string) {
-	defer close(done)
-	var text, thinking strings.Builder
-	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-	for sc.Scan() {
-		raw := sc.Text()
-		recordStructuredFields(raw, outputs)
-		kind, delta, ok := parseLLMLine(raw)
-		if !ok {
-			continue
-		}
-		if kind == "thinking" {
-			thinking.WriteString(delta)
-			emit("llm-thinking", delta)
-		} else {
-			text.WriteString(delta)
-			emit("llm", delta)
-		}
-	}
-	if outputs != nil {
-		if text.Len() > 0 {
-			outputs["text"] = text.String()
-		}
-		if thinking.Len() > 0 {
-			outputs["thinking"] = thinking.String()
-		}
-	}
 }
 
 // recordStructuredFields 解析 system/init 的 session_id 与 result 的 cost/tokens，写入 outputs。

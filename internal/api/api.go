@@ -368,15 +368,20 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 		}
 	}
 
-	r := &runner.ShellRunner{Cfg: runner.ShellConfig{
+	shellCfg := runner.ShellConfig{
 		Shell:   la.Def.Command.Shell,
 		Script:  la.Def.Command.Script,
 		Cwd:     la.Cwd, // raw，由 runner 用 params 替换
 		Timeout: la.Timeout,
 		Env:     la.Def.Command.Env,
 		BaseDir: s.baseDir,
-		Stream:  la.Def.Command.Stream,
-	}}
+	}
+	var r runner.Runner
+	if la.Def.Command.Stream == "llm" {
+		r = &runner.LLMRunner{Cfg: shellCfg}
+	} else {
+		r = &runner.ShellRunner{Cfg: shellCfg}
+	}
 
 	res := r.Run(ctx, params, emit)
 	s.emitDone(id, res.ExitCode, errStr(res.Err), res.Duration)
@@ -605,16 +610,21 @@ func (s *Service) makeActionRun(ctx context.Context, merged map[string]any) work
 		if captureOutput != nil {
 			capture = captureOutput
 		}
-		r := &runner.ShellRunner{Cfg: runner.ShellConfig{
+		shellCfg := runner.ShellConfig{
 			Shell:         la.Def.Command.Shell,
 			Script:        la.Def.Command.Script,
 			Cwd:           la.Cwd,
 			Timeout:       la.Timeout,
 			Env:           mergedEnv,
 			BaseDir:       s.baseDir,
-			Stream:        la.Def.Command.Stream,
 			CaptureOutput: capture,
-		}}
+		}
+		var r runner.Runner
+		if la.Def.Command.Stream == "llm" {
+			r = &runner.LLMRunner{Cfg: shellCfg}
+		} else {
+			r = &runner.ShellRunner{Cfg: shellCfg}
+		}
 		return r.Run(ctx, runParams, stepEmit)
 	}
 }

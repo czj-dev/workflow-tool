@@ -235,6 +235,25 @@ func TestShellRunner_CaptureOutput_ReservedKeyOverride(t *testing.T) {
 	}
 }
 
+func TestShellRunner_StdoutCapped(t *testing.T) {
+	skipWindows(t)
+	// 生成超过 256KB 的输出：300000 个 'x'，每行1个字符+\n，共约 600KB
+	r := &ShellRunner{Cfg: ShellConfig{
+		Shell:   "yes x | head -n 300000",
+		Timeout: 10 * time.Second,
+	}}
+	res := r.Run(context.Background(), nil, func(s, l string) {})
+	if res.Err != nil {
+		t.Fatalf("err: %v", res.Err)
+	}
+	if len(res.Stdout) > maxCaptureBytes {
+		t.Fatalf("len(Stdout)=%d 超过上限 %d", len(res.Stdout), maxCaptureBytes)
+	}
+	if len(res.Stdout) == 0 {
+		t.Fatal("Stdout 不应为空")
+	}
+}
+
 // TestStripANSI 验证剥离 ANSI 颜色/样式控制序列，避免前端把 PowerShell 等输出的
 // 彩色码（如 \x1b[31;1m）渲染成可见乱码。
 func TestStripANSI(t *testing.T) {
