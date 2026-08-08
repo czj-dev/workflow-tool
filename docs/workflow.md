@@ -313,6 +313,23 @@ command:
 ### 真实业务链路
 
 ```yaml
+id: xdzs-install-broadcast
+title: 安装后拉起测试页面
+icon: hi:package
+description: "安装 APK → 等待 5s → 拉起 DebugActivity"
+steps:
+  - id: install
+    name: 安装 APK
+    action: adb-install
+  - id: wait
+    name: 等待安装落地
+    sleep: 5
+  - id: launch
+    name: 拉起 DebugActivity
+    action: adb-debug-activity
+```
+
+```yaml
 id: xdzs-debug-chain
 title: 调试一键链
 icon: hi:flash
