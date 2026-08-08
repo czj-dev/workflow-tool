@@ -210,62 +210,19 @@ steps:
 
 ## 实际示例
 
-### 简单串行
+### 全功能演示
+
+覆盖 `params` 四类型、`action`/`sleep`/`shell` 三形态、`env`、`if` 条件与 `outputs` 引用、`SKIPPED`、`retry`、`continue_on_error`：
 
 ```yaml
-id: demo-install-broadcast
-title: 安装后拉起测试页面
-icon: hi:package
-description: "安装 APK → 等待 5s → 拉起 DebugActivity"
-steps:
-  - id: install
-    name: 安装 APK
-    action: adb-install
-  - id: wait
-    name: 等待安装落地
-    sleep: 5
-  - id: launch
-    name: 拉起 DebugActivity
-    action: adb-debug-activity
-```
-
-### 条件执行 + step outputs
-
-```yaml
-id: demo-if-outputs
-title: "演示: 条件执行与步骤输出"
+id: demo-all-features
+title: "演示: 全功能工作流"
 icon: hi:workflow
-description: "展示 step id/outputs/if 条件跳过 + ##[output] 协议 + SKIPPED 状态"
+description: "覆盖 workflow 全部能力：params 四类型、action/sleep/shell 三形态、env、if 条件与 outputs 引用、SKIPPED、retry、continue_on_error"
 
 env:
   GREETING: hello
 
-steps:
-  - id: produce
-    name: 生产数据
-    shell: |
-      echo "开始执行..."
-      echo "##[output build_id=42]"
-      echo "完成"
-
-  - id: consume
-    name: 消费数据
-    if: steps.produce.outputs.exit_code == '0'
-    shell: echo "build_id=${{ steps.produce.outputs.build_id }}, greeting=${GREETING}"
-
-  - id: skip-this
-    name: 条件跳过
-    if: steps.produce.outputs.exit_code == '99'
-    shell: echo "这行不会被执行"
-```
-
-### 参数化 + 混合形态
-
-```yaml
-id: demo-param-echo
-title: 参数化测试工作流
-icon: hi:workflow
-description: "参数表单 → 多步骤管线 → stdout/stderr 分层 → 成败状态"
 params:
   - id: WF_MSG
     label: 消息
@@ -285,23 +242,95 @@ params:
     label: 输出目录
     type: path
     default: ""
+
 steps:
-  # 1. 回显参数（stdout，成功）
+  # 1. shell 形态：回显参数 —— 验证 params 四类型注入 + 普通 stdout
   - id: echo-params
     name: 回显参数
     shell: echo "msg=${WF_MSG} mode=${WF_MODE} verbose=${WF_VERBOSE} out=${WF_OUTDIR}"
-  # 2. 等待 2s
+
+  # 2. sleep 形态：等待
   - id: wait
     name: 等待 2s
     sleep: 2
-  # 3. 推进输出
-  - id: progress
-    name: 推进输出
-    shell: echo "步骤推进：处理完成"
-  # 4. 故意失败（验证 error 态 + stderr 着色）
+
+  # 3. action 形态：引用已有动作，step.params 覆盖 action 参数
+  - id: call-action
+    name: 调用动作
+    action: demo-echo
+    params: { MSG: "来自 workflow 的问候" }
+
+  # 4. shell 形态：写 outputs 协议行
+  - id: produce
+    name: 生产数据
+    shell: |
+      echo "开始执行..."
+      echo "##[output build_id=42]"
+      echo "完成"
+
+  # 5. if 条件为真 —— outputs 引用 + ${{ }} 拼接 + env 引用
+  - id: consume
+    name: 消费数据（条件满足）
+    if: steps.produce.outputs.exit_code == '0'
+    shell: echo "build_id=${{ steps.produce.outputs.build_id }}, greeting=${GREETING}"
+
+  # 6. if 条件为假 —— 验证 SKIPPED 状态
+  - id: skip-this
+    name: 条件跳过演示
+    if: steps.produce.outputs.exit_code == '99'
+    shell: echo "这行不会被执行"
+
+  # 7. retry 演示：命令必然失败，验证重试痕迹 + continue_on_error 不中断后续
+  - id: retry-demo
+    name: 重试演示（必然失败）
+    shell: exit 1
+    retry: 2
+    continue_on_error: true
+
+  # 8. 故意失败（验证 error 态 + stderr 分层），作为整条 workflow 的终止点
   - id: fail-demo
     name: 演示失败
     shell: Write-Error "演示失败：这是一条 stderr 输出"; exit 1
+```
+
+对应的演示 action（`actions/demo-echo.yaml`，纯 echo 无外部依赖）：
+
+```yaml
+id: demo-echo
+title: 演示回显
+icon: hi:test
+description: "纯 echo，无外部依赖；用于 workflow action step 引用形态的演示"
+params:
+  - id: MSG
+    label: 消息
+    type: text
+    required: true
+    default: hello
+command:
+  shell: echo "action 回显 ${MSG}"
+```
+
+### 真实业务链路
+
+```yaml
+id: xdzs-debug-chain
+title: 调试一键链
+icon: hi:flash
+description: "设备初始化 → 编译 Debug → 安装 APK → 拉起测试页面"
+steps:
+  - id: device-init
+    name: 设备初始化
+    action: xdzs-device-init
+  - id: build
+    name: 编译 Debug
+    action: xdzs-build-app
+    params: { VARIANT: Debug }
+  - id: install
+    name: 安装 APK
+    action: adb-install
+  - id: launch
+    name: 拉起测试页面
+    action: adb-debug-activity
 ```
 
 ## 校验规则

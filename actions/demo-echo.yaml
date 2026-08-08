@@ -1,0 +1,15 @@
+id: demo-echo
+title: 演示回显
+icon: hi:test
+description: "纯 echo，无外部依赖；用于 workflow action step 引用形态的演示"
+params:
+  - id: MSG
+    label: 消息
+    type: text
+    required: true
+    default: hello
+presets:
+  - name: 默认问候
+    values: { MSG: "hello from action" }
+command:
+  shell: echo "action 回显 ${MSG}"
