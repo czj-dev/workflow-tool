@@ -117,3 +117,69 @@ func TestValidate_StepIDOptional(t *testing.T) {
 		t.Errorf("未写 step id 应合法（索引兜底），got %v", err)
 	}
 }
+
+func TestValidate_IfReferencesUnknownStepID(t *testing.T) {
+	def := &WorkflowDef{
+		ID: "wf-1", Title: "t",
+		Steps: []Step{
+			{ID: "build", Shell: "echo 1"},
+			{Shell: "echo 2", If: `steps.notexist.outputs.success == 'true'`},
+		},
+	}
+	if err := Validate(def); err == nil {
+		t.Error("if 引用不存在的 step id 应报错")
+	}
+}
+
+func TestValidate_IfReferencesForwardStepID(t *testing.T) {
+	def := &WorkflowDef{
+		ID: "wf-1", Title: "t",
+		Steps: []Step{
+			{Shell: "echo 1", If: `steps.later.outputs.success == 'true'`},
+			{ID: "later", Shell: "echo 2"},
+		},
+	}
+	if err := Validate(def); err == nil {
+		t.Error("if 引用尚未执行（后面才声明）的 step id 应报错")
+	}
+}
+
+func TestValidate_IfReferencesValidPriorStepID(t *testing.T) {
+	def := &WorkflowDef{
+		ID: "wf-1", Title: "t",
+		Steps: []Step{
+			{ID: "build", Shell: "echo 1"},
+			{Shell: "echo 2", If: `steps.build.outputs.exit_code == '0'`},
+		},
+	}
+	if err := Validate(def); err != nil {
+		t.Errorf("if 引用前面已声明的 step id 应合法，got %v", err)
+	}
+}
+
+func TestValidate_IfWithoutStepsRef_Unaffected(t *testing.T) {
+	def := &WorkflowDef{
+		ID: "wf-1", Title: "t",
+		Steps: []Step{
+			{Shell: "echo 1", If: `env.LOG_LEVEL == 'debug'`},
+		},
+	}
+	if err := Validate(def); err != nil {
+		t.Errorf("if 只用 env/params 不应受影响，got %v", err)
+	}
+}
+
+func TestValidate_IfSyntaxError_NotFalselyReportedAsUnknownRef(t *testing.T) {
+	def := &WorkflowDef{
+		ID: "wf-1", Title: "t",
+		Steps: []Step{
+			{ID: "build", Shell: "echo 1"},
+			{Shell: "echo 2", If: `steps.build.outputs.`}, // 语法错误
+		},
+	}
+	// referencedStepIDs 对语法错误返回 nil，Validate 本次不新增 if 语法预检，
+	// 因此这里应该"不因引用校验报错"（语法错误由运行时 EvalCondition 兜底）。
+	if err := Validate(def); err != nil {
+		t.Errorf("语法错误的 if 不应在引用校验阶段报错，got %v", err)
+	}
+}

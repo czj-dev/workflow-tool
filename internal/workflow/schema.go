@@ -106,6 +106,13 @@ func Validate(def *WorkflowDef) error {
 			}
 			seenStepID[s.ID] = i
 		}
+		if s.If != "" {
+			for _, refID := range referencedStepIDs(s.If) {
+				if _, ok := seenStepID[refID]; !ok {
+					return fmt.Errorf("steps[%d].if 引用了不存在或尚未执行的 step id %q", i, refID)
+				}
+			}
+		}
 	}
 	return nil
 }
