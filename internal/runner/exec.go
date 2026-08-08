@@ -5,11 +5,14 @@ import (
 	"context"
 	"io"
 	"os/exec"
+	"sync"
 	"time"
 )
 
 // OnLine 是逐行回调；stream 为 "stdout" 或 "stderr"。
 // 调用方（ShellRunner/LLMRunner）在回调里做自己的 buffer 累积和 emit。
+// Run 保证同一时刻只有一个 goroutine 调用 onLine（stdout/stderr 内部已加锁互斥），
+// 调用方无需自行加锁即可安全地累积到共享变量。
 type OnLine func(stream, line string)
 
 // ExecRequest 是一次进程执行的入参。
@@ -48,8 +51,14 @@ func Run(ctx context.Context, req ExecRequest, onLine OnLine) ExecOutcome {
 
 	doneOut := make(chan struct{})
 	doneErr := make(chan struct{})
-	go scanLines(stdoutPipe, "stdout", onLine, doneOut)
-	go scanLines(stderrPipe, "stderr", onLine, doneErr)
+	var mu sync.Mutex
+	safeOnLine := func(stream, line string) {
+		mu.Lock()
+		defer mu.Unlock()
+		onLine(stream, line)
+	}
+	go scanLines(stdoutPipe, "stdout", safeOnLine, doneOut)
+	go scanLines(stderrPipe, "stderr", safeOnLine, doneErr)
 
 	waitCh := make(chan error, 1)
 	go func() {
