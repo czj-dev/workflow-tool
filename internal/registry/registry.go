@@ -51,6 +51,16 @@ type Command struct {
 	Stream  string            `yaml:"stream"` // "" 普通逐行；"llm" 按 stream-json 解析
 	// nil/true=默认捕获；false=关闭（scrcpy/logcat 等长跑用）
 	CaptureOutput *bool `yaml:"capture_output"`
+	// Adb 是第三种执行形态：调用内置 ADBRunner 按 operation 分发到 adb 域服务。
+	// 与 shell/script 三选一互斥。
+	Adb AdbCommand `yaml:"adb"`
+}
+
+// AdbCommand 描述一个 adb 域操作调用。
+type AdbCommand struct {
+	// Operation 是 adb 域操作名（如 install-package/logcat-stream/push/scrcpy-start）。
+	// 空表示该动作不是 adb 形态。
+	Operation string `yaml:"operation"`
 }
 
 // LoadedAction 是已校验、字段已解析的动作。
@@ -133,11 +143,22 @@ func Validate(def *ActionDef) error {
 	if def.Title == "" {
 		return fmt.Errorf("title 必填")
 	}
-	if def.Command.Shell == "" && def.Command.Script == "" {
-		return fmt.Errorf("command.shell 或 command.script 必填其一")
+	// command 三选一互斥：shell / script / adb.operation
+	commandForms := 0
+	if def.Command.Shell != "" {
+		commandForms++
 	}
-	if def.Command.Shell != "" && def.Command.Script != "" {
-		return fmt.Errorf("command.shell 与 command.script 互斥")
+	if def.Command.Script != "" {
+		commandForms++
+	}
+	if def.Command.Adb.Operation != "" {
+		commandForms++
+	}
+	if commandForms == 0 {
+		return fmt.Errorf("command 必须指定 shell/script/adb 之一")
+	}
+	if commandForms > 1 {
+		return fmt.Errorf("command.shell/script/adb 三选一互斥")
 	}
 	// params 校验
 	for i, p := range def.Params {

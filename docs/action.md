@@ -151,6 +151,106 @@ command:
 
 对应文件：`scripts/adb-install.sh`（Mac）/ `scripts/adb-install.ps1`（Windows）。
 
+## adb 域形态（command.adb）
+
+`shell`/`script` 之外，`command.adb` 是第三种执行形态，调用内置 **ADBRunner**，按 `operation` 分发到原生 Go 封装的 adb 域服务（包管理 / logcat / 文件传输 / scrcpy）。相比裸 `adb shell`，它提供：设备 serial 自动解析、二进制路径探测、进度/取消、结构化过滤，且无需手写脚本。
+
+```yaml
+command:
+  adb:
+    operation: install-package   # 域操作名，见下表
+  timeout: 5m                    # 仍适用
+  capture_output: false          # 长跑/持续输出（logcat/scrcpy）建议 false
+```
+
+### 工作机制
+
+- **设备解析**：优先用 params 里的 `ADB_SERIAL`（由后端根据前端设备选择器自动注入）；为空则取首个 ready 设备。所以运行 adb 域动作前先在侧边栏设备选择器里选一个设备。
+- **二进制路径**：`ADB_PATH`/`FASTBOOT_PATH`/`SCRCPY_PATH` 从 `config.yaml` 读取，空则按级联探测（config → PATH → 常见安装路径）。
+- **输出**：逐行经 `emit` 推送到与 shell 动作完全相同的 `action:<id>:output` 事件通道；文件传输进度走 `stream: "progress"`。
+- **取消**：与所有动作一样，点「停止」即 cancel ctx，流式命令（logcat/scrcpy）随即终止。
+
+### operation 与 params 契约
+
+每个 operation 从 action params 取输入字段（大写下划线命名）。所有 operation 公共：`ADB_SERIAL`（可空，空则自动选）。下面只列出各 operation 的专属字段。
+
+**包管理（9）**
+
+| operation | params | 说明 |
+|---|---|---|
+| `install-package` | `APK_PATH`(path,必填)、`ALLOW_TEST`(bool)、`ALLOW_DOWNGRADE`(bool) | `adb install -r [-t] [-d] <apk>`；校验 .apk 后缀 |
+| `uninstall-package` | `PACKAGE`(text,必填) 或 `PACKAGES`(text,多个空格分隔) | 单/批卸载 |
+| `list-packages` | `FILTER`(select: user/system/all，默认 all) | 并发合并 enabled/disabled 状态 |
+| `enable-package` / `disable-package` | `PACKAGE` 或 `PACKAGES` | 批量部分成功计数 |
+| `clear-data` | `PACKAGE`(必填) | `pm clear` |
+| `force-stop` | `PACKAGE`(必填) | `am force-stop` |
+| `pull-apk` | `PACKAGE`(必填) | `pm path` → `adb pull` 到临时目录，输出路径经 stdout |
+| `package-details` | `PACKAGE`(必填) | 版本号 / APK 大小 / 数据大小 |
+
+**结构化 logcat（2）**
+
+| operation | params | 说明 |
+|---|---|---|
+| `logcat-stream` | `LEVEL`、`TAG`、`INCLUDE`、`EXCLUDE` | 前台实时流式；手动停止 |
+| `logcat-batch` | `LOGS_DIR`(path,必填)、`LEVEL`、`TAG`、`INCLUDE`、`EXCLUDE`、`CLEAR_BUFFER`(bool) | 抓取到 `logcat_<时间戳>.log`；`CLEAR_BUFFER=true` 才在抓取前 `logcat -c`（默认不清空，避免丢历史） |
+
+过滤语义：`LEVEL` 为最低阈值（单字母 V/D/I/W/E/F，行 level ≥ 阈值才通过）；`TAG` 多个空格分隔、任一子串命中即通过；`INCLUDE`/`EXCLUDE` 对 message 做子串包含/排除。
+
+**文件传输（10）**
+
+| operation | params | 说明 |
+|---|---|---|
+| `push` | `LOCAL_PATH`(path,必填)、`REMOTE_PATH`(text,必填) | 推送单个文件，进度推送、3 次重试、可取消 |
+| `pull` | `REMOTE_PATH`(必填)、`LOCAL_PATH`(path,必填) | 拉取单个文件 |
+| `push-multiple` | `LOCAL_PATH`(path,必填)、`REMOTE_PATH`(必填) | 本地目录 → 远程目录 |
+| `pull-multiple` | `REMOTE_PATH`(必填)、`LOCAL_PATH`(path,必填) | 远程目录 → 本地目录 |
+| `list-files` | `REMOTE_PATH`(默认 `/sdcard/`)、`SHOW_HIDDEN`(bool) | 列目录 |
+| `mkdir` | `REMOTE_PATH`(必填) | 创建远程目录 |
+| `delete` | `REMOTE_PATH`(必填) | 删除远程文件/目录 |
+| `rename` | `REMOTE_PATH`(必填)、`NEW_REMOTE_PATH`(必填) | 重命名/移动 |
+| `directory-size` | `REMOTE_PATH`(必填) | 远程目录占用大小 |
+| `storage-info` | `REMOTE_PATH`(必填) | 挂载点总/已用/可用 |
+
+远程路径会做规范化与 `..` 拦截。`push`/`pull` 进度经 `stream: "progress"` 推送。
+
+**scrcpy（6）**
+
+| operation | params | 说明 |
+|---|---|---|
+| `scrcpy-start` | 见下方选项表 | 前台投屏，关窗即停；手动停止 kill 进程组 |
+| `scrcpy-record-start` | `RECORD_PATH`(path,必填) + 见下方选项表 | 无头录屏（`--no-playback`），后台进行，可独立停止 |
+| `scrcpy-record-stop` | 无 | 停止当前设备的录制，校验输出文件非空 |
+| `clipboard-set` | `TEXT`(text,必填) | 设置设备剪贴板 |
+| `clipboard-get` | 无 | 读取设备剪贴板，结果经 stdout |
+| `screenshot` | `OUTPUT_PATH`(path,必填) | `exec-out screencap -p` 存到本地 |
+
+`scrcpy-start` / `scrcpy-record-start` 的投屏选项（均为可选，整数类空=不传）：
+
+| param | 类型 | 说明 |
+|---|---|---|
+| `MAX_SIZE` | int | `--max-size` |
+| `BIT_RATE` | int | `--video-bit-rate` |
+| `MAX_FPS` | int | `--max-fps` |
+| `AUDIO_BIT_RATE` | int | `--audio-bit-rate` |
+| `VIDEO_CODEC` | text | `--video-codec`（h264 默认不传） |
+| `AUDIO_CODEC` | text | `--audio-codec`（opus 默认不传） |
+| `SHOW_TOUCHES` / `NO_AUDIO` / `NO_CONTROL` / `STAY_AWAKE` / `TURN_SCREEN_OFF` / `POWER_OFF_ON_CLOSE` / `FULLSCREEN` / `ALWAYS_ON_TOP` / `DISABLE_SCREENSAVER` | bool | 对应同名 scrcpy flag |
+| `ROTATION` / `DISPLAY_ID` / `TIME_LIMIT` | int | `--display-orientation` / `--display-id` / `--time-limit` |
+
+### 示例
+
+```yaml
+id: adb-push
+icon: hi:upload
+title: 推送文件
+params:
+  - { id: LOCAL_PATH, label: 本地路径, type: path, required: true }
+  - { id: REMOTE_PATH, label: 远程路径, type: text, required: true, default: /sdcard/ }
+command:
+  adb: { operation: push }
+  timeout: 10m
+```
+
 ## 实际示例
 
 ### 最简动作
@@ -216,7 +316,7 @@ command:
 
 - `id` 必须匹配 `^[a-z0-9-]+$`
 - `title` 必填
-- `shell` 与 `script` 必填其一、互斥
+- `shell` 与 `script` 与 `adb.operation` 三选一、互斥
 - `params[].type` 只允许 `text` / `bool` / `select` / `path`
 - `select` 类型必须提供 `options`
 - `stream` 只允许空或 `"llm"`

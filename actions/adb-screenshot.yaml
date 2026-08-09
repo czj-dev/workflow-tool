@@ -1,0 +1,13 @@
+id: adb-screenshot
+title: 截屏
+icon: hi:camera
+description: 截取设备屏幕并保存为本地 PNG（adb exec-out screencap -p）
+params:
+  - id: OUTPUT_PATH
+    label: 保存路径（含文件名 .png）
+    type: path
+    required: true
+command:
+  adb:
+    operation: screenshot
+  timeout: 30s

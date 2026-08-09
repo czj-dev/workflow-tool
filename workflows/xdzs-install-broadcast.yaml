@@ -3,9 +3,20 @@ title: 安装后拉起测试页面
 icon: hi:package
 description: "安装 APK → 等待 5s → 拉起 DebugActivity"
 steps:
+  - id: find-apk
+    name: 定位 APK
+    shell: |
+      APK=$(find "${VOICE_DEBUG_OUTPUT}" -maxdepth 1 -name "*.apk" | head -1)
+      if [ -z "$APK" ]; then echo "未找到 APK: ${VOICE_DEBUG_OUTPUT}"; exit 1; fi
+      echo "定位 APK: $APK"
+      echo "##[output apk_path=$APK]"
   - id: install
     name: 安装 APK
     action: adb-install
+    params:
+      APK_PATH: "${{ steps.find-apk.outputs.apk_path }}"
+      ALLOW_TEST: "true"
+      ALLOW_DOWNGRADE: "true"
   - id: wait
     name: 等待安装落地
     sleep: 5

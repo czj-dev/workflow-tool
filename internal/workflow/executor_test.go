@@ -275,6 +275,63 @@ func TestExecutor_IndexFallbackID(t *testing.T) {
 	}
 }
 
+func TestExecutor_SubstituteActionParamsExpr(t *testing.T) {
+	wf := LoadedWorkflow{Def: WorkflowDef{
+		ID: "wf-1", Title: "t",
+		Steps: []Step{
+			{ID: "find", Shell: "produce"},
+			{ID: "install", Action: "adb-install", Params: map[string]string{"APK_PATH": "${{ steps.find.outputs.apk_path }}"}},
+		},
+	}}
+	var gotActionParams map[string]any
+	actionRun := func(id string, params map[string]any, _ map[string]string, _ *bool, _ runner.EmitFunc) runner.Result {
+		if id == "adb-install" {
+			gotActionParams = params
+			return runner.Result{ExitCode: 0}
+		}
+		return runner.Result{ExitCode: 0, Outputs: map[string]string{"apk_path": "/tmp/voice.apk", "exit_code": "0"}}
+	}
+	shellRun := func(shellCmd, timeout string, _ map[string]string, _ *bool, _ map[string]any, _ runner.EmitFunc) runner.Result {
+		return runner.Result{ExitCode: 0, Outputs: map[string]string{"apk_path": "/tmp/voice.apk", "exit_code": "0"}}
+	}
+	res := (&Executor{}).Execute(context.Background(), wf, actionRun, shellRun, nil, func(string, string) {})
+	if res.ExitCode != 0 {
+		t.Fatalf("exit = %d, want 0", res.ExitCode)
+	}
+	if gotActionParams["APK_PATH"] != "/tmp/voice.apk" {
+		t.Fatalf("APK_PATH = %v, want /tmp/voice.apk", gotActionParams["APK_PATH"])
+	}
+}
+
+func TestExecutor_SubstituteEnvExpr(t *testing.T) {
+	wf := LoadedWorkflow{Def: WorkflowDef{
+		ID: "wf-env", Title: "t",
+		Steps: []Step{
+			{ID: "find", Shell: "produce"},
+			{ID: "install", Shell: "echo $TOKEN", Env: map[string]string{"TOKEN": "${{ steps.find.outputs.token }}"}},
+		},
+	}}
+	var gotEnv map[string]string
+	shellRun := func(shellCmd, timeout string, env map[string]string, capture *bool, params map[string]any, emit runner.EmitFunc) runner.Result {
+		if shellCmd == "echo $TOKEN" {
+			gotEnv = env
+			return runner.Result{ExitCode: 0}
+		}
+		return runner.Result{ExitCode: 0, Outputs: map[string]string{"token": "abc123", "exit_code": "0"}}
+	}
+	res := (&Executor{}).Execute(context.Background(), wf,
+		func(string, map[string]any, map[string]string, *bool, runner.EmitFunc) runner.Result {
+			return runner.Result{}
+		},
+		shellRun, nil, func(string, string) {})
+	if res.ExitCode != 0 {
+		t.Fatalf("exit = %d, want 0", res.ExitCode)
+	}
+	if gotEnv["TOKEN"] != "abc123" {
+		t.Fatalf("env TOKEN = %v, want abc123", gotEnv["TOKEN"])
+	}
+}
+
 func TestExecutor_SubstituteShellExpr(t *testing.T) {
 	wf := LoadedWorkflow{Def: WorkflowDef{
 		ID: "wf-1", Title: "t",

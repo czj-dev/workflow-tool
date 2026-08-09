@@ -109,5 +109,8 @@
   "grid.stepsCount": "{{count}} steps",
   "settings.title": "Settings",
   "settings.theme": "Theme",
-  "settings.language": "Language"
+  "settings.language": "Language",
+  "device.select": "Select device",
+  "device.empty": "No devices",
+  "device.refresh": "Refresh devices"
 }

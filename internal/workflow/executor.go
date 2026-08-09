@@ -122,12 +122,21 @@ func (e *Executor) dispatch(
 	stepCtx *StepContext,
 	emit runner.EmitFunc,
 ) runner.Result {
-	stepEnv := mergeEnv(stepCtx.Env, step.Env)
+	stepEnv, err := substituteMap(mergeEnv(stepCtx.Env, step.Env), stepCtx, "env")
+	if err != nil {
+		emit("stderr", err.Error())
+		return runner.Result{ExitCode: -1, Err: err}
+	}
 	switch {
 	case step.Sleep > 0:
 		return (&runner.SleepRunner{Seconds: step.Sleep}).Run(ctx, nil, emit)
 	case step.Action != "":
-		return actionRun(step.Action, toAnyMap(step.Params), stepEnv, step.CaptureOutput, emit)
+		resolved, err := substituteMap(step.Params, stepCtx, "params")
+		if err != nil {
+			emit("stderr", err.Error())
+			return runner.Result{ExitCode: -1, Err: err}
+		}
+		return actionRun(step.Action, toAnyMap(resolved), stepEnv, step.CaptureOutput, emit)
 	case step.Shell != "":
 		substituted, err := Substitute(step.Shell, stepCtx)
 		if err != nil {
@@ -181,4 +190,22 @@ func toAnyMap(m map[string]string) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+// substituteMap 对 step 的 map（params 或 env）每个 value 做 ${{ }} 表达式展开，
+// 使其能引用前置 step 的 outputs（如 ${{ steps.find.outputs.apk_path }}）。
+// label 用于错误信息标识（"params"/"env"）。剩余 ${VAR} 交给下游 runner.Expand。
+func substituteMap(m map[string]string, ctx *StepContext, label string) (map[string]string, error) {
+	if len(m) == 0 {
+		return m, nil
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		substituted, err := Substitute(v, ctx)
+		if err != nil {
+			return nil, fmt.Errorf("step %s %q: %w", label, k, err)
+		}
+		out[k] = substituted
+	}
+	return out, nil
 }

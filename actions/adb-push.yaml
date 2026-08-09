@@ -1,0 +1,18 @@
+id: adb-push
+title: 推送文件
+icon: hi:upload
+description: 推送本地文件到设备（解析 [NN%] 进度，3 次重试，可取消）
+params:
+  - id: LOCAL_PATH
+    label: 本地文件
+    type: path
+    required: true
+  - id: REMOTE_PATH
+    label: 设备目标路径
+    type: text
+    required: true
+    default: /sdcard/
+command:
+  adb:
+    operation: push
+  timeout: 10m

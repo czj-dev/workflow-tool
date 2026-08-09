@@ -25,6 +25,7 @@ import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { useActionUsage } from "../hooks/useActionUsage";
 import { ActionItem } from "./ActionItem";
+import { DeviceSelector } from "./DeviceSelector";
 import { WorkflowItem } from "./WorkflowItem";
 
 // 等宽大写 eyebrow：控制台分区标签，结构即信息
@@ -69,6 +70,7 @@ export function AppSidebar() {
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
+        <DeviceSelector />
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>

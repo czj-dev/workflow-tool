@@ -42,9 +42,9 @@ export function OutputPanel() {
     );
   }
   return (
-    <main className="flex min-w-0 flex-1 flex-col">
+    <main className="flex min-h-0 min-w-0 flex-1 flex-col">
       <OutputToolbar />
-      <Card className="m-4 flex-1 overflow-hidden p-0">
+      <Card className="m-4 min-h-0 flex-1 overflow-hidden p-0">
         <OutputConsole />
       </Card>
     </main>

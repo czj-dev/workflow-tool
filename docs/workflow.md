@@ -59,6 +59,28 @@ steps:
 
 参数解析顺序：step 的 `params` > 工作流的 `params` > 全局配置 > 环境变量。
 
+**引用上游 step 输出**：action step 的 `params` 值支持 `${{ }}` 表达式展开，可直接消费前置 step 的 outputs。例如先用 shell 找到 APK 路径，再传给 install：
+
+```yaml
+steps:
+  - id: find-apk
+    name: 查找 APK
+    shell: |
+      APK=$(find "${VOICE_DEBUG_OUTPUT}" -maxdepth 1 -name "*.apk" | head -1)
+      [ -n "$APK" ] || { echo "未找到 apk" >&2; exit 1; }
+      echo "##[output apk_path=$APK]"
+
+  - id: install
+    name: 安装
+    action: adb-install
+    params:
+      APK_PATH: "${{ steps.find-apk.outputs.apk_path }}"
+      ALLOW_TEST: "true"
+      ALLOW_DOWNGRADE: "true"
+```
+
+`${{ }}` 在该处对 `params` 的每个 value 做求值并替换；求值失败会中断该 step（emit stderr 并返回非 0）。剩余 `${VAR}` 仍按参数解析优先级链由下游 runner 展开。
+
 ### sleep：等待
 
 单位为秒，用于等待前一步的副作用生效（如安装完成、服务启动）：
@@ -142,7 +164,9 @@ stdout 中 `##[output key=value]` 行会被解析为 `steps.<id>.outputs.key`。
 ```
 会被展开为 `echo x; rm -rf /tmp/pwned` 并执行。
 
-**规避写法**：`${{ }}` 目前**只在 `shell` 命令字符串里被展开**（`env` / `params` 的值不经过 `${{ }}` 求值），因此规避的关键是把占位符包进引号，让展开后的值落进「字面量」区间而非命令解析区间：
+**展开位置**：`${{ }}` 在三处被展开——`shell` 命令字符串、action step 的 `params` 值、step 的 `env` 值。其中只有 `shell` 命令字符串存在命令注入风险（求值结果被直接拼进 `sh -c` / `powershell -Command`）；`params`/`env` 的值只会成为参数或环境变量本身，风险较低——但若该值随后又被 `${VAR}` 拼进某条 shell 命令，注入风险会随之转移。
+
+针对 `shell` 命令字符串的规避：把占位符包进引号，让展开后的值落进「字面量」区间而非命令解析区间：
 
 ```yaml
 # sh / bash：单引号内所有元字符（; ` $() 换行 等）都按字面量处理
@@ -178,6 +202,8 @@ stdout 中 `##[output key=value]` 行会被解析为 `steps.<id>.outputs.key`。
 workflow 级 `env` 注入所有 step（优先级低于 params、高于 config.yaml）。step 级 `env` 可覆盖同名。
 
 变量引用：`env.KEY`（expr 中）/ `${KEY}`（shell 中，由 runner.Expand 查优先级链）。
+
+`env` 的 value 同样支持 `${{ }}` 展开（如 `TOKEN: "${{ steps.find.outputs.token }}"`），可引用前置 step 的 outputs；求值失败会中断该 step。
 
 ## 工作流参数
 

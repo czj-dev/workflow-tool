@@ -1,22 +1,38 @@
 id: adb-scrcpy
 title: 投屏
 icon: hi:play
-description: 使用 scrcpy 投屏 Android 设备（可选录屏）
+description: 使用 scrcpy 投屏 Android 设备（结构化选项，手动停止）
 params:
-  - id: RECORD
-    label: 录屏
+  - id: MAX_SIZE
+    label: 最大尺寸（可空）
+    type: text
+    default: "1280"
+  - id: BIT_RATE
+    label: 视频码率（可空）
+    type: text
+    default: "8000000"
+  - id: MAX_FPS
+    label: 最大帧率（可空）
+    type: text
+  - id: VIDEO_CODEC
+    label: 视频编码
+    type: select
+    default: h264
+    options: ["h264", "h265", "av1"]
+  - id: NO_AUDIO
+    label: 关闭音频
     type: bool
     default: "false"
-  - id: RECORD_PATH
-    label: 录屏保存路径（录屏开启时有效）
-    type: path
+  - id: STAY_AWAKE
+    label: 保持唤醒
+    type: bool
+    default: "true"
+  - id: SHOW_TOUCHES
+    label: 显示触摸
+    type: bool
+    default: "false"
 command:
-  shell: |
-    args="--window-title=Scrcpy"
-    if [ "${RECORD}" = "true" ] && [ -n "${RECORD_PATH}" ]; then
-      args="$args --record=${RECORD_PATH}/scrcpy-$(date +%Y%m%d_%H%M%S).mp4"
-    fi
-    echo "[scrcpy] 启动投屏: scrcpy $args"
-    eval scrcpy $args
+  adb:
+    operation: scrcpy-start
   timeout: 24h
   capture_output: false          # 投屏持续输出，禁止内存累积

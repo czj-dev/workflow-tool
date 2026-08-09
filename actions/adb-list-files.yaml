@@ -1,0 +1,17 @@
+id: adb-list-files
+title: 设备文件列表
+icon: hi:folder
+description: 列出设备指定目录下的文件（默认 /sdcard/）
+params:
+  - id: REMOTE_PATH
+    label: 设备路径
+    type: text
+    default: /sdcard/
+  - id: SHOW_HIDDEN
+    label: 显示隐藏文件
+    type: bool
+    default: "false"
+command:
+  adb:
+    operation: list-files
+  timeout: 30s

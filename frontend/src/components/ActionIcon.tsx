@@ -3,12 +3,14 @@ import {
   AiAudioIcon,
   AiChat02Icon,
   Alert02Icon,
+  Camera02Icon,
   Cancel01Icon,
   Car01Icon,
   Copy01Icon,
   Download04Icon,
   File02Icon,
   FlashIcon,
+  Folder02Icon,
   Loading03Icon,
   Mic01Icon,
   NoteIcon,
@@ -19,6 +21,7 @@ import {
   TestTubeIcon,
   TextIcon,
   Tick02Icon,
+  Upload04Icon,
   VoiceIcon,
   FlowIcon,
 } from "@hugeicons/core-free-icons";
@@ -48,6 +51,9 @@ const REGISTRY = {
   test: TestTubeIcon,
   file: File02Icon,
   package: PackageIcon,
+  folder: Folder02Icon,
+  upload: Upload04Icon,
+  camera: Camera02Icon,
 } as const;
 
 const PREFIX = "hi:";

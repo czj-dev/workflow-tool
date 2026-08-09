@@ -21,6 +21,8 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   ListWorkflows: mockListWorkflows,
   RunWorkflow: mockRunWorkflow,
   CancelWorkflow: vi.fn(),
+  ListDevices: vi.fn().mockResolvedValue({ devices: [], active: "" }),
+  SetActiveDevice: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@wailsio/runtime", () => ({ Events: { On: mockOn } }));
 

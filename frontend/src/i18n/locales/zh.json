@@ -109,5 +109,8 @@
   "grid.stepsCount": "{{count}} 步",
   "settings.title": "设置",
   "settings.theme": "主题",
-  "settings.language": "语言"
+  "settings.language": "语言",
+  "device.select": "选择设备",
+  "device.empty": "无设备",
+  "device.refresh": "刷新设备列表"
 }

@@ -8,7 +8,8 @@ export interface OutputEventData {
     | "llm-thinking"
     | "step-start"
     | "step-done"
-    | "step-skip";
+    | "step-skip"
+    | "progress";
   line: string;
 }
 

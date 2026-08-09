@@ -13,6 +13,9 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
+	"workflow-tool/internal/adb"
+	"workflow-tool/internal/adb/binary"
+	"workflow-tool/internal/adb/device"
 	"workflow-tool/internal/registry"
 	"workflow-tool/internal/runner"
 	"workflow-tool/internal/workflow"
@@ -34,6 +37,9 @@ type Service struct {
 	wfReg     *workflow.WorkflowRegistry
 	wfMu      sync.Mutex
 	wfRunning map[string]context.CancelFunc // workflowID -> cancel
+
+	bin *binary.Service // adb/fastboot/scrcpy 路径探测
+	dev *device.Service // 设备列表 + 激活 serial
 }
 
 // New 创建 service。cfgPath 是全局配置 config.yaml 路径，fragPath 是 fragments.yaml 路径。
@@ -50,7 +56,7 @@ func New(reg *registry.Registry, wfReg *workflow.WorkflowRegistry, baseDir, cfgP
 	if wfReg == nil {
 		wfReg = &workflow.WorkflowRegistry{Workflows: map[string]workflow.LoadedWorkflow{}}
 	}
-	return &Service{
+	svc := &Service{
 		reg:       reg,
 		baseDir:   baseDir,
 		cfgPath:   cfgPath,
@@ -60,6 +66,39 @@ func New(reg *registry.Registry, wfReg *workflow.WorkflowRegistry, baseDir, cfgP
 		running:   map[string]context.CancelFunc{},
 		wfReg:     wfReg,
 		wfRunning: map[string]context.CancelFunc{},
+	}
+	svc.bin = binary.NewService()
+	svc.dev = device.NewService(svc.binPaths)
+	return svc
+}
+
+// adbOverrides 返回 config.yaml 里的二进制路径覆盖（ADB_PATH/FASTBOOT_PATH/SCRCPY_PATH）。
+func (s *Service) adbOverrides() map[string]string {
+	s.gMu.Lock()
+	defer s.gMu.Unlock()
+	out := map[string]string{}
+	for _, k := range []string{"ADB_PATH", "FASTBOOT_PATH", "SCRCPY_PATH"} {
+		if v, ok := s.global[k]; ok {
+			out[k] = v
+		}
+	}
+	return out
+}
+
+// binPaths 解析当前三个二进制路径（config 覆盖 -> PATH -> 常见路径）。
+func (s *Service) binPaths() binary.Paths {
+	ov := s.adbOverrides()
+	return s.bin.Paths(ov["ADB_PATH"], ov["FASTBOOT_PATH"], ov["SCRCPY_PATH"])
+}
+
+// newADBRunner 为指定动作构造 ADBRunner（按 command.adb.operation 分发）。
+func (s *Service) newADBRunner(la registry.LoadedAction) *adb.ADBRunner {
+	return &adb.ADBRunner{
+		Bin:          s.bin,
+		Dev:          s.dev,
+		Operation:    la.Def.Command.Adb.Operation,
+		Timeout:      la.Timeout,
+		GetOverrides: s.adbOverrides,
 	}
 }
 
@@ -174,6 +213,11 @@ func (s *Service) RunAction(id string, params map[string]any) error {
 
 // mergeGlobalAndParams 合并全局配置与参数（参数覆盖同名全局），返回 runner 用的 vars。
 func (s *Service) mergeGlobalAndParams(params map[string]any) map[string]any {
+	// 先读激活 serial（dev 自己的锁），避免与 gMu 嵌套。
+	activeSerial := ""
+	if s.dev != nil {
+		activeSerial = s.dev.ActiveSerial()
+	}
 	s.gMu.Lock()
 	defer s.gMu.Unlock()
 	out := make(map[string]any, len(s.global)+len(params))
@@ -182,6 +226,12 @@ func (s *Service) mergeGlobalAndParams(params map[string]any) map[string]any {
 	}
 	for k, v := range params {
 		out[k] = v // 参数优先
+	}
+	// 注入激活设备 serial 为 ${ADB_SERIAL}，让 shell action 与 adb action 共用同一设备来源。
+	if activeSerial != "" {
+		if _, ok := out["ADB_SERIAL"]; !ok {
+			out["ADB_SERIAL"] = activeSerial
+		}
 	}
 	return out
 }
@@ -194,6 +244,34 @@ func (s *Service) CancelAction(id string) {
 	if ok {
 		cancel()
 	}
+}
+
+// --- Device API（前端设备选择器）---
+
+// DeviceListResult 包装设备列表与激活 serial。
+type DeviceListResult struct {
+	Devices []device.Summary `json:"devices"`
+	Active  string           `json:"active"`
+}
+
+// ListDevices 返回当前 adb/fastboot 设备列表 + 激活 serial（无激活时自动选首个 ready）。
+func (s *Service) ListDevices() (DeviceListResult, error) {
+	devices, err := s.dev.ListDevices(context.Background())
+	active := s.dev.ActiveSerial()
+	if active == "" {
+		active, _ = s.dev.ResolveActive(context.Background())
+	}
+	return DeviceListResult{Devices: devices, Active: active}, err
+}
+
+// GetDeviceInfo 返回单设备的详细信息。
+func (s *Service) GetDeviceInfo(serial string) (*device.Info, error) {
+	return s.dev.GetDeviceInfo(context.Background(), serial)
+}
+
+// SetActiveDevice 设置激活设备 serial（前端设备选择器调用）。
+func (s *Service) SetActiveDevice(serial string) {
+	s.dev.SetActive(serial)
 }
 
 // AddPreset 给指定动作新增/覆盖一个 preset（同名覆盖），写回 yaml 并重载，返回最新列表。
@@ -377,9 +455,12 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 		BaseDir: s.baseDir,
 	}
 	var r runner.Runner
-	if la.Def.Command.Stream == "llm" {
+	switch {
+	case la.Def.Command.Adb.Operation != "":
+		r = s.newADBRunner(la)
+	case la.Def.Command.Stream == "llm":
 		r = &runner.LLMRunner{Cfg: shellCfg}
-	} else {
+	default:
 		r = &runner.ShellRunner{Cfg: shellCfg}
 	}
 
@@ -620,9 +701,12 @@ func (s *Service) makeActionRun(ctx context.Context, merged map[string]any) work
 			CaptureOutput: capture,
 		}
 		var r runner.Runner
-		if la.Def.Command.Stream == "llm" {
+		switch {
+		case la.Def.Command.Adb.Operation != "":
+			r = s.newADBRunner(la)
+		case la.Def.Command.Stream == "llm":
 			r = &runner.LLMRunner{Cfg: shellCfg}
-		} else {
+		default:
 			r = &runner.ShellRunner{Cfg: shellCfg}
 		}
 		return r.Run(ctx, runParams, stepEmit)

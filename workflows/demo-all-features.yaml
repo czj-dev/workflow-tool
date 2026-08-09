@@ -1,7 +1,7 @@
 id: demo-all-features
 title: "演示: 全功能工作流"
 icon: hi:workflow
-description: "覆盖 workflow 全部能力：params 四类型、action/sleep/shell 三形态、env、if 条件与 outputs 引用、SKIPPED、retry、continue_on_error"
+description: "覆盖 workflow 全部能力：params 四类型、action/sleep/shell 三形态、env、${{ }} 在 shell/params/env 三处展开、if 条件、outputs 引用、SKIPPED、retry、continue_on_error"
 
 env:
   GREETING: hello
@@ -45,34 +45,49 @@ steps:
     action: demo-echo
     params: { MSG: "来自 workflow 的问候" }
 
-  # 4. shell 形态：写 outputs 协议行 —— 验证 ##[output] 自定义 key
+  # 4. shell 形态：写 outputs 协议行 —— 验证 ##[output] 自定义 key（供后续三步以 ${{ }} 引用）
   - id: produce
     name: 生产数据
     shell: |
       echo "开始执行..."
       echo "##[output build_id=42]"
+      echo "##[output artifact=demo-app.apk]"
       echo "完成"
 
-  # 5. if 条件为真 —— 验证 outputs 引用 + ${{ }} 拼接 + env 引用
+  # 5. action 形态 + ${{ }} 展开 params —— step.params 的 value 经 ${{ }} 求值后传给 action
+  - id: consume-params
+    name: "${{ }} 注入 action params"
+    action: demo-echo
+    params:
+      MSG: "build_id=${{ steps.produce.outputs.build_id }}"
+
+  # 6. shell 形态 + ${{ }} 展开 env —— step.env 的 value 经 ${{ }} 求值，再以 ${VAR} 注入命令
+  - id: consume-env
+    name: "${{ }} 注入 env"
+    env:
+      ARTIFACT: "${{ steps.produce.outputs.artifact }}"
+    shell: echo "env 注入 artifact=${ARTIFACT}"
+
+  # 7. shell 形态 + ${{ }} 拼进命令串 —— 验证 outputs 引用 + ${{ }} 拼接 shell + env 引用
   - id: consume
     name: 消费数据（条件满足）
     if: steps.produce.outputs.exit_code == '0'
     shell: echo "build_id=${{ steps.produce.outputs.build_id }}, greeting=${GREETING}"
 
-  # 6. if 条件为假 —— 验证 SKIPPED 状态
+  # 8. if 条件为假 —— 验证 SKIPPED 状态
   - id: skip-this
     name: 条件跳过演示
     if: steps.produce.outputs.exit_code == '99'
     shell: echo "这行不会被执行"
 
-  # 7. retry 演示：命令必然失败，验证重试痕迹（retry 1/2、retry 2/2）+ continue_on_error 不中断后续
+  # 9. retry 演示：命令必然失败，验证重试痕迹（retry 1/2、retry 2/2）+ continue_on_error 不中断后续
   - id: retry-demo
     name: 重试演示（必然失败）
     shell: exit 1
     retry: 2
     continue_on_error: true
 
-  # 8. 故意失败（stderr + 非零退出，且不 continue_on_error）—— 验证 error 态 + stderr 分层，作为整条 workflow 的终止点
+  # 10. 故意失败（stderr + 非零退出，且不 continue_on_error）—— 验证 error 态 + stderr 分层，作为整条 workflow 的终止点
   # PowerShell: Write-Error 写 stderr；exit 1 让退出码非 0
   - id: fail-demo
     name: 演示失败

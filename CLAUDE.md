@@ -43,22 +43,32 @@ cd frontend && npm run lint && npm run typecheck         # 前端 lint / 类型�
 
 ```
 internal/runner/    执行单元（纯 Go，可单测，不依赖 Wails）：ShellRunner / SleepRunner
+internal/adbcore/   adb 域子进程治理：RunCommand/RunStreaming/RunCommandWithStdin + errors + validation
+                    （自包含，复用 runner 的 pgid/hide 逻辑，不依赖 Wails）
+internal/adb/       adb 域框架：ADBRunner（实现 runner.Runner）+ operation 自注册路由表 + OpContext
+  ├── binary/       adb/fastboot/scrcpy 路径探测级联（config→PATH→常见路径，仅探测不下载）
+  ├── device/       设备列表/信息/模式/wireless + 激活 serial 解析
+  ├── package/      包管理 9 operations（install/uninstall/list/enable/disable/clear/force-stop/pull-apk/details）
+  ├── logcat/       结构化 logcat 2 operations（stream/batch，Go 端 threadtime 解析 + 过滤）
+  ├── file/         文件传输 10 operations（push/pull/多文件/list/mkdir/delete/rename/size/storage，进度+重试+取消）
+  └── scrcpy/       scrcpy 6 operations（start/record-start/record-stop/clipboard-set/get/screenshot）
 internal/registry/  扫 actions/*.yaml 解析校验 + config.yaml 全局配置 + fragments.yaml 片段
 internal/workflow/  扫 workflows/*.yaml 加载校验 + Executor 串行执行 steps
 internal/api/       Wails Service 绑定 + 事件 emit（唯一依赖 Wails 的包）
 ```
 
 - **runner.Runner** 接口 `Run(ctx, params, emit) Result` 是稳定扩展点。当前实现 `ShellRunner`（按 OS 构造 `exec.Cmd`，Windows 用 PowerShell/pwsh，其他用 `sh -c`，逐行 `emit` stdout/stderr）与 `SleepRunner`（workflow sleep step）。`stream: "llm"` 时 stdout 改走 `pumpLLM`（`llm.go`），解析 claude stream-json，只把 assistant 的 text / thinking 增量 emit 为 `"llm"` / `"llm-thinking"`。
+- **adb 域**：`command.adb.operation` 形态由 `adb.ADBRunner`（实现同一 `Runner` 接口）处理。`api.execute` 按 `command.shell`/`script`/`adb.operation` 三选一选型。ADBRunner 解析设备 serial（params `ADB_SERIAL` 或 `device.ResolveActive`）+ 二进制路径（config 覆盖→PATH→常见路径），构造 `OpContext` 后按 `operation` 查路由表分发到域 handler。**各域子包（package/logcat/file/scrcpy）在自己的 `init()` 中调 `adb.RegisterOperation` 自登记，`main.go` blank-import 触发登记；新增 operation 不需改 `internal/adb/runner.go` 共享文件。** 输出走与 shell 动作完全相同的 `action:<id>:output` 通道；文件传输进度发 `stream:"progress"`。
 - **变量替换**在**运行时**由 `runner.Expand` 完成（不在 registry 加载时）。优先级：动作参数 > 全局配置(config.yaml) > 环境变量；未命中保留 `${VAR}` 原样 + warning。
 - **workflow.Executor** 串行执行 workflow 的 steps（action / inline shell / sleep 三选一），支持 `retry` 和 `continue_on_error`。step 边界 emit `step-start` / `step-done` 事件。执行 action step 时通过回调查 registry 合并 params 构造 ShellRunner。
 - **api.Service** 通过 `SetApp` 在 `main.go` 注入 app 引用（打破循环依赖）。`RunAction` 起 goroutine 执行，输出经事件 `action:<id>:output` 推送、结束发 `action:<id>:done`。同一动作并发运行被拒。
 - **exe 目录约定**：`main.go` 的 `exeDir()` 用 exe 所在目录扫描同级 `actions/`、`workflows/`、`config.yaml`、`fragments.yaml`；dev 时回退当前工作目录（项目根）。所以运行 exe 必须和这些文件同级。
 
-前端（`frontend/src/`，React 19 + TS + Vite + tailwind4 + base-ui/shadcn）：`ActionRunnerProvider` 是唯一状态中枢，`ListActions` 拉动作、`Events.On` 订阅输出事件、`view` 在 output/form/global/llm/workflow/fragments 间切。binding 从 `frontend/bindings/`（`wails3 generate bindings` 产物，ES module）导入。UI 优先复用 `components/ui/` 下的 shadcn 原子（Badge / IconButton 等），避免手写重复样式。
+前端（`frontend/src/`，React 19 + TS + Vite + tailwind4 + base-ui/shadcn）：`ActionRunnerProvider` 是唯一状态中枢，`ListActions` 拉动作、`Events.On` 订阅输出事件、`view` 在 output/form/global/llm/workflow/fragments 间切。`DeviceSelector`（挂 `AppSidebar` SidebarHeader）调 `ListDevices`/`SetActiveDevice` 选激活设备，后端是激活 serial 唯一真相、运行 adb 动作时自动注入 `${ADB_SERIAL}`。binding 从 `frontend/bindings/`（`wails3 generate bindings` 产物，ES module）导入。UI 优先复用 `components/ui/` 下的 shadcn 原子（Badge / IconButton 等），避免手写重复样式。
 
 ## 动作 YAML（actions/*.yaml）
 
-`id`（`^[a-z0-9-]+$` 全局唯一）+ `title` 必填；`command.shell` 与 `command.script` 互斥必选其一。`script` 路径不含扩展名，按 OS 自动加 `.sh`/`.ps1`，相对路径基于 exe 目录。`command.stream` 只允许 `""` 或 `"llm"`。`params`（type: text|bool|select|path，select 必带 options）驱动前端表单；`presets` 是作者预设的整套参数值。可选 `icon`：写 `hi:<key>`（key 见 `frontend/src/components/ActionIcon.tsx` 注册表）渲染 hugeicons 矢量图标，或直接写 emoji/文本（原样显示，向后兼容）。校验逻辑在 `registry.validate`。
+`id`（`^[a-z0-9-]+$` 全局唯一）+ `title` 必填；`command.shell` 与 `command.script` 与 `command.adb.operation` 三选一互斥必选其一。`script` 路径不含扩展名，按 OS 自动加 `.sh`/`.ps1`，相对路径基于 exe 目录。`command.adb` 是第三种形态：写 `command.adb.operation: <域操作名>`，由内置 ADBRunner 分发到 adb 域服务（27 个 operation：包管理/logcat/文件传输/scrcpy），各 operation 的 params 契约见 [docs/action.md](docs/action.md)。`command.stream` 只允许 `""` 或 `"llm"`。`params`（type: text|bool|select|path，select 必带 options）驱动前端表单；`presets` 是作者预设的整套参数值。可选 `icon`：写 `hi:<key>`（key 见 `frontend/src/components/ActionIcon.tsx` 注册表）渲染 hugeicons 矢量图标，或直接写 emoji/文本（原样显示，向后兼容）。校验逻辑在 `registry.validate`。
 
 `command` 新增可选 `capture_output`（布尔，默认 true；false 关闭全量 stdout/stderr 捕获，长跑/持续输出 action 如 scrcpy/logcat 用）。
 

@@ -19,11 +19,11 @@ export function OutputConsole() {
   }, [lines]);
 
   return (
-    <div className="flex flex-1 flex-col bg-background">
+    <div className="flex min-h-0 flex-1 flex-col bg-background">
       {status === "running" && (
         <div className="spine-flow-h mx-4 mt-1 h-0.5 shrink-0 rounded-full" />
       )}
-      <ScrollArea className="flex-1">
+      <ScrollArea className="min-h-0 flex-1">
         <pre className="p-4 font-mono text-[13px] leading-relaxed whitespace-pre-wrap">
           {lines.map((line, i) => {
             let cls = "text-foreground";

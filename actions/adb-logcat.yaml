@@ -1,32 +1,38 @@
 id: adb-logcat
 title: 抓取日志
 icon: hi:file
-description: adb logcat 抓取到本地文件（可选按 包名/Tag/消息关键字 过滤，手动停止）
+description: adb logcat 抓取到本地文件（threadtime 结构化解析，按 Level/Tag/关键字 过滤，手动停止）
 params:
   - id: LOGS_DIR
     label: 日志目录
     type: path
     required: true
-  - id: PACKAGE
-    label: 包名过滤（可空，如 com.baidu.che.codriver）
+  - id: LEVEL
+    label: 最低 Level（V/D/I/W/E/F，可空）
     type: text
+    default: V
   - id: TAG
     label: Tag 过滤（多个空格分隔，可空）
     type: text
   - id: INCLUDE
-    label: 消息包含（正则，可空）
+    label: 消息包含（可空）
     type: text
   - id: EXCLUDE
-    label: 消息排除（正则，可空）
+    label: 消息排除（可空）
     type: text
+  - id: CLEAR_BUFFER
+    label: 抓取前清空缓冲（破坏性）
+    type: bool
+    default: "false"
 command:
-  script: ./scripts/adb-logcat
+  adb:
+    operation: logcat-batch
   timeout: 24h
   capture_output: false          # 日志流持续输出
 presets:
   - name: 语音
     description: 语音进程
-    values: {EXCLUDE: "", INCLUDE: "", LOGS_DIR: /Users/v_chenzhaojun/Documents/Logs, PACKAGE: com.baidu.che.codriver, TAG: ""}
+    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, LOGS_DIR: /Users/v_chenzhaojun/Documents/Logs, TAG: ""}
   - name: 全量日志
     description: 整车日志抓取
-    values: {EXCLUDE: "", INCLUDE: "", LOGS_DIR: /Users/v_chenzhaojun/Documents/Logs, PACKAGE: "", TAG: ""}
+    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, LOGS_DIR: /Users/v_chenzhaojun/Documents/Logs, TAG: ""}

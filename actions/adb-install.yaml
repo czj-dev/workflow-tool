@@ -1,7 +1,21 @@
 id: adb-install
 title: 安装 APK
 icon: hi:package
-description: 找到 VOICE_DEBUG_OUTPUT 目录下第一个 APK 并 adb install（VOICE_DEBUG_OUTPUT 来自全局配置）
+description: adb install 安装指定 APK 到激活设备（-r 覆盖安装，可选 -t 测试包 / -d 降级）
+params:
+  - id: APK_PATH
+    label: APK 文件
+    type: path
+    required: true
+  - id: ALLOW_TEST
+    label: 允许测试包（-t）
+    type: bool
+    default: "false"
+  - id: ALLOW_DOWNGRADE
+    label: 允许降级（-d）
+    type: bool
+    default: "false"
 command:
-  script: ./scripts/adb-install
+  adb:
+    operation: install-package
   timeout: 5m
