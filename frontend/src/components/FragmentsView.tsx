@@ -487,7 +487,7 @@ export function FragmentsView() {
     <Tabs
       value={mode}
       onValueChange={(v) => setMode(v as "use" | "edit")}
-      className="flex min-w-0 flex-1 flex-col"
+      className="flex min-h-0 min-w-0 flex-1 flex-col"
     >
       <header className="flex items-center justify-between border-b px-4 py-2">
         <div className="flex items-center gap-2">

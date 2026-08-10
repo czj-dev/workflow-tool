@@ -10,24 +10,35 @@ import (
 // 捕获组: 1=date 2=time 3=pid 4=tid 5=level 6=tag 7=message
 var threadtimeRe = regexp.MustCompile(`^(\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2}\.\d{3})\s+(\d+)\s+(\d+)\s+([VDIWEF])\s+(.+?):\s?(.*)$`)
 
-// entry 是一条 logcat 行解析后的过滤相关字段。
-type entry struct {
-	level   string // V/D/I/W/E/F；未解析行默认 "V"
-	tag     string // 未解析行为 ""
-	message string // 未解析行为整行原文
+// Entry 是一条解析后的 logcat 行，对齐 adbkit-logcat 的 Entry 模型
+// (date/pid/tid/priority/tag/message)。Date/Time/Level 为结构化字段供前端着色与
+// 运行时过滤；未解析的原始行 Date/Time/Pid/Tid 留零、Level='V'、Message=原文。
+type Entry struct {
+	Date    string // "08-08"；未解析行为 ""
+	Time    string // "11:22:33.456"；未解析行为 ""
+	Pid     int    // 进程 ID；未解析行为 0
+	Tid     int    // 线程 ID；未解析行为 0
+	Level   string // V/D/I/W/E/F；未解析行默认 "V"
+	Tag     string // 未解析行为 ""
+	Message string // 未解析行为整行原文
+	Raw     string // 原始行（去掉行尾换行），供 batch 落盘用
 }
 
-// parseEntry 解析单行 threadtime 输出。无法匹配的行保留原文为 message、level=V、tag=""。
-func parseEntry(raw string) entry {
+// parseEntry 解析单行 threadtime 输出。无法匹配的行保留原文为 message、level=V。
+func parseEntry(raw string) Entry {
 	line := strings.TrimRight(raw, "\r\n")
-	e := entry{level: "V", message: line}
+	e := Entry{Level: "V", Message: line, Raw: line}
 	m := threadtimeRe.FindStringSubmatch(line)
 	if len(m) != 8 {
 		return e
 	}
-	e.level = m[5]
-	e.tag = strings.TrimSpace(m[6])
-	e.message = m[7]
+	e.Date = m[1]
+	e.Time = m[2]
+	e.Pid = atoi(m[3])
+	e.Tid = atoi(m[4])
+	e.Level = m[5]
+	e.Tag = strings.TrimSpace(m[6])
+	e.Message = m[7]
 	return e
 }
 
@@ -98,13 +109,13 @@ func buildFilter(levelRaw, tagRaw, includeRaw, excludeRaw string) (filter, bool)
 	return f, true
 }
 
-// allow 判断一条解析后的 entry 是否通过全部过滤规则。
-func (f *filter) allow(e *entry) bool {
-	if f.levelSet && levelRank(e.level) < f.minLevel {
+// allow 判断一条解析后的 Entry 是否通过全部过滤规则。
+func (f *filter) allow(e *Entry) bool {
+	if f.levelSet && levelRank(e.Level) < f.minLevel {
 		return false
 	}
 	if len(f.tags) > 0 {
-		tag := strings.ToLower(e.tag)
+		tag := strings.ToLower(e.Tag)
 		hit := false
 		for _, t := range f.tags {
 			if strings.Contains(tag, t) {
@@ -116,11 +127,24 @@ func (f *filter) allow(e *entry) bool {
 			return false
 		}
 	}
-	if f.include != "" && !strings.Contains(strings.ToLower(e.message), f.include) {
+	if f.include != "" && !strings.Contains(strings.ToLower(e.Message), f.include) {
 		return false
 	}
-	if f.exclude != "" && strings.Contains(strings.ToLower(e.message), f.exclude) {
+	if f.exclude != "" && strings.Contains(strings.ToLower(e.Message), f.exclude) {
 		return false
 	}
 	return true
+}
+
+// atoi 解析十进制 int；失败返回 0（logcat 的 pid/tid 为正整数，无需复杂错误处理）。
+func atoi(s string) int {
+	n := 0
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c < '0' || c > '9' {
+			return 0
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n
 }

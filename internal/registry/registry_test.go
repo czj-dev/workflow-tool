@@ -245,6 +245,24 @@ command:
 	}
 }
 
+func TestLoadParsesStreamLogcat(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.yaml", `id: a
+title: A
+command:
+  shell: echo hi
+  stream: logcat
+`)
+	reg := Load(dir, dir)
+	if len(reg.Errors) != 0 {
+		t.Fatalf("stream:logcat 应合法，got errors: %v", reg.Errors)
+	}
+	la := reg.Actions["a"]
+	if la.Def.Command.Stream != "logcat" {
+		t.Fatalf("want stream=logcat，got %q", la.Def.Command.Stream)
+	}
+}
+
 func TestLoadRecordsSourceFile(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "a.yaml", `id: a

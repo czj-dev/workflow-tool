@@ -10,7 +10,7 @@ export default function App() {
   return (
     <ActionRunnerProvider>
       <TooltipProvider>
-        <SidebarProvider>
+        <SidebarProvider className="h-svh overflow-hidden">
           <AppSidebar />
           <SidebarInset>
             <OutputPanel />

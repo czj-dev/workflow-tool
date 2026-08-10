@@ -6,10 +6,12 @@ package logcat
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -28,8 +30,9 @@ func init() {
 }
 
 // handleStream 前台流式 logcat：逐行解析 threadtime，按 LEVEL(>=阈值)/TAG(子串)/
-// INCLUDE/EXCLUDE(message 子串) 过滤后经 EmitStdout 推送。RunStreaming 遵循 ctx
-// 取消，故取消动作即停止流；ctx 取消/超时视为正常结束 (ExitCode 0)。
+// INCLUDE/EXCLUDE(message 子串) 服务端预过滤，再以 stream="logcat" 结构化 JSON
+// 下发（date/pid/tid/level/tag/message），前端据此着色与运行时再过滤。
+// RunStreaming 遵循 ctx 取消，故取消动作即停止流；ctx 取消/超时视为正常结束 (ExitCode 0)。
 func handleStream(op *adb.OpContext) adb.OpResult {
 	f, ok := buildFilter(op.ParamStr("LEVEL"), op.ParamStr("TAG"), op.ParamStr("INCLUDE"), op.ParamStr("EXCLUDE"))
 	if !ok {
@@ -38,21 +41,115 @@ func handleStream(op *adb.OpContext) adb.OpResult {
 		return adb.OpResult{ExitCode: 2, Err: opErr, Stderr: opErr.Error()}
 	}
 
-	// RunStreaming 的 OnLine 由 stdout/stderr 两个扫描 goroutine 并发回调，
-	// 故对 emit 串行化，避免输出交错（logcat 绝大多数输出走 stdout，争用极低）。
-	var emitMu sync.Mutex
+	// 聚合 emit：逐行只压入缓冲，由 ticker 每 ~100ms 批量序列化为 JSON 数组下发。
+	// logcat 启动常一次性倾倒整个 ring buffer（万级行），若每行一次 op.Emit，
+	// Wails IPC 事件风暴会压垮前端主线程导致未响应；批量化后事件数从万级降到 ~10/s。
+	// 与 adbkit 的 stream pipe + 背压同思路：在产出端节流，而非依赖消费端追赶。
+	const (
+		flushInterval = 100 * time.Millisecond
+		maxBatch      = 500 // 单次 emit 上限，超出留到下次 tick，分摊首次倾倒峰值
+	)
+	var (
+		bufMu sync.Mutex
+		buf   []logcatPayload
+	)
+	flush := func() {
+		bufMu.Lock()
+		if len(buf) == 0 {
+			bufMu.Unlock()
+			return
+		}
+		batch := buf
+		buf = nil
+		bufMu.Unlock()
+		// 超出上限时拆成多个 chunk 顺序 emit，避免单个超大 JSON 阻塞。
+		for len(batch) > 0 {
+			n := len(batch)
+			if n > maxBatch {
+				n = maxBatch
+			}
+			if payload, err := json.Marshal(batch[:n]); err == nil {
+				op.Emit("logcat", string(payload))
+			}
+			batch = batch[n:]
+		}
+	}
+	// ticker 直到 ctx 结束（含 final flush）才退出，保证收尾不丢条目。
+	flushDone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(flushInterval)
+		defer func() {
+			ticker.Stop()
+			flush()
+			close(flushDone)
+		}()
+		for {
+			select {
+			case <-ticker.C:
+				flush()
+			case <-op.Ctx.Done():
+				return
+			}
+		}
+	}()
+
+	// 包名过滤（参考 Android Studio Logcat）：PACKAGE → adb shell pidof 解析 pid 集合，
+	// Go 端按 pid 过滤。周期性重新解析（5s）以跟随应用重启/延迟启动；解析前 pid 集合
+	// 为空时按「不匹配任何行」处理，故可在 app 启动前先开 logcat，app 起来后自动跟上。
+	pkg := op.ParamStr("PACKAGE")
+	var (
+		pidMu sync.RWMutex
+		pids  map[int]struct{}
+	)
+	if pkg != "" {
+		pids = make(map[int]struct{})
+		for p := range resolvePids(op, pkg) {
+			pids[p] = struct{}{}
+		}
+		if len(pids) == 0 {
+			op.EmitStderr("warning: no running process found for package " + pkg + "; will retry every 5s")
+		}
+		go func() {
+			ticker := time.NewTicker(5 * time.Second)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					np := resolvePids(op, pkg)
+					pidMu.Lock()
+					pids = np
+					pidMu.Unlock()
+				case <-op.Ctx.Done():
+					return
+				}
+			}
+		}()
+	}
+
 	onLine := func(stream, line string) {
 		e := parseEntry(line)
 		if !f.allow(&e) {
 			return
 		}
-		emitMu.Lock()
-		op.EmitStdout(line)
-		emitMu.Unlock()
+		if pids != nil {
+			pidMu.RLock()
+			_, ok := pids[e.Pid]
+			pidMu.RUnlock()
+			if !ok {
+				return
+			}
+		}
+		bufMu.Lock()
+		buf = append(buf, entryJSON(e))
+		bufMu.Unlock()
 	}
 
-	req := op.AdbStream(false, onLine, "logcat", "-v", "threadtime")
+	// -T 1：从最新一行开始流式（last + follow），避免连接瞬间倾倒整个 ring buffer
+	// 的历史日志（常万级行）压垮前端。batch 机制仍保留以应对后续高频突发。
+	req := op.AdbStream(false, onLine, "logcat", "-T", "1", "-v", "threadtime")
 	res, err := adbcore.RunStreaming(op.Ctx, req)
+	// RunStreaming 返回后 ctx 必然已结束（取消/超时/进程退出），等待 ticker 做最终 flush。
+	<-flushDone
 	switch {
 	case err == nil:
 		op.EmitStdout(fmt.Sprintf("logcat stream ended (exit %d)", res.ExitCode))
@@ -124,13 +221,27 @@ func handleBatch(op *adb.OpContext) adb.OpResult {
 	// 文件写入/计数由两个扫描 goroutine 并发触发，须加锁。
 	var writeMu sync.Mutex
 	count := 0
+	// PACKAGE 过滤（batch 为一次性短捕获，启动时解析一次即可，不做重试）。
+	pkg := op.ParamStr("PACKAGE")
+	var pids map[int]struct{}
+	if pkg != "" {
+		pids = resolvePids(op, pkg)
+		if len(pids) == 0 {
+			op.EmitStderr("warning: no running process found for package " + pkg)
+		}
+	}
 	onLine := func(stream, line string) {
 		e := parseEntry(line)
 		if !f.allow(&e) {
 			return
 		}
+		if pids != nil {
+			if _, ok := pids[e.Pid]; !ok {
+				return
+			}
+		}
 		writeMu.Lock()
-		fmt.Fprintln(fh, line)
+		fmt.Fprintln(fh, e.Raw)
 		count++
 		writeMu.Unlock()
 	}
@@ -161,4 +272,45 @@ func handleBatch(op *adb.OpContext) adb.OpResult {
 	op.EmitStdout(outPath)
 	op.EmitStdout(fmt.Sprintf("captured %d lines -> %s", count, outPath))
 	return adb.OpResult{ExitCode: 0, Stdout: outPath}
+}
+
+// resolvePids 查询设备上 pkg 当前运行的 pid 集合（adb shell pidof）。
+// 包未运行/查询失败返回空（非 nil）map；多进程应用返回多个 pid。
+// 与 Android Studio Logcat 的 package 过滤同思路：包名不在 adb 层直接过滤，而是解析为 pid。
+func resolvePids(op *adb.OpContext, pkg string) map[int]struct{} {
+	out := make(map[int]struct{})
+	if pkg == "" {
+		return out
+	}
+	res, err := adbcore.RunCommand(op.Ctx, op.Adb("shell", "pidof", pkg))
+	if err != nil || res == nil {
+		return out
+	}
+	for _, f := range strings.Fields(res.Stdout) {
+		if p := atoi(f); p > 0 {
+			out[p] = struct{}{}
+		}
+	}
+	return out
+}
+
+// logcatPayload 是下发给前端的 JSON 行结构（stream="logcat" 的 line 字段）。
+// 字段对齐 adbkit-logcat Entry：date/time/pid/tid/level(单字母)/tag/message。
+// 前端按 level 着色、按 tag 分列、对 message 做运行时搜索。
+type logcatPayload struct {
+	Date    string `json:"date"`
+	Time    string `json:"time"`
+	Pid     int    `json:"pid"`
+	Tid     int    `json:"tid"`
+	Level   string `json:"level"`
+	Tag     string `json:"tag"`
+	Message string `json:"message"`
+}
+
+// entryJSON 把内部 Entry 转成下发用 logcatPayload（剔除 Raw，避免重复传输）。
+func entryJSON(e Entry) logcatPayload {
+	return logcatPayload{
+		Date: e.Date, Time: e.Time, Pid: e.Pid, Tid: e.Tid,
+		Level: e.Level, Tag: e.Tag, Message: e.Message,
+	}
 }

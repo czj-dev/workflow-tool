@@ -77,7 +77,7 @@ export function WorkflowView() {
   const isEmpty = steps.length === 0 && status !== "running";
 
   return (
-    <main className="flex min-w-0 flex-1 flex-col">
+    <main className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header className="flex items-center justify-between border-b px-4 py-2">
         <div className="flex items-center gap-2">
           <SidebarTrigger />
@@ -118,7 +118,7 @@ export function WorkflowView() {
           <EmptyDescription>{t("main.selectAction")}</EmptyDescription>
         </Empty>
       ) : (
-        <ScrollArea className="flex-1 p-4">
+        <ScrollArea className="min-h-0 flex-1 p-4">
           <div className="flex flex-col">
             {steps.map((step, i) => {
               const last = i === steps.length - 1;

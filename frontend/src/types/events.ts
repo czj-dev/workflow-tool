@@ -6,11 +6,30 @@ export interface OutputEventData {
     | "stderr"
     | "llm"
     | "llm-thinking"
+    | "logcat"
     | "step-start"
     | "step-done"
     | "step-skip"
     | "progress";
   line: string;
+}
+
+// stream="logcat" 的 line 是一段紧凑 JSON，对应后端 logcatPayload。
+export interface LogcatEntry {
+  date: string; // "08-08"；未解析行为 ""
+  time: string; // "11:22:33.456"；未解析行为 ""
+  pid: number;
+  tid: number;
+  level: string; // V/D/I/W/E/F
+  tag: string;
+  message: string;
+}
+
+// 前端 logcat 视图运行时过滤（对已缓冲条目再过滤，不影响服务端预过滤）。
+export interface LogcatFilter {
+  minLevel: string; // V/D/I/W/E/F，默认 V（=不过滤等级）
+  search: string; // message 子串
+  tag: string; // tag 子串
 }
 
 // 后端 emit 的 done 事件 payload
