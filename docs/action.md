@@ -15,7 +15,7 @@ command:
   # script: ./scripts/foo      # 形态 B：脚本文件（与 shell 二选一）
   cwd: ${SOME_DIR}             # 可选，工作目录，默认用户主目录
   timeout: 60s                 # 可选，超时（Go duration），默认 60s
-  stream: ""                   # 可选，"" 普通逐行 | "llm" 解析 stream-json
+  stream: ""                   # 可选，"" 普通逐行 | "llm" 解析 stream-json | "logcat" 结构化 logcat JSON
   env:                         # 可选，追加到进程环境变量
     KEY: value
   capture_output: true         # 可选，默认 true；false 关闭全量 stdout/stderr 捕获
@@ -52,7 +52,7 @@ presets:                       # 可选，预设参数组合
 | `script` | 脚本路径（不含扩展名），按 OS 自动加 `.sh` / `.ps1`，相对路径基于 exe 目录 |
 | `cwd` | 工作目录，支持 `${VAR}` 替换，默认 `$HOME` |
 | `timeout` | Go duration 格式（`30s` / `5m` / `1h`），默认 `60s` |
-| `stream` | 空 = 普通逐行输出；`"llm"` = 解析 stream-json 格式（见下） |
+| `stream` | 空 = 普通逐行输出；`"llm"` = 解析 stream-json 格式（见下）；`"logcat"` = 结构化 logcat JSON（adb logcat-stream 域专用，前端切 logcat 视图） |
 | `env` | 键值对，追加到当前环境变量 |
 | `capture_output` | 布尔（默认 true）；`false` = 不捕获全量 stdout/stderr，长跑/持续输出 action 用 |
 
@@ -191,10 +191,10 @@ command:
 
 | operation | params | 说明 |
 |---|---|---|
-| `logcat-stream` | `LEVEL`、`TAG`、`INCLUDE`、`EXCLUDE` | 前台实时流式；手动停止 |
-| `logcat-batch` | `LOGS_DIR`(path,必填)、`LEVEL`、`TAG`、`INCLUDE`、`EXCLUDE`、`CLEAR_BUFFER`(bool) | 抓取到 `logcat_<时间戳>.log`；`CLEAR_BUFFER=true` 才在抓取前 `logcat -c`（默认不清空，避免丢历史） |
+| `logcat-stream` | `PACKAGE`、`LEVEL`、`TAG`、`INCLUDE`、`EXCLUDE` | 前台实时流式；手动停止 |
+| `logcat-batch` | `LOGS_DIR`(path,必填)、`PACKAGE`、`LEVEL`、`TAG`、`INCLUDE`、`EXCLUDE`、`CLEAR_BUFFER`(bool) | 抓取到 `logcat_<时间戳>.log`；`CLEAR_BUFFER=true` 才在抓取前 `logcat -c`（默认不清空，避免丢历史） |
 
-过滤语义：`LEVEL` 为最低阈值（单字母 V/D/I/W/E/F，行 level ≥ 阈值才通过）；`TAG` 多个空格分隔、任一子串命中即通过；`INCLUDE`/`EXCLUDE` 对 message 做子串包含/排除。
+过滤语义：`LEVEL` 为最低阈值（单字母 V/D/I/W/E/F，行 level ≥ 阈值才通过）；`TAG` 多个空格分隔、任一子串命中即通过；`INCLUDE`/`EXCLUDE` 对 message 做子串包含/排除。`PACKAGE` 仿 Android Studio Logcat 的包名过滤：启动时 `adb shell pidof <pkg>` 解析为 pid（多进程应用可返回多个 pid），Go 端按 pid 过滤。`logcat-stream` 额外每 5s 重试解析，故可在应用启动前先开 logcat、应用重启后自动跟上（app 未运行时该包无输出）。`logcat-stream` 配 `stream: logcat` 时为**双层过滤**：这里的服务端预过滤（PACKAGE/LEVEL/TAG/INCLUDE/EXCLUDE）减少 IPC 量，前端 logcat 视图另可运行时按 level/tag/message 对已缓冲条目再过滤，无需重启。
 
 **文件传输（10）**
 
@@ -319,7 +319,7 @@ command:
 - `shell` 与 `script` 与 `adb.operation` 三选一、互斥
 - `params[].type` 只允许 `text` / `bool` / `select` / `path`
 - `select` 类型必须提供 `options`
-- `stream` 只允许空或 `"llm"`
+- `stream` 只允许空、`"llm"` 或 `"logcat"`
 - 同一目录下 id 不可重复
 
 ## 生效方式

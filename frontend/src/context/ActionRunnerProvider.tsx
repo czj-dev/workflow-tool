@@ -36,7 +36,15 @@ import type {
   OutputEventData,
   DoneEventData,
   WorkflowStepState,
+  LogcatEntry,
+  LogcatFilter,
 } from "../types/events";
+
+// logcat 性能参数：state 缓冲上限 / 入站 ref 缓冲上限。
+// logcat 启动常一次性倾倒整个 ring buffer（万级行），逐行 setState 会冻结 UI，
+// 故 onOutput 仅压入 ref，由定时器按 MAX_LOGCAT 节流并入 state。
+const MAX_LOGCAT = 4000;
+const MAX_LOGCAT_FLUSH = 8000;
 
 type Status = "idle" | "running" | "done" | "error";
 interface ExitInfo {
@@ -51,6 +59,7 @@ export type RunnerView =
   | "form"
   | "global"
   | "llm"
+  | "logcat"
   | "fragments"
   | "edit"
   | "workflow"
@@ -77,6 +86,11 @@ export interface RunnerContextValue {
   view: RunnerView;
   llmText: string;
   thinkingText: string;
+  // logcat 视图：结构化条目缓冲（环形 ~5000）+ 运行时过滤
+  logcatEntries: LogcatEntry[];
+  logFilter: LogcatFilter;
+  setLogFilter: (f: Partial<LogcatFilter>) => void;
+  clearLogcat: () => void;
   fragments: Fragment[];
   // workflow 状态
   workflows: WorkflowItem[];
@@ -86,7 +100,7 @@ export interface RunnerContextValue {
   runningWorkflowId: string | null;
   runAction: (id: string, params?: Record<string, any>) => Promise<void>;
   // 把 id 切回 currentId 并切视图（用于点侧栏"运行中的动作"回到其输出）
-  focusRunning: (id: string, targetView: "output" | "llm") => void;
+  focusRunning: (id: string, targetView: "output" | "llm" | "logcat") => void;
   // 把仍在运行的 workflow 切回 workflow 视图（点侧栏运行中 workflow 用）
   focusWorkflow: (id: string) => void;
   cancel: () => void;
@@ -137,6 +151,35 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [view, setView] = useState<RunnerView>("output");
   const [llmText, setLlmText] = useState<string>("");
   const [thinkingText, setThinkingText] = useState<string>("");
+  // logcat 条目缓冲与过滤（按 currentId 单缓冲，runAction 时清空）
+  const [logcatEntries, setLogcatEntries] = useState<LogcatEntry[]>([]);
+  const [logFilter, setLogFilterState] = useState<LogcatFilter>({
+    minLevel: "V",
+    search: "",
+    tag: "",
+  });
+  // logcat 入站缓冲：onOutput 高频回调只往 ref 压，不触发渲染；由下面的定时器批量并入 state。
+  const logcatBufferRef = useRef<LogcatEntry[]>([]);
+  // 每 ~120ms 把缓冲批量并入 logcatEntries（截断到 MAX_LOGCAT），空缓冲跳过。
+  // logcat 启动常先倾倒整个 ring buffer（万级行），逐行 setState 会冻结 UI。
+  useEffect(() => {
+    const timer = setInterval(() => {
+      const buf = logcatBufferRef.current;
+      if (buf.length === 0) return;
+      logcatBufferRef.current = [];
+      const batch =
+        buf.length > MAX_LOGCAT_FLUSH
+          ? buf.slice(buf.length - MAX_LOGCAT_FLUSH)
+          : buf;
+      setLogcatEntries((prev) => {
+        const total = prev.length + batch.length;
+        if (total <= MAX_LOGCAT) return [...prev, ...batch];
+        return [...prev, ...batch].slice(total - MAX_LOGCAT);
+      });
+    }, 120);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const [fragments, setFragments] = useState<Fragment[]>([]);
   // workflow 状态：列表、加载错误、步骤运行状态
   const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
@@ -309,6 +352,24 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         setThinkingText((prev) => prev + (d.line || ""));
         return;
       }
+      if (d.stream === "logcat") {
+        // line 是后端批量下发的 JSON 数组（偶发单对象兼容）；解析失败退化为单条原文。
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(d.line || "");
+        } catch {
+          parsed = [{ date: "", time: "", pid: 0, tid: 0, level: "V", tag: "", message: d.line || "" }];
+        }
+        const arr = Array.isArray(parsed)
+          ? (parsed as LogcatEntry[])
+          : [parsed as LogcatEntry];
+        // 仅压入 ref，由上面的 setInterval 批量并入 state，避免逐行渲染风暴。
+        const buf = logcatBufferRef.current;
+        for (const e of arr) {
+          if (buf.length < MAX_LOGCAT_FLUSH) buf.push(e);
+        }
+        return;
+      }
       const prefix = d.stream === "stderr" ? t("output.stderrPrefix") : "";
       setLines((prev) => [...prev, prefix + (d.line || "")]);
     };
@@ -348,6 +409,19 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       setLlmText("");
       setThinkingText("");
       setView("llm");
+    } else if (action?.stream === "logcat") {
+      logcatBufferRef.current = [];
+      setLogcatEntries([]);
+      // 把表单的服务端预过滤参数带到运行时面板：LEVEL→minLevel、TAG→tag、INCLUDE→search。
+      // 服务端已按这些值过滤（减少 IPC），面板反映当前状态并可在其上进一步收窄；
+      // TAG 按空白拆分任一命中（与后端 allow 一致），故多 tag 不会误隐藏。
+      const lvlRaw = String(params.LEVEL ?? "").trim().toUpperCase();
+      setLogFilterState({
+        minLevel: lvlRaw && "VDIWEF".includes(lvlRaw[0]) ? lvlRaw[0] : "V",
+        tag: String(params.TAG ?? ""),
+        search: String(params.INCLUDE ?? ""),
+      });
+      setView("logcat");
     } else {
       setView("output");
     }
@@ -382,7 +456,10 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
 
   // focusRunning：把仍在运行的 id 切回当前视图（点击侧栏运行中动作用）。
   // 重置 status=running 与 exitInfo=null，让 UI 显示「运行中」而不是上次运行的完成态。
-  const focusRunning = (id: string, targetView: "output" | "llm") => {
+  const focusRunning = (
+    id: string,
+    targetView: "output" | "llm" | "logcat",
+  ) => {
     setCurrentId(id);
     setStatus("running");
     setExitInfo(null);
@@ -391,6 +468,9 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     if (targetView === "llm") {
       setLlmText("");
       setThinkingText("");
+    } else if (targetView === "logcat") {
+      logcatBufferRef.current = [];
+      setLogcatEntries([]);
     }
     setView(targetView);
   };
@@ -538,6 +618,14 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
 
   const clearOutput = () => setLines([]);
 
+  const clearLogcat = () => {
+    logcatBufferRef.current = [];
+    setLogcatEntries([]);
+  };
+
+  const setLogFilter = (f: Partial<LogcatFilter>) =>
+    setLogFilterState((prev) => ({ ...prev, ...f }));
+
   const copyOutput = async () => {
     await navigator.clipboard.writeText(linesRef.current.join("\n"));
   };
@@ -557,6 +645,10 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     view,
     llmText,
     thinkingText,
+    logcatEntries,
+    logFilter,
+    setLogFilter,
+    clearLogcat,
     fragments,
     workflows,
     workflowErrors,

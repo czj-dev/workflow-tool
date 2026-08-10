@@ -1,8 +1,11 @@
 id: adb-logcat-stream
 title: 实时日志
 icon: hi:file
-description: 实时流式 logcat（threadtime 结构化解析，按 Level/Tag/关键字 过滤，手动停止）
+description: 实时流式 logcat（threadtime 结构化解析，按 Package/Level/Tag/关键字 过滤，手动停止）
 params:
+  - id: PACKAGE
+    label: 包名过滤（如 com.example.app，可空）
+    type: text
   - id: LEVEL
     label: 最低 Level（V/D/I/W/E/F，可空）
     type: text
@@ -19,5 +22,9 @@ params:
 command:
   adb:
     operation: logcat-stream
+  stream: logcat # 结构化 JSON 下发，前端 logcat 视图渲染
   timeout: 24h
-  capture_output: false          # 流式持续输出，禁止内存累积
+  capture_output: false # 流式持续输出，禁止内存累积
+presets:
+  - name: 云端响应
+    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: com.baidu.che.codriver, TAG: DVR_InitService DVR_TinnoveIpc}

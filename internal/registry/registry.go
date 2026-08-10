@@ -48,7 +48,7 @@ type Command struct {
 	Cwd     string            `yaml:"cwd"`
 	Timeout string            `yaml:"timeout"`
 	Env     map[string]string `yaml:"env"`
-	Stream  string            `yaml:"stream"` // "" 普通逐行；"llm" 按 stream-json 解析
+	Stream  string            `yaml:"stream"` // "" 普通逐行；"llm" 按 stream-json 解析；"logcat" 前端走结构化日志视图
 	// nil/true=默认捕获；false=关闭（scrcpy/logcat 等长跑用）
 	CaptureOutput *bool `yaml:"capture_output"`
 	// Adb 是第三种执行形态：调用内置 ADBRunner 按 operation 分发到 adb 域服务。
@@ -173,10 +173,10 @@ func Validate(def *ActionDef) error {
 		}
 	}
 	switch def.Command.Stream {
-	case "", "llm":
+	case "", "llm", "logcat":
 		// 合法
 	default:
-		return fmt.Errorf("command.stream 非法 %q（应为空或 llm）", def.Command.Stream)
+		return fmt.Errorf("command.stream 非法 %q（应为空 / llm / logcat）", def.Command.Stream)
 	}
 	return nil
 }

@@ -112,5 +112,15 @@
   "settings.language": "Language",
   "device.select": "Select device",
   "device.empty": "No devices",
-  "device.refresh": "Refresh devices"
+  "device.refresh": "Refresh devices",
+  "logcat.level.V": "Verbose",
+  "logcat.level.D": "Debug",
+  "logcat.level.I": "Info",
+  "logcat.level.W": "Warn",
+  "logcat.level.E": "Error",
+  "logcat.level.F": "Fatal",
+  "logcat.tagPlaceholder": "Filter tag",
+  "logcat.searchPlaceholder": "Search message",
+  "logcat.empty": "(No logs yet)",
+  "logcat.scrollBottom": "Scroll to bottom"
 }

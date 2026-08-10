@@ -112,5 +112,15 @@
   "settings.language": "语言",
   "device.select": "选择设备",
   "device.empty": "无设备",
-  "device.refresh": "刷新设备列表"
+  "device.refresh": "刷新设备列表",
+  "logcat.level.V": "详细",
+  "logcat.level.D": "调试",
+  "logcat.level.I": "信息",
+  "logcat.level.W": "警告",
+  "logcat.level.E": "错误",
+  "logcat.level.F": "严重",
+  "logcat.tagPlaceholder": "过滤 Tag",
+  "logcat.searchPlaceholder": "搜索消息",
+  "logcat.empty": "（暂无日志）",
+  "logcat.scrollBottom": "回到底部"
 }

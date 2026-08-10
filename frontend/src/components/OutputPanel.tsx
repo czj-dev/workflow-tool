@@ -6,6 +6,7 @@ import { ParamForm } from "./ParamForm";
 import { GlobalConfigEditor } from "./GlobalConfigEditor";
 import { FragmentsView } from "./FragmentsView";
 import { LlmView } from "./LlmView";
+import { LogcatView } from "./LogcatView";
 import { ActionYamlEditor } from "./ActionYamlEditor";
 import { WorkflowView } from "./WorkflowView";
 import { WorkflowParamForm } from "./WorkflowParamForm";
@@ -25,7 +26,7 @@ export function OutputPanel() {
   if (view === "workflow-edit") return <WorkflowYamlEditor />;
   if (view === "edit") {
     return (
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         <ActionYamlEditor />
       </main>
     );
@@ -33,11 +34,14 @@ export function OutputPanel() {
   if (view === "global") return <GlobalConfigEditor />;
   if (view === "fragments") return <FragmentsView />;
   if (view === "llm") return <LlmView />;
+  if (view === "logcat") return <LogcatView />;
   if (view === "form") {
     return (
-      <main className="flex min-w-0 flex-1 flex-col">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         <OutputToolbar />
-        <ParamForm />
+        <div className="min-h-0 flex-1 overflow-auto">
+          <ParamForm />
+        </div>
       </main>
     );
   }
