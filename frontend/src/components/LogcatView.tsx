@@ -90,11 +90,15 @@ export function LogcatView() {
   // 运行时过滤：minLevel 阈值 + tag 子串 + message 子串
   const filtered = useMemo(() => {
     const minRank = LEVEL_RANK[logFilter.minLevel] ?? 0;
-    const tag = logFilter.tag.trim().toLowerCase();
+    // TAG 按空白拆分，任一子串命中即通过（与后端 allow 语义一致，支持表单多 tag 值）。
+    const tags = logFilter.tag.trim().toLowerCase().split(/\s+/).filter(Boolean);
     const search = logFilter.search.trim().toLowerCase();
     return logcatEntries.filter((e) => {
       if ((LEVEL_RANK[e.level] ?? 0) < minRank) return false;
-      if (tag && !e.tag.toLowerCase().includes(tag)) return false;
+      if (tags.length > 0) {
+        const et = e.tag.toLowerCase();
+        if (!tags.some((tok) => et.includes(tok))) return false;
+      }
       if (search && !e.message.toLowerCase().includes(search)) return false;
       return true;
     });

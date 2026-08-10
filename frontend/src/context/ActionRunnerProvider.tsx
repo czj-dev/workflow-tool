@@ -412,6 +412,15 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     } else if (action?.stream === "logcat") {
       logcatBufferRef.current = [];
       setLogcatEntries([]);
+      // 把表单的服务端预过滤参数带到运行时面板：LEVEL→minLevel、TAG→tag、INCLUDE→search。
+      // 服务端已按这些值过滤（减少 IPC），面板反映当前状态并可在其上进一步收窄；
+      // TAG 按空白拆分任一命中（与后端 allow 一致），故多 tag 不会误隐藏。
+      const lvlRaw = String(params.LEVEL ?? "").trim().toUpperCase();
+      setLogFilterState({
+        minLevel: lvlRaw && "VDIWEF".includes(lvlRaw[0]) ? lvlRaw[0] : "V",
+        tag: String(params.TAG ?? ""),
+        search: String(params.INCLUDE ?? ""),
+      });
       setView("logcat");
     } else {
       setView("output");
