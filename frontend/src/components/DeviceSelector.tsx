@@ -8,6 +8,7 @@ import {
   SelectItem,
   SelectTrigger,
 } from "@/components/ui/select";
+import { useSidebar } from "@/components/ui/sidebar";
 import {
   ListDevices,
   SetActiveDevice,
@@ -39,6 +40,8 @@ function deviceLabel(d: Summary): string {
 
 export function DeviceSelector() {
   const { t } = useTranslation();
+  const { state, toggleSidebar } = useSidebar();
+  const collapsed = state === "collapsed";
   const [devices, setDevices] = useState<Summary[]>([]);
   const [active, setActive] = useState("");
   const [loading, setLoading] = useState(false);
@@ -74,6 +77,29 @@ export function DeviceSelector() {
     : devices.length
       ? t("device.select")
       : t("device.empty");
+
+  // 收缩态：侧栏只有图标宽度，完整 select+刷新会溢出。改为单个手机图标 +
+  // 状态点角标，点击展开侧栏；tooltip 走 title 显示当前设备。
+  if (collapsed) {
+    return (
+      <div className="flex justify-center px-1 py-1.5">
+        <button
+          type="button"
+          onClick={toggleSidebar}
+          title={activeDevice ? deviceLabel(activeDevice) : triggerLabel}
+          aria-label={activeDevice ? deviceLabel(activeDevice) : triggerLabel}
+          className="relative flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+        >
+          <HugeiconsIcon icon={SmartPhone02Icon} strokeWidth={1.75} className="size-4" />
+          <span
+            className={`absolute right-1 top-1 size-1.5 rounded-full bg-current ${
+              activeDevice ? dotColor(activeDevice.state) : "text-muted-foreground/40"
+            }`}
+          />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div className="flex items-center gap-1 px-2 py-1.5">

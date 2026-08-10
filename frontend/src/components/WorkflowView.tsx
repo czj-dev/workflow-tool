@@ -8,14 +8,16 @@ import {
   CollapsibleContent,
 } from "@/components/ui/collapsible";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { SidebarTrigger } from "@/components/ui/sidebar";
+import { HugeiconsIcon } from "@hugeicons/react";
 import { cn } from "@/lib/utils";
 import { useActionRunner } from "../hooks/useActionRunner";
 import type { WorkflowStepState } from "../types/events";
 import { ActionIcon } from "./ActionIcon";
 import { IconButton } from "./IconButton";
-import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, ArrowReloadHorizontalIcon, PreferenceHorizontalIcon } from "@hugeicons/core-free-icons";
 
 // step status → i18n key 映射
 const STATUS_I18N: Record<WorkflowStepState["status"], string> = {
@@ -40,12 +42,15 @@ interface StepView {
 // content 列 mb 撑大 row，使 spine 线贯穿到下一节点（视觉连续）。
 export function WorkflowView() {
   const { t } = useTranslation();
-  const { workflows, currentId, workflowSteps, status, cancelWorkflow, setView } =
+  const { workflows, currentId, workflowSteps, status, cancelWorkflow, setView, lastRunParams, rerun, editRerun } =
     useActionRunner();
 
   const current = workflows.find((w) => w.id === currentId);
   const currentTitle = current?.title;
   const defined = current?.steps ?? [];
+  const running = status === "running";
+  const canRerun = !running && !!current && currentId! in lastRunParams;
+  const hasParams = (current?.params?.length ?? 0) > 0;
 
   // 合并：定义态全展示，运行态状态覆盖
   const steps: StepView[] =
@@ -103,14 +108,37 @@ export function WorkflowView() {
             </span>
           )}
         </div>
-        <Button
-          variant="destructive"
-          size="sm"
-          disabled={status !== "running"}
-          onClick={cancelWorkflow}
-        >
-          {t("main.stop")}
-        </Button>
+        <ButtonGroup>
+          {canRerun && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => rerun(currentId!)}
+              title={t("main.rerun")}
+            >
+              <HugeiconsIcon icon={ArrowReloadHorizontalIcon} strokeWidth={1.75} />
+              {t("main.rerun")}
+            </Button>
+          )}
+          {canRerun && hasParams && (
+            <Button
+              variant="outline"
+              size="icon-sm"
+              onClick={() => editRerun(currentId!)}
+              title={t("main.editRerun")}
+            >
+              <HugeiconsIcon icon={PreferenceHorizontalIcon} strokeWidth={1.75} />
+            </Button>
+          )}
+          <Button
+            variant="destructive"
+            size="sm"
+            disabled={!running}
+            onClick={cancelWorkflow}
+          >
+            {t("main.stop")}
+          </Button>
+        </ButtonGroup>
       </header>
 
       {isEmpty ? (

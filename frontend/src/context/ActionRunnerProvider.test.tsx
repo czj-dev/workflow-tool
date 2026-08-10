@@ -445,4 +445,72 @@ describe("ActionRunnerProvider", () => {
     act(() => result.current.cancelWorkflow());
     expect(mockCancelWorkflow).toHaveBeenCalledWith("w1");
   });
+
+  it("rerun 用上次的 params 原样重跑 action", async () => {
+    mockListActions.mockResolvedValue({
+      actions: [{ id: "a1", title: "A1", params: [{ id: "P", label: "P" }] }],
+      errors: [],
+    });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.runAction("a1", { P: "v1" });
+    });
+    mockRunAction.mockClear();
+    act(() => result.current.rerun("a1"));
+    await act(() => Promise.resolve());
+    expect(mockRunAction).toHaveBeenCalledWith("a1", { P: "v1" });
+  });
+
+  it("rerun 对 workflow 分派到 RunWorkflow", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    mockListWorkflows.mockResolvedValue({
+      workflows: [{ id: "w1", title: "W1" }],
+      errors: [],
+    });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.runWorkflow("w1", { X: "1" });
+    });
+    mockRunWorkflow.mockClear();
+    act(() => result.current.rerun("w1"));
+    await act(() => Promise.resolve());
+    expect(mockRunWorkflow).toHaveBeenCalledWith("w1", { X: "1" });
+    expect(mockRunAction).not.toHaveBeenCalled();
+  });
+
+  it("editRerun 用上次 params 预填表单并切 form 视图（不立即执行）", async () => {
+    mockListActions.mockResolvedValue({
+      actions: [
+        { id: "a1", title: "A1", params: [{ id: "P", label: "P", default: "d" }] },
+      ],
+      errors: [],
+    });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.runAction("a1", { P: "used" });
+    });
+    mockRunAction.mockClear();
+    act(() => result.current.editRerun("a1"));
+    expect(result.current.view).toBe("form");
+    expect(result.current.formValues.P).toBe("used"); // 上次值优先于 default
+    expect(result.current.status).toBe("idle");
+    expect(mockRunAction).not.toHaveBeenCalled();
+  });
+
+  it("未跑过的 id 不进 lastRunParams（再跑入口据此隐藏）", async () => {
+    mockListActions.mockResolvedValue({
+      actions: [{ id: "a1", title: "A1" }, { id: "a2", title: "A2" }],
+      errors: [],
+    });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.runAction("a1");
+    });
+    expect("a1" in result.current.lastRunParams).toBe(true);
+    expect("a2" in result.current.lastRunParams).toBe(false);
+  });
 });

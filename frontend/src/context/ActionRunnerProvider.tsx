@@ -99,6 +99,13 @@ export interface RunnerContextValue {
   workflowFormValues: Record<string, string>;
   runningWorkflowId: string | null;
   runAction: (id: string, params?: Record<string, any>) => Promise<void>;
+  // 上次运行时实际使用的 params（按 id 索引，action / workflow 共用）。空对象表示无参运行过。
+  // 存在即代表"跑过至少一次"，OutputToolbar / WorkflowView 据此显示再跑入口。
+  lastRunParams: Record<string, Record<string, string>>;
+  // 用 lastRunParams[id] 原样再跑（自动分派 action / workflow）
+  rerun: (id: string) => void;
+  // 用 lastRunParams[id] 预填表单并切到 form / workflow-form 视图，供用户改后再跑
+  editRerun: (id: string) => void;
   // 把 id 切回 currentId 并切视图（用于点侧栏"运行中的动作"回到其输出）
   focusRunning: (id: string, targetView: "output" | "llm" | "logcat") => void;
   // 把仍在运行的 workflow 切回 workflow 视图（点侧栏运行中 workflow 用）
@@ -204,6 +211,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const workflowIdRef = useRef<string | null>(null);
   // 正在运行中的 workflow id（持久标记，点其他 action 再点回来时仍能识别）
   const [runningWorkflowId, setRunningWorkflowId] = useState<string | null>(null);
+  // 上次运行时实际使用的 params（action / workflow 共用一份，按 id 索引）
+  const [lastRunParams, setLastRunParams] = useState<Record<string, Record<string, string>>>({});
 
   // 挂载时拉取动作列表
   useEffect(() => {
@@ -398,6 +407,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   }, [currentId]);
 
   const runAction = async (id: string, params: Record<string, any> = {}) => {
+    setLastRunParams((prev) => ({ ...prev, [id]: params as Record<string, string> }));
     setLines([]);
     setCurrentId(id);
     setStatus("running");
@@ -486,6 +496,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
 
   // runWorkflow：先同步订阅事件再启动执行，确保不漏首帧
   const runWorkflow = async (id: string, params: Record<string, any> = {}) => {
+    setLastRunParams((prev) => ({ ...prev, [id]: params as Record<string, string> }));
     setWorkflowSteps([]);
     setCurrentId(id);
     setSelectedPreset(null);
@@ -616,6 +627,45 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     if (currentId) CancelAction(currentId);
   };
 
+  // rerun：用上次 params 原样重跑，自动判断 action / workflow
+  const rerun = (id: string) => {
+    const params = lastRunParams[id] ?? {};
+    if (workflows.find((w) => w.id === id)) {
+      runWorkflow(id, params);
+    } else {
+      runAction(id, params);
+    }
+  };
+
+  // editRerun：用上次 params 预填表单，让用户改后再跑
+  const editRerun = (id: string) => {
+    const params = lastRunParams[id] ?? {};
+    const wf = workflows.find((w) => w.id === id);
+    if (wf) {
+      // workflow → workflow-form
+      const vals: Record<string, string> = {};
+      wf.params?.forEach((p) => { vals[p.id] = params[p.id] ?? p.default ?? ""; });
+      setWorkflowFormValues(vals);
+      setCurrentId(id);
+      setSelectedPreset(null);
+      setStatus("idle");
+      setExitInfo(null);
+      setView("workflow-form");
+    } else {
+      // action → form（走 selectPreset 逻辑，但用 lastRunParams 覆盖 defaults）
+      const a = actions.find((x) => x.id === id);
+      if (!a) return;
+      const vals: Record<string, string> = {};
+      a.params?.forEach((spec) => { vals[spec.id] = params[spec.id] ?? spec.default ?? ""; });
+      setFormValues(vals);
+      setCurrentId(id);
+      setSelectedPreset(null);
+      setStatus("idle");
+      setExitInfo(null);
+      setView("form");
+    }
+  };
+
   const clearOutput = () => setLines([]);
 
   const clearLogcat = () => {
@@ -656,6 +706,9 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     workflowFormValues,
     runningWorkflowId,
     runAction,
+    lastRunParams,
+    rerun,
+    editRerun,
     focusRunning,
     focusWorkflow,
     cancel,

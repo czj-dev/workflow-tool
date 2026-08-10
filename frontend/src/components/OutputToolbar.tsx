@@ -4,12 +4,12 @@ import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon, Edit02Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, Edit02Icon, ArrowReloadHorizontalIcon, PreferenceHorizontalIcon } from "@hugeicons/core-free-icons";
 import { IconButton } from "./IconButton";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { ActionIcon } from "./ActionIcon";
 
-// 输出区工具栏：折叠触发 + 返回 Grid + 当前动作标题 + 运行状态/耗时 + 停止/清空/复制 + 编辑
+// 输出区工具栏：折叠触发 + 返回 Grid + 当前动作标题 + 运行状态/耗时 + 再次运行/编辑再跑 + 停止/清空/复制 + 编辑
 export function OutputToolbar() {
   const { t } = useTranslation();
   const {
@@ -21,10 +21,16 @@ export function OutputToolbar() {
     clearOutput,
     copyOutput,
     setView,
+    lastRunParams,
+    rerun,
+    editRerun,
   } = useActionRunner();
   const [copied, setCopied] = useState(false);
   const current = actions.find((a) => a.id === currentId);
   const running = status === "running";
+  // 跑过至少一次（有记录）且当前不在运行 → 显示再跑入口
+  const canRerun = !running && !!current && currentId! in lastRunParams;
+  const hasParams = (current?.params?.length ?? 0) > 0;
 
   const onCopy = async () => {
     await copyOutput();
@@ -78,6 +84,27 @@ export function OutputToolbar() {
         {statusNode}
       </div>
       <ButtonGroup>
+        {canRerun && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => rerun(currentId!)}
+            title={t("main.rerun")}
+          >
+            <HugeiconsIcon icon={ArrowReloadHorizontalIcon} strokeWidth={1.75} />
+            {t("main.rerun")}
+          </Button>
+        )}
+        {canRerun && hasParams && (
+          <Button
+            variant="outline"
+            size="icon-sm"
+            onClick={() => editRerun(currentId!)}
+            title={t("main.editRerun")}
+          >
+            <HugeiconsIcon icon={PreferenceHorizontalIcon} strokeWidth={1.75} />
+          </Button>
+        )}
         <Button
           variant="outline"
           size="icon-sm"

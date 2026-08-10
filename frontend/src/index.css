@@ -93,6 +93,9 @@
     --sidebar-accent-foreground: oklch(0.22 0.01 245);
     --sidebar-border: oklch(0.2 0.01 245 / 12%);
     --sidebar-ring: oklch(0.62 0.16 68 / 50%);
+    /* 精密控制台 · 面板轨道语义 var（跟随 --foreground 自动切主题） */
+    --panel-rail: color-mix(in oklch, var(--foreground) 8%, transparent);
+    --panel-tick: color-mix(in oklch, var(--foreground) 22%, transparent);
 }
 
 /* —— 精密控制台 · 深色(主力)—— */
@@ -129,6 +132,8 @@
     --sidebar-accent-foreground: oklch(0.95 0.003 240);
     --sidebar-border: oklch(1 0 0 / 8%);
     --sidebar-ring: oklch(0.8 0.155 70 / 50%);
+    --panel-rail: color-mix(in oklch, var(--foreground) 8%, transparent);
+    --panel-tick: color-mix(in oklch, var(--foreground) 22%, transparent);
 }
 
 @layer base {
@@ -254,6 +259,27 @@
       color-mix(in oklch, var(--foreground) 30%, transparent) 0 3px,
       transparent 3px 7px
     );
+  }
+
+  /* 分组头刻度尺：tick 数 = 该组卡片数（结构即信息，非装饰） */
+  .tick-ruler {
+    display: flex;
+    align-items: flex-end;
+    gap: 5px;
+    height: 12px;
+    padding-bottom: 3px;
+    border-bottom: 1px solid var(--border);
+    overflow: hidden;
+  }
+  .tick-ruler > i {
+    width: 1px;
+    height: 5px;
+    flex-shrink: 0;
+    background: var(--panel-tick);
+  }
+  .tick-ruler > i[data-lit] {
+    height: 9px;
+    background: var(--primary);
   }
 
   /* 系统偏好减少动效:流光降级为静态实色,呼吸/涟漪静止,保留信息 */
