@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import i18n from "../i18n";
 
@@ -62,7 +62,7 @@ function renderView() {
   );
 }
 
-describe("FragmentsView - 使用视图", () => {
+describe("FragmentsView - 列表浏览", () => {
   it("多 tag 片段只归到首个 tag 组，不重复显示", async () => {
     renderView();
     await screen.findByPlaceholderText("搜索 标题 / 内容 / 标签");
@@ -75,10 +75,13 @@ describe("FragmentsView - 使用视图", () => {
     ).not.toBeInTheDocument();
     // 同一片段只出现一次
     expect(screen.getAllByText("看日志")).toHaveLength(1);
-    // 预览中变量已替换
-    expect(
-      screen.getByText("adb logcat -d > /tmp/logs/today.log")
-    ).toBeInTheDocument();
+  });
+
+  it("变量已定义时渲染为内联 pill，未命中的以缺变量提示列出", async () => {
+    renderView();
+    await screen.findByText("看日志");
+    // LOGS_DIR 已在全局配置定义，渲染为 pill 而非纯文本替换
+    expect(screen.getByText("LOGS_DIR")).toBeInTheDocument();
   });
 
   it("复制时把 ${VAR} 替换为全局配置的值", async () => {
@@ -93,7 +96,7 @@ describe("FragmentsView - 使用视图", () => {
     );
   });
 
-  it("未命中的变量保留原样", async () => {
+  it("未命中的变量复制时保留原样，并在提示行列出缺失", async () => {
     mockGetFragments.mockResolvedValue([
       { title: "x", content: "echo ${NOPE}", tags: [] },
     ]);
@@ -101,6 +104,7 @@ describe("FragmentsView - 使用视图", () => {
     stubClipboard();
     renderView();
     await screen.findByText("x");
+    expect(await screen.findByText(/缺变量.*NOPE/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "复制" }));
     expect(mockWriteText).toHaveBeenCalledWith("echo ${NOPE}");
   });
@@ -143,48 +147,40 @@ describe("FragmentsView - 使用视图", () => {
     expect(screen.getByText("F1")).toBeInTheDocument();
     expect(screen.queryByText("F2")).not.toBeInTheDocument();
   });
-
-  it("未命中的变量在预览下列出缺失", async () => {
-    mockGetFragments.mockResolvedValue([
-      { title: "x", content: "echo ${NOPE}", tags: [] },
-    ]);
-    renderView();
-    // 预览保留 ${NOPE}，且提示行明确列出缺失变量
-    expect(await screen.findByText(/缺变量.*NOPE/)).toBeInTheDocument();
-  });
 });
 
-describe("FragmentsView - 编辑视图", () => {
-  it("点编辑进入编辑模式，显示表单字段", async () => {
+describe("FragmentsView - 新增/编辑弹窗", () => {
+  it("点新增打开空白弹窗，填写后保存追加到列表", async () => {
     const user = userEvent.setup();
     renderView();
-    await screen.findByPlaceholderText("搜索 标题 / 内容 / 标签");
-    await user.click(screen.getByRole("tab", { name: "编辑" }));
-    // 编辑模式展示输入框
-    expect(screen.getByDisplayValue("看日志")).toBeInTheDocument();
-    expect(
-      screen.getByDisplayValue("adb logcat -d > ${LOGS_DIR}/today.log")
-    ).toBeInTheDocument();
-    // tags 以 chip 形式展示（用移除按钮定位，避开使用视图里的同名分组标题）
-    expect(
-      screen.getByRole("button", { name: "移除标签 adb" })
-    ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "移除标签 logcat" })
-    ).toBeInTheDocument();
+    await screen.findByText("看日志");
+    await user.click(screen.getByRole("button", { name: "新增" }));
+
+    expect(screen.getByText("新增片段")).toBeInTheDocument();
+    await user.type(screen.getByLabelText("标题"), "新片段");
+    await user.type(
+      screen.getByLabelText("指令内容，支持 ${VAR} 变量"),
+      "echo hi",
+    );
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(mockSetFragments).toHaveBeenCalledWith([
+      sample[0],
+      { title: "新片段", content: "echo hi", tags: [] },
+    ]);
   });
 
-  it("改动后保存调用 SetFragments，tags 保持数组", async () => {
+  it("点编辑打开弹窗并预填现有值，保存后替换该条", async () => {
     const user = userEvent.setup();
     renderView();
-    await screen.findByPlaceholderText("搜索 标题 / 内容 / 标签");
-    await user.click(screen.getByRole("tab", { name: "编辑" }));
-    const titleInput = await screen.findByDisplayValue("看日志");
-    const saveBtn = screen.getByRole("button", { name: "保存" });
-    expect(saveBtn).toBeDisabled();
+    await screen.findByText("看日志");
+    await user.click(screen.getByRole("button", { name: "编辑" }));
+
+    expect(screen.getByText("编辑片段")).toBeInTheDocument();
+    const titleInput = screen.getByDisplayValue("看日志");
     await user.type(titleInput, "2");
-    expect(saveBtn).not.toBeDisabled();
-    await user.click(saveBtn);
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
     expect(mockSetFragments).toHaveBeenCalledWith([
       {
         title: "看日志2",
@@ -194,49 +190,44 @@ describe("FragmentsView - 编辑视图", () => {
     ]);
   });
 
-  it("新增后出现空行，删除后移除该行", async () => {
+  it("弹窗内展示引用的变量并标注是否已定义", async () => {
     const user = userEvent.setup();
     renderView();
-    await screen.findByPlaceholderText("搜索 标题 / 内容 / 标签");
-    await user.click(screen.getByRole("tab", { name: "编辑" }));
-    await screen.findByDisplayValue("看日志");
-    await user.click(screen.getByRole("button", { name: "新增" }));
-    expect(screen.getAllByRole("button", { name: "删除" })).toHaveLength(2);
-    await user.click(screen.getAllByRole("button", { name: "删除" })[0]);
-    expect(screen.getAllByRole("button", { name: "删除" })).toHaveLength(1);
+    await screen.findByText("看日志");
+    await user.click(screen.getByRole("button", { name: "编辑" }));
+    // 限定在弹窗内查，避开列表里同名的内联 pill
+    const dialog = within(screen.getByRole("dialog"));
+    expect(dialog.getByText("引用")).toBeInTheDocument();
+    expect(dialog.getByText("LOGS_DIR")).toBeInTheDocument();
   });
 
-  it("编辑视图标注引用的变量是否已定义", async () => {
+  it("弹窗内 TagInput 支持整段带空格的 tag，取消不落盘", async () => {
     const user = userEvent.setup();
     renderView();
-    await screen.findByPlaceholderText("搜索 标题 / 内容 / 标签");
-    await user.click(screen.getByRole("tab", { name: "编辑" }));
-    // 「引用」标签 + 已定义的 LOGS_DIR chip
-    expect(await screen.findByText("引用")).toBeInTheDocument();
-    expect(screen.getByText("LOGS_DIR")).toBeInTheDocument();
-  });
+    await screen.findByText("看日志");
+    await user.click(screen.getByRole("button", { name: "编辑" }));
 
-  it("TagInput 回车提交整段带空格的 tag，× 单独移除", async () => {
-    const user = userEvent.setup();
-    renderView();
-    await screen.findByPlaceholderText("搜索 标题 / 内容 / 标签");
-    await user.click(screen.getByRole("tab", { name: "编辑" }));
-    await screen.findByDisplayValue("看日志");
-
-    // 空格是合法 tag 字符，不被拆分
     await user.type(screen.getByLabelText("添加标签（回车确认）"), "Lanv AI_BOX{Enter}");
     expect(screen.getByText("Lanv AI_BOX")).toBeInTheDocument();
 
-    await user.click(screen.getByRole("button", { name: "移除标签 adb" }));
-    expect(screen.queryByText("adb")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "取消" }));
+    expect(mockSetFragments).not.toHaveBeenCalled();
+    // 关闭后原列表未受影响
+    expect(screen.getByText("看日志")).toBeInTheDocument();
+  });
+});
 
-    await user.click(screen.getByRole("button", { name: "保存" }));
-    expect(mockSetFragments).toHaveBeenCalledWith([
-      {
-        title: "看日志",
-        content: "adb logcat -d > ${LOGS_DIR}/today.log",
-        tags: ["logcat", "Lanv AI_BOX"],
-      },
-    ]);
+describe("FragmentsView - 删除", () => {
+  it("需二次点击才真正删除", async () => {
+    const user = userEvent.setup();
+    renderView();
+    await screen.findByText("看日志");
+
+    const del = screen.getByRole("button", { name: "删除" });
+    await user.click(del);
+    expect(mockSetFragments).not.toHaveBeenCalled();
+
+    await user.click(screen.getByRole("button", { name: "再次点击确认删除" }));
+    expect(mockSetFragments).toHaveBeenCalledWith([]);
   });
 });

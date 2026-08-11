@@ -1,9 +1,6 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import {
   Item,
   ItemActions,
@@ -12,34 +9,77 @@ import {
   ItemGroup,
   ItemTitle,
 } from "@/components/ui/item";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Card } from "@/components/ui/card";
 import {
   InputGroup,
   InputGroupAddon,
   InputGroupInput,
 } from "@/components/ui/input-group";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
   Add01Icon,
-  Cancel01Icon,
   CheckmarkCircle02Icon,
   Copy02Icon,
   Delete02Icon,
-  FloppyDiskIcon,
+  Edit02Icon,
   Search01Icon,
 } from "@hugeicons/core-free-icons";
 import { IconButton } from "./IconButton";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { expandVars, extractVars } from "@/lib/vars";
+import { FragmentDialog, type FragmentRow } from "./FragmentDialog";
 import { cn } from "@/lib/utils";
 
-interface FragmentRow {
-  title: string;
+// 删除二次确认窗口（ms）：首次点击进入待确认，超时自动复原
+const CONFIRM_WINDOW_MS = 2000;
+const COPIED_FEEDBACK_MS = 1200;
+
+const VAR_SPLIT_RE = /(\$\{[A-Za-z0-9_]+\})/g;
+
+// 内容预览：把 ${VAR} 渲染成内联 pill，其余原样。琥珀=已定义（hover 显实际值），
+// 红框=全局配置缺失。复制走 expandVars 输出纯文本，与预览职责分离。
+function ContentPreview({
+  content,
+  vars,
+}: {
   content: string;
-  tags: string[];
+  vars: Record<string, string>;
+}) {
+  const parts = content.split(VAR_SPLIT_RE);
+  return (
+    <>
+      {parts.map((part, i) => {
+        const m = /^\$\{([A-Za-z0-9_]+)\}$/.exec(part);
+        if (!m) return part;
+        const name = m[1];
+        const value = vars[name];
+        const defined = value !== undefined;
+        const pill = (
+          <span
+            className={cn(
+              "mx-px rounded-sm px-1 py-px font-mono text-[11px]",
+              defined
+                ? "bg-primary/12 text-primary"
+                : "border border-destructive/50 text-destructive",
+            )}
+          >
+            {name}
+          </span>
+        );
+        // 已定义的变量 hover 显示当前值；缺失的靠红框自解释，不必再挂 tooltip
+        return defined ? (
+          <Tooltip key={i}>
+            <TooltipTrigger render={pill} />
+            <TooltipContent className="font-mono text-xs">{value}</TooltipContent>
+          </Tooltip>
+        ) : (
+          <span key={i}>{pill}</span>
+        );
+      })}
+    </>
+  );
 }
 
 // TagChip：Tag 筛选按钮。active 高亮 primary；label 后跟计数，
@@ -59,9 +99,7 @@ function TagChip({
     <Badge
       variant={active ? "default" : "secondary"}
       className="cursor-pointer font-mono text-[11px] uppercase tracking-wide"
-      render={
-        <button type="button" onClick={onClick} aria-pressed={active} />
-      }
+      render={<button type="button" onClick={onClick} aria-pressed={active} />}
     >
       {label}
       <span className={active ? "opacity-70" : "opacity-50"}>{count}</span>
@@ -69,25 +107,28 @@ function TagChip({
   );
 }
 
-// ─── 使用视图：搜索 + Tag 筛选 → 分组 → 预览+复制（${VAR} 展开，未命中标红） ─
-function UseView() {
+// ─── 片段视图：单列表浏览 + 复制，编辑/新增复用同一 Dialog ────────────────
+export function FragmentsView() {
   const { t } = useTranslation();
-  const { fragments, globalConfig } = useActionRunner();
-  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const { fragments, globalConfig, saveFragments } = useActionRunner();
+
   const [q, setQ] = useState("");
   const [activeTag, setActiveTag] = useState<string | null>(null);
+  const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<number | null>(null);
+  // null=关闭；-1=新增；>=0 编辑该索引
+  const [editing, setEditing] = useState<number | null>(null);
   const query = q.trim().toLowerCase();
 
-  // 所有 tag 及其片段计数，用于 TagList
   const tagCounts = useMemo(() => {
     const counts = new Map<string, number>();
     fragments.forEach((f) =>
-      f.tags?.forEach((tag) =>
-        counts.set(tag, (counts.get(tag) ?? 0) + 1),
-      ),
+      f.tags?.forEach((tag) => counts.set(tag, (counts.get(tag) ?? 0) + 1)),
     );
     return Array.from(counts.entries()).sort(([a], [b]) => a.localeCompare(b));
   }, [fragments]);
+
+  const allTags = useMemo(() => tagCounts.map(([tag]) => tag), [tagCounts]);
 
   // 搜索 + Tag 双重过滤：命中标题 / 内容 / 任一 tag
   const filtered = useMemo(() => {
@@ -121,26 +162,62 @@ function UseView() {
   }, [filtered, activeTag, t]);
 
   const copyOne = async (i: number) => {
-    const text = expandVars(fragments[i].content, globalConfig);
-    await navigator.clipboard.writeText(text);
+    await navigator.clipboard.writeText(
+      expandVars(fragments[i].content, globalConfig),
+    );
     setCopiedIdx(i);
-    setTimeout(() => setCopiedIdx((cur) => (cur === i ? null : cur)), 1200);
+    setTimeout(
+      () => setCopiedIdx((cur) => (cur === i ? null : cur)),
+      COPIED_FEEDBACK_MS,
+    );
   };
 
-  if (fragments.length === 0) {
-    return (
-      <Empty className="m-4 flex-none">
-        <EmptyDescription>{t("fragments.empty")}</EmptyDescription>
-      </Empty>
-    );
-  }
+  // 删除二次确认：首次点击标记 pending，窗口内再点才真删
+  const clickDelete = (i: number) => {
+    if (pendingDelete !== i) {
+      setPendingDelete(i);
+      setTimeout(
+        () => setPendingDelete((cur) => (cur === i ? null : cur)),
+        CONFIRM_WINDOW_MS,
+      );
+      return;
+    }
+    setPendingDelete(null);
+    void saveFragments(fragments.filter((_, idx) => idx !== i));
+  };
+
+  // 单条落盘：editing=-1 追加，否则替换该索引
+  const saveOne = (row: FragmentRow) => {
+    const list =
+      editing === -1
+        ? [...fragments, row]
+        : fragments.map((f, idx) => (idx === editing ? row : f));
+    void saveFragments(list);
+    setEditing(null);
+  };
 
   return (
-    <>
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <header className="flex items-center justify-between border-b px-4 py-2">
+        <div className="flex items-center gap-2">
+          <SidebarTrigger />
+          <span className="font-semibold">{t("fragments.title")}</span>
+        </div>
+        <IconButton
+          icon={Add01Icon}
+          label={t("fragments.add")}
+          variant="outline"
+          onClick={() => setEditing(-1)}
+        />
+      </header>
+
       <div className="border-b px-4 py-2">
         <InputGroup>
           <InputGroupAddon>
-            <HugeiconsIcon icon={Search01Icon} className="size-4 text-muted-foreground" />
+            <HugeiconsIcon
+              icon={Search01Icon}
+              className="size-4 text-muted-foreground"
+            />
           </InputGroupAddon>
           <InputGroupInput
             placeholder={t("fragments.searchPlaceholder")}
@@ -165,15 +242,17 @@ function UseView() {
               label={tag}
               count={count}
               active={activeTag === tag}
-              onClick={() =>
-                setActiveTag((cur) => (cur === tag ? null : tag))
-              }
+              onClick={() => setActiveTag((cur) => (cur === tag ? null : tag))}
             />
           ))}
         </div>
       )}
 
-      {filtered.length === 0 ? (
+      {fragments.length === 0 ? (
+        <Empty className="m-4 flex-none">
+          <EmptyDescription>{t("fragments.empty")}</EmptyDescription>
+        </Empty>
+      ) : filtered.length === 0 ? (
         <Empty className="m-4 flex-none">
           <EmptyDescription>{t("fragments.noResults")}</EmptyDescription>
         </Empty>
@@ -189,10 +268,10 @@ function UseView() {
               <ItemGroup>
                 {idxs.map((i) => {
                   const f = fragments[i];
-                  const preview = expandVars(f.content, globalConfig);
                   const missing = extractVars(f.content).filter(
                     (v) => !(v in globalConfig),
                   );
+                  const armed = pendingDelete === i;
                   return (
                     <Item
                       key={i}
@@ -200,9 +279,14 @@ function UseView() {
                       className="transition-colors hover:bg-muted/40"
                     >
                       <ItemContent>
-                        <ItemTitle>{f.title || t("fragments.untitled")}</ItemTitle>
-                        <ItemDescription className="whitespace-pre-wrap break-all font-mono text-xs leading-relaxed line-clamp-3 group-hover/item:line-clamp-none">
-                          {preview}
+                        <ItemTitle>
+                          {f.title || t("fragments.untitled")}
+                        </ItemTitle>
+                        <ItemDescription className="line-clamp-3 whitespace-pre-wrap break-all font-mono text-xs leading-relaxed group-hover/item:line-clamp-none">
+                          <ContentPreview
+                            content={f.content}
+                            vars={globalConfig}
+                          />
                         </ItemDescription>
                         {missing.length > 0 && (
                           <p className="mt-1 font-mono text-[10px] text-destructive">
@@ -212,15 +296,42 @@ function UseView() {
                       </ItemContent>
                       <ItemActions>
                         <IconButton
-                          icon={copiedIdx === i ? CheckmarkCircle02Icon : Copy02Icon}
+                          icon={
+                            copiedIdx === i
+                              ? CheckmarkCircle02Icon
+                              : Copy02Icon
+                          }
                           label={
                             copiedIdx === i
                               ? t("fragments.copied")
                               : t("fragments.copy")
                           }
                           variant="outline"
-                          className={copiedIdx === i ? "text-success" : undefined}
+                          className={
+                            copiedIdx === i ? "text-success" : undefined
+                          }
                           onClick={() => copyOne(i)}
+                        />
+                        <IconButton
+                          icon={Edit02Icon}
+                          label={t("fragments.edit")}
+                          className="text-muted-foreground/60 hover:text-foreground"
+                          onClick={() => setEditing(i)}
+                        />
+                        <IconButton
+                          icon={Delete02Icon}
+                          label={
+                            armed
+                              ? t("fragments.confirmDelete")
+                              : t("fragments.remove")
+                          }
+                          className={cn(
+                            "transition-colors",
+                            armed
+                              ? "bg-destructive/10 text-destructive"
+                              : "text-muted-foreground/50 hover:text-destructive",
+                          )}
+                          onClick={() => clickDelete(i)}
                         />
                       </ItemActions>
                     </Item>
@@ -231,280 +342,27 @@ function UseView() {
           ))}
         </div>
       )}
-    </>
-  );
-}
 
-// TagInput：chip 式标签编辑。Enter / 逗号 提交，Backspace 删末尾，× 单删；
-// 空格属于合法 tag 字符（如 "Lanv AI_BOX"），故不作分隔符。
-// suggestions 走原生 datalist，无需自建下拉。
-function TagInput({
-  id,
-  tags,
-  suggestions,
-  onChange,
-}: {
-  id: string;
-  tags: string[];
-  suggestions: string[];
-  onChange: (tags: string[]) => void;
-}) {
-  const { t } = useTranslation();
-  const [draft, setDraft] = useState("");
-
-  const commit = (raw: string) => {
-    const tag = raw.trim();
-    if (!tag || tags.includes(tag)) {
-      setDraft("");
-      return;
-    }
-    onChange([...tags, tag]);
-    setDraft("");
-  };
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" || e.key === ",") {
-      e.preventDefault();
-      commit(draft);
-    } else if (e.key === "Backspace" && !draft && tags.length > 0) {
-      onChange(tags.slice(0, -1));
-    }
-  };
-
-  const listId = `${id}-suggestions`;
-  return (
-    <div className="flex flex-wrap items-center gap-1.5 rounded-md border border-input bg-transparent px-2 py-1.5 focus-within:border-ring focus-within:ring-[3px] focus-within:ring-ring/50">
-      {tags.map((tag) => (
-        <span
-          key={tag}
-          className="inline-flex items-center gap-1 rounded-sm bg-muted px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground"
-        >
-          {tag}
-          <button
-            type="button"
-            aria-label={`${t("fragments.removeTag")} ${tag}`}
-            onClick={() => onChange(tags.filter((x) => x !== tag))}
-            className="text-muted-foreground/60 transition-colors hover:text-destructive"
-          >
-            <HugeiconsIcon icon={Cancel01Icon} className="size-3" />
-          </button>
-        </span>
-      ))}
-      <input
-        id={id}
-        list={listId}
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={onKeyDown}
-        onBlur={() => commit(draft)}
-        placeholder={tags.length === 0 ? t("fragments.tagsPlaceholder") : ""}
-        className="min-w-24 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-      />
-      <datalist id={listId}>
-        {suggestions
-          .filter((s) => !tags.includes(s))
-          .map((s) => (
-            <option key={s} value={s} />
-          ))}
-      </datalist>
+      {/* key 让每次开弹窗都重挂载，草稿状态天然重置，无需 useEffect 同步 */}
+      {editing !== null && (
+        <FragmentDialog
+          key={editing}
+          open
+          initial={
+            editing >= 0
+              ? {
+                  title: fragments[editing].title,
+                  content: fragments[editing].content,
+                  tags: fragments[editing].tags ?? [],
+                }
+              : null
+          }
+          allTags={allTags}
+          definedVars={globalConfig}
+          onSave={saveOne}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
-  );
-}
-
-// ─── 编辑视图：CRUD + 保存；去掉骗人的序号，换变量回路 + tags chip ──────
-function EditView() {
-  const { t } = useTranslation();
-  const { fragments, globalConfig, saveFragments } = useActionRunner();
-
-  // 所有已存在的 tag，用于 datalist 自动建议
-  const allTags = useMemo(() => {
-    const set = new Set<string>();
-    fragments.forEach((f) => f.tags?.forEach((tag) => set.add(tag)));
-    return Array.from(set).sort();
-  }, [fragments]);
-
-  const [rows, setRows] = useState<FragmentRow[]>(() =>
-    fragments.map((f) => ({
-      title: f.title,
-      content: f.content,
-      tags: f.tags ?? [],
-    })),
-  );
-  const [dirty, setDirty] = useState(false);
-
-  // fragments（异步）变化时同步 rows：render-time 调整，未编辑时才同步
-  const [prevFragments, setPrevFragments] = useState(fragments);
-  if (fragments !== prevFragments) {
-    setPrevFragments(fragments);
-    if (!dirty) {
-      setRows(
-        fragments.map((f) => ({
-          title: f.title,
-          content: f.content,
-          tags: f.tags ?? [],
-        })),
-      );
-    }
-  }
-
-  const update = (i: number, field: "title" | "content", v: string) => {
-    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, [field]: v } : r)));
-    setDirty(true);
-  };
-  // tags 独立增删：去空、去重后写回该行
-  const setTags = (i: number, tags: string[]) => {
-    setRows((prev) => prev.map((r, idx) => (idx === i ? { ...r, tags } : r)));
-    setDirty(true);
-  };
-  const add = () => {
-    setRows((prev) => [...prev, { title: "", content: "", tags: [] }]);
-    setDirty(true);
-  };
-  const remove = (i: number) => {
-    setRows((prev) => prev.filter((_, idx) => idx !== i));
-    setDirty(true);
-  };
-  const save = async () => {
-    const list = rows
-      .filter((r) => r.title.trim() || r.content.trim())
-      .map((r) => ({
-        title: r.title.trim(),
-        content: r.content,
-        tags: r.tags,
-      }));
-    await saveFragments(list);
-    setDirty(false);
-  };
-
-  return (
-    <>
-      <div className="flex items-center justify-end gap-1 border-b px-4 py-2">
-        <IconButton icon={Add01Icon} label={t("fragments.add")} variant="outline" onClick={add} />
-        <span className="relative">
-          <IconButton
-            icon={FloppyDiskIcon}
-            label={t("fragments.save")}
-            variant={dirty ? "default" : "outline"}
-            disabled={!dirty}
-            onClick={save}
-          />
-          {dirty && (
-            <span className="live-pulse pointer-events-none absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-primary" />
-          )}
-        </span>
-      </div>
-      <div className="flex flex-1 flex-col gap-3 overflow-auto p-4">
-        {rows.length === 0 && (
-          <Empty className="flex-none">
-            <EmptyDescription>{t("fragments.empty")}</EmptyDescription>
-          </Empty>
-        )}
-        {rows.map((r, i) => {
-          const vars = extractVars(r.content);
-          return (
-            <Card key={i} className="relative p-4">
-              <IconButton
-                icon={Delete02Icon}
-                label={t("fragments.remove")}
-                className="absolute right-3 top-3 text-muted-foreground/50 hover:text-destructive"
-                onClick={() => remove(i)}
-              />
-              <FieldGroup className="gap-4 pr-8">
-                <Field>
-                  <FieldLabel htmlFor={`frag-${i}-title`}>
-                    {t("fragments.titlePlaceholder")}
-                  </FieldLabel>
-                  <Input
-                    id={`frag-${i}-title`}
-                    value={r.title}
-                    onChange={(e) => update(i, "title", e.target.value)}
-                    placeholder={t("fragments.titlePlaceholder")}
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor={`frag-${i}-content`}>
-                    {t("fragments.contentPlaceholder")}
-                  </FieldLabel>
-                  <Textarea
-                    id={`frag-${i}-content`}
-                    value={r.content}
-                    onChange={(e) => update(i, "content", e.target.value)}
-                    placeholder={t("fragments.contentPlaceholder")}
-                    rows={3}
-                  />
-                </Field>
-                {/* 变量回路：本片段引用的变量，琥珀=已在全局配置定义 / 红框=缺失 */}
-                {vars.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-1.5">
-                    <span className="font-mono text-[10px] uppercase tracking-[0.16em] text-muted-foreground/50">
-                      {t("fragments.varsLabel")}
-                    </span>
-                    {vars.map((v) => {
-                      const defined = v in globalConfig;
-                      return (
-                        <Badge
-                          key={v}
-                          variant={defined ? "default" : "destructive"}
-                          className={cn(
-                            "rounded-sm font-mono text-[10px]",
-                            defined
-                              ? "bg-primary/10 text-primary"
-                              : "border-destructive/50 bg-transparent",
-                          )}
-                        >
-                          {v}
-                        </Badge>
-                      );
-                    })}
-                  </div>
-                )}
-                <Field>
-                  <FieldLabel htmlFor={`frag-${i}-tags`}>
-                    {t("fragments.tagsPlaceholder")}
-                  </FieldLabel>
-                  <TagInput
-                    id={`frag-${i}-tags`}
-                    tags={r.tags}
-                    suggestions={allTags}
-                    onChange={(tags) => setTags(i, tags)}
-                  />
-                </Field>
-              </FieldGroup>
-            </Card>
-          );
-        })}
-      </div>
-    </>
-  );
-}
-
-// ─── 主容器：使用/编辑 Tabs 切换 ────────────────────────────────────────
-export function FragmentsView() {
-  const { t } = useTranslation();
-  const [mode, setMode] = useState<"use" | "edit">("use");
-
-  return (
-    <Tabs
-      value={mode}
-      onValueChange={(v) => setMode(v as "use" | "edit")}
-      className="flex min-h-0 min-w-0 flex-1 flex-col"
-    >
-      <header className="flex items-center justify-between border-b px-4 py-2">
-        <div className="flex items-center gap-2">
-          <SidebarTrigger />
-          <span className="font-semibold">{t("fragments.title")}</span>
-        </div>
-        <TabsList>
-          <TabsTrigger value="use">{t("fragments.use")}</TabsTrigger>
-          <TabsTrigger value="edit">{t("fragments.edit")}</TabsTrigger>
-        </TabsList>
-      </header>
-      <TabsContent value="use" className="flex min-h-0 flex-1 flex-col">
-        <UseView />
-      </TabsContent>
-      <TabsContent value="edit" className="flex min-h-0 flex-1 flex-col">
-        <EditView />
-      </TabsContent>
-    </Tabs>
   );
 }
