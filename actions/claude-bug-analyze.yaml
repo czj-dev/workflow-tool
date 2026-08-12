@@ -1,0 +1,36 @@
+id: claude-bug-analyze
+title: 分析 bug 卡片
+icon: hi:ai
+description: 输入 iCafe 卡片链接 + 可选日志片段，LLM 给出根因假设与验证命令
+params:
+  - id: ROLE
+    label: 角色设定（系统提示）
+    type: textarea
+    required: true
+    default: |
+      你是车载语音 bug 分析师。所有回答基于给定信息给出根因假设与验证方案，输出必须包含：
+      1. 定位可疑模块
+      2. 列出可能的根因（按可能性排序）
+      3. 给出 3 条可在设备上执行的验证命令（adb shell / rg / lnav）
+  - id: BUG_URL
+    label: iCafe 卡片链接
+    type: text
+    required: true
+  - id: LOG_SNIPPET
+    label: 相关日志片段（可选）
+    type: textarea
+  - id: TASK
+    label: 分析任务
+    type: textarea
+    required: true
+    default: |
+      ## Bug 卡片
+      ${BUG_URL}
+
+      ## 相关日志
+      ${LOG_SNIPPET}
+command:
+  llm:
+    system: ROLE
+    prompt: TASK
+  timeout: 5m

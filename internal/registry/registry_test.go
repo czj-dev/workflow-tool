@@ -213,21 +213,84 @@ command:
 	}
 }
 
-func TestLoadParsesStream(t *testing.T) {
+// TestValidateAcceptsFileParamType 确保 file 与 path 一同被接受为合法参数类型
+// （adb-push 的 LOCAL_PATH / adb-install 的 APK_PATH 使用）。path 走目录选择器，
+// file 走文件选择器。
+func TestValidateAcceptsFileParamType(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.yaml", `id: a
+title: A
+params:
+  - id: LOCAL
+    label: 本地文件
+    type: file
+    required: true
+command:
+  shell: echo ${LOCAL}
+`)
+	reg := Load(dir, dir)
+	if len(reg.Errors) != 0 {
+		t.Fatalf("type:file 应合法，got errors: %v", reg.Errors)
+	}
+	if reg.Actions["a"].Def.Params[0].Type != "file" {
+		t.Fatalf("want param type file, got %q", reg.Actions["a"].Def.Params[0].Type)
+	}
+}
+
+// TestLoadParsesLLM 验证 command.llm 一等形态：system 可选、prompt 必填，
+// 两者引用的 param 都存在时应合法加载。
+func TestLoadParsesLLM(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.yaml", `id: a
+title: A
+params:
+  - { id: ROLE, label: 角色, type: textarea }
+  - { id: QUESTION, label: 问题, type: textarea, required: true }
+command:
+  llm:
+    system: ROLE
+    prompt: QUESTION
+`)
+	reg := Load(dir, dir)
+	if len(reg.Errors) != 0 {
+		t.Fatalf("command.llm 应合法，got errors: %v", reg.Errors)
+	}
+	la := reg.Actions["a"]
+	if la.Def.Command.LLM.Prompt != "QUESTION" || la.Def.Command.LLM.System != "ROLE" {
+		t.Fatalf("want llm.prompt=QUESTION llm.system=ROLE，got %+v", la.Def.Command.LLM)
+	}
+}
+
+// TestValidateLLMRequiresPromptParam 验证 command.llm.prompt 引用不存在的 param 时报错。
+func TestValidateLLMRequiresPromptParam(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "a.yaml", `id: a
 title: A
 command:
-  shell: echo hi
-  stream: llm
+  llm:
+    prompt: QUESTION
 `)
 	reg := Load(dir, dir)
-	if len(reg.Errors) != 0 {
-		t.Fatalf("stream:llm 应合法，got errors: %v", reg.Errors)
+	if len(reg.Errors) == 0 {
+		t.Fatal("command.llm.prompt 引用不存在的 param 应报错")
 	}
-	la := reg.Actions["a"]
-	if la.Def.Command.Stream != "llm" {
-		t.Fatalf("want stream=llm，got %q", la.Def.Command.Stream)
+}
+
+// TestValidateCommandFourWayExclusive 验证 shell/script/adb/llm 四选一互斥。
+func TestValidateCommandFourWayExclusive(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, "a.yaml", `id: a
+title: A
+params:
+  - { id: QUESTION, label: 问题, type: textarea, required: true }
+command:
+  shell: echo hi
+  llm:
+    prompt: QUESTION
+`)
+	reg := Load(dir, dir)
+	if len(reg.Errors) == 0 {
+		t.Fatal("shell 与 llm 同时指定应报错")
 	}
 }
 

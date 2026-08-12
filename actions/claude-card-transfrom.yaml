@@ -1,0 +1,35 @@
+id: claude-card-transfrom
+title: iCafe 卡片流转
+icon: hi:ai
+description: 输入 iCafe 卡片与操作要求，自动流转到指定流程
+params:
+  - id: ROLE
+    label: 角色设定（系统提示）
+    type: textarea
+    required: true
+    default: |
+      你是一个 sess 平台的专业助手。
+      - 加载 icafe-skill 技能后按操作要求处理指定卡片
+      - 如果没有找到 icafe-skill 技能，请直接输出：未找到 icafe-skill 操作手册，请确保 icafe-skill 技能已安装
+      - 如果操作要求添加评论，需要注意使用换行符 \n 来分隔多行内容
+  - id: CARD_ID
+    label: iCafe 卡片信息
+    type: text
+    required: true
+  - id: TRANSFROM_INFO
+    label: 操作要求
+    type: textarea
+    required: true
+  - id: TASK
+    label: 分析任务
+    type: textarea
+    required: true
+    default: |
+      请根据以下操作要求处理 ${CARD_ID} 卡片：
+
+      ${TRANSFROM_INFO}
+command:
+  llm:
+    system: ROLE
+    prompt: TASK
+  timeout: 5m

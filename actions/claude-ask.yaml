@@ -1,21 +1,16 @@
 id: claude-ask
-title: 问 Claude
+title: 问 LLM
 icon: hi:ai
-description: 输入问题，Claude（claude -p）流式回答，专用 LLM 视图渲染 markdown
+description: 输入问题，LLM 流式回答；CLI 由 config.yaml LLM_CLI 决定，默认 ducc
 params:
-  - id: CLI
-    label: CLI 命令
-    type: select
-    options: [claude, ducc]
-    default: claude
   - id: QUESTION
     label: 问题
-    type: text
+    type: textarea
     required: true
 presets:
   - name: 打招呼
-    values: { CLI: claude, QUESTION: 用一句话介绍你自己 }
+    values: { QUESTION: 用一句话介绍你自己 }
 command:
-  shell: ${CLI} -p "${QUESTION}" --output-format=stream-json --verbose --thinking enabled
-  stream: llm
+  llm:
+    prompt: QUESTION
   timeout: 5m

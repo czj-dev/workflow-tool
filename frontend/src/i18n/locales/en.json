@@ -16,6 +16,8 @@
   "main.editRerun": "Edit & Run",
   "main.save": "Save",
   "llm.thinking": "Thinking…",
+  "llm.role": "Role",
+  "llm.roleHint": "System prompt that defines the LLM's role and rules; rarely needs per-run edits",
   "empty.noActions": "(No actions. Put YAML in actions/)",
   "error.loadFailed": "Load failed",
   "error.startFailed": "Start failed",

@@ -12,7 +12,7 @@ var idPattern = regexp.MustCompile(`^[a-z0-9-]+$`)
 
 // 合法的参数类型（与 action 的 ParamSpec 保持一致）。
 var validParamTypes = map[string]bool{
-	"text": true, "bool": true, "select": true, "path": true,
+	"text": true, "bool": true, "select": true, "path": true, "file": true,
 }
 
 // reservedParamIDs 是 params[].id 不能占用的保留字（用于 expr 表达式的扁平顶层命名空间）。

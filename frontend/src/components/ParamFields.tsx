@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -23,7 +24,7 @@ interface ParamFieldsProps {
 }
 export function ParamFields({ params, values, setValue }: ParamFieldsProps) {
   const { t } = useTranslation();
-  const { pickDirectory } = useActionRunner();
+  const { pickDirectory, pickFile } = useActionRunner();
   // 拖拽高亮的字段 id：拖文件到 text/path 输入框时给一圈琥珀 ring 反馈
   const [dragId, setDragId] = useState<string | null>(null);
 
@@ -82,7 +83,9 @@ export function ParamFields({ params, values, setValue }: ParamFieldsProps) {
           );
         }
 
-        if (p.type === "path") {
+        if (p.type === "path" || p.type === "file") {
+          // path 走目录选择器，file 走文件选择器；其余 UI 一致。
+          const pick = p.type === "file" ? pickFile : pickDirectory;
           return (
             <Field key={p.id}>
               <FieldLabel htmlFor={p.id}>{renderLabel(p)}</FieldLabel>
@@ -104,13 +107,28 @@ export function ParamFields({ params, values, setValue }: ParamFieldsProps) {
                 <Button
                   variant="outline"
                   onClick={async () => {
-                    const d = await pickDirectory();
+                    const d = await pick();
                     if (d) setValue(p.id, d);
                   }}
                 >
                   {t("main.choose")}
                 </Button>
               </ButtonGroup>
+            </Field>
+          );
+        }
+
+        if (p.type === "textarea") {
+          // 多行长文本（如 LLM prompt 模板）：field-sizing-content 自适应高度，min 6 行
+          return (
+            <Field key={p.id}>
+              <FieldLabel htmlFor={p.id}>{renderLabel(p)}</FieldLabel>
+              <Textarea
+                id={p.id}
+                value={values[p.id] ?? p.default ?? ""}
+                onChange={(e) => setValue(p.id, e.target.value)}
+                className="min-h-36 font-mono text-sm"
+              />
             </Field>
           );
         }

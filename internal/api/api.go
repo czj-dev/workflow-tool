@@ -102,6 +102,42 @@ func (s *Service) newADBRunner(la registry.LoadedAction) *adb.ADBRunner {
 	}
 }
 
+// newLLMRunner 为指定 LLM 动作构造 LLMRunner（CLI 名从 params/config 取，system/prompt 按 param id 取值）。
+func (s *Service) newLLMRunner(la registry.LoadedAction, params map[string]any) *runner.LLMRunner {
+	cli := strOf(params, "LLM_CLI")
+	if cli == "" {
+		cli = "ducc"
+	}
+	return &runner.LLMRunner{Cfg: runner.LLMConfig{
+		CLI:          cli,
+		SystemPrompt: strOf(params, la.Def.Command.LLM.System),
+		Prompt:       strOf(params, la.Def.Command.LLM.Prompt),
+		Cwd:          runner.Expand(la.Cwd, params),
+		Timeout:      la.Timeout,
+		Env:          la.Def.Command.Env,
+	}}
+}
+
+// llmInfoOf 若动作是 LLM 形态则返回 LLMInfo 供前端布局，否则 nil。
+func llmInfoOf(cmd registry.Command) *LLMInfo {
+	if cmd.LLM.Prompt == "" {
+		return nil
+	}
+	return &LLMInfo{SystemParam: cmd.LLM.System, PromptParam: cmd.LLM.Prompt}
+}
+
+// strOf 从 params map 安全取 string 值（key 空或缺失返回 ""）。
+func strOf(params map[string]any, key string) string {
+	if key == "" {
+		return ""
+	}
+	v, ok := params[key]
+	if !ok || v == nil {
+		return ""
+	}
+	return fmt.Sprint(v)
+}
+
 // SetApp 注入 Wails app 引用（用于 emit 事件）。
 func (s *Service) SetApp(app *application.App) { s.app = app }
 
@@ -114,6 +150,15 @@ type ActionItem struct {
 	Params      []registry.ParamSpec `json:"params"`
 	Presets     []registry.Preset    `json:"presets"`
 	Stream      string               `json:"stream"`
+	// LLM 非 nil 表示该动作是 command.llm 形态：前端据此走 LlmForm（system/prompt 主次布局）
+	// + LlmView（流式回答视图）；nil 走通用 ParamForm。
+	LLM *LLMInfo `json:"llm,omitempty"`
+}
+
+// LLMInfo 暴露给前端的 LLM 形态元信息：哪个 param 是 system、哪个是 prompt。
+type LLMInfo struct {
+	SystemParam string `json:"systemParam"`
+	PromptParam string `json:"promptParam"`
 }
 
 // ListResult 包装 ListActions 的多返回值，便于前端绑定。
@@ -139,6 +184,7 @@ func (s *Service) buildListResult() ListResult {
 			Params:      la.Def.Params,
 			Presets:     la.Def.Presets,
 			Stream:      la.Def.Command.Stream,
+			LLM:         llmInfoOf(la.Def.Command),
 		})
 	}
 	errs := make([]string, 0, len(s.reg.Errors))
@@ -386,11 +432,19 @@ func (s *Service) GetVarReferenceCounts() map[string]int {
 			}
 		}
 	}
-	// workflows：step params values
+	// workflows：workflow 级 env + 每个 step 的 shell / params / env 值
+	// （运行时这些字段都会被 runner.Expand 展开 ${VAR}，故都需统计引用）
 	s.wfMu.Lock()
 	for _, lw := range s.wfReg.Workflows {
+		for _, v := range lw.Def.Env {
+			add(v)
+		}
 		for _, step := range lw.Def.Steps {
+			add(step.Shell)
 			for _, v := range step.Params {
+				add(v)
+			}
+			for _, v := range step.Env {
 				add(v)
 			}
 		}
@@ -425,6 +479,8 @@ func readScriptBytes(script, baseDir string) ([]byte, bool) {
 }
 
 func (s *Service) execute(ctx context.Context, id string, la registry.LoadedAction, params map[string]any) {
+	// 统一在进入 runner 前对 params 做 ${VAR} 展开：runner 拿到的是终值，不再各自展开。
+	params = runner.ExpandParams(params)
 	defer func() {
 		s.mu.Lock()
 		delete(s.running, id)
@@ -458,8 +514,8 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 	switch {
 	case la.Def.Command.Adb.Operation != "":
 		r = s.newADBRunner(la)
-	case la.Def.Command.Stream == "llm":
-		r = &runner.LLMRunner{Cfg: shellCfg}
+	case la.Def.Command.LLM.Prompt != "":
+		r = s.newLLMRunner(la, params)
 	default:
 		r = &runner.ShellRunner{Cfg: shellCfg}
 	}
@@ -659,7 +715,7 @@ func (s *Service) executeWorkflow(ctx context.Context, id string, lw workflow.Lo
 }
 
 // makeActionRun 构造 workflow 中 action step 的执行回调。
-// merged 是 global+workflow params 合并结果，step params 优先级最高。
+// merged 是 global+workflow params 合并结果（终值），作为 step.params/env 里 ${VAR} 的变量源。
 func (s *Service) makeActionRun(ctx context.Context, merged map[string]any) workflow.ActionRunFunc {
 	return func(actionID string, stepParams map[string]any, env map[string]string, captureOutput *bool, stepEmit runner.EmitFunc) runner.Result {
 		la, ok := s.reg.Actions[actionID]
@@ -667,23 +723,14 @@ func (s *Service) makeActionRun(ctx context.Context, merged map[string]any) work
 			stepEmit("stderr", fmt.Sprintf("未知动作 %q", actionID))
 			return runner.Result{ExitCode: -1, Err: fmt.Errorf("未知动作 %q", actionID)}
 		}
-		runParams := make(map[string]any, len(merged)+len(stepParams)+len(env))
-		for k, v := range merged {
-			runParams[k] = v
-		}
-		// env（workflow.env + step.env）覆盖 config/global，供 runner.Expand 解析 ${VAR}
-		for k, v := range env {
-			runParams[k] = v
-		}
-		for k, v := range stepParams {
-			runParams[k] = v // step.params 优先级最高
-		}
+		// ${VAR} 展开必须在合并前完成（详见 buildActionRunParams 注释）。
+		runParams, expandedEnv := buildActionRunParams(merged, env, stepParams)
 		// env 分层：action 定义的 env + workflow/step 注入的 env（后者覆盖前者）
-		mergedEnv := make(map[string]string, len(la.Def.Command.Env)+len(env))
+		mergedEnv := make(map[string]string, len(la.Def.Command.Env)+len(expandedEnv))
 		for k, v := range la.Def.Command.Env {
 			mergedEnv[k] = v
 		}
-		for k, v := range env {
+		for k, v := range expandedEnv {
 			mergedEnv[k] = v
 		}
 		// captureOutput 优先级：step 显式设置 > action 定义
@@ -704,8 +751,8 @@ func (s *Service) makeActionRun(ctx context.Context, merged map[string]any) work
 		switch {
 		case la.Def.Command.Adb.Operation != "":
 			r = s.newADBRunner(la)
-		case la.Def.Command.Stream == "llm":
-			r = &runner.LLMRunner{Cfg: shellCfg}
+		case la.Def.Command.LLM.Prompt != "":
+			r = s.newLLMRunner(la, runParams)
 		default:
 			r = &runner.ShellRunner{Cfg: shellCfg}
 		}
@@ -722,12 +769,14 @@ func (s *Service) makeShellRun(ctx context.Context, merged map[string]any) workf
 				timeout = d
 			}
 		}
-		// 合并 merged params + env(workflow.env/step.env) + 传入 params，优先级从低到高
-		runParams := make(map[string]any, len(merged)+len(env)+len(params))
+		// env 的 ${VAR} 用 merged 展开（合并前），避免与 merged 同名键自引用。
+		expandedEnv := runner.ExpandMap(env, merged)
+		// 合并 merged params + 已展开 env + 传入 params（=stepCtx.Params，即 merged），优先级从低到高
+		runParams := make(map[string]any, len(merged)+len(expandedEnv)+len(params))
 		for k, v := range merged {
 			runParams[k] = v
 		}
-		for k, v := range env {
+		for k, v := range expandedEnv {
 			runParams[k] = v
 		}
 		for k, v := range params {
@@ -736,12 +785,35 @@ func (s *Service) makeShellRun(ctx context.Context, merged map[string]any) workf
 		r := &runner.ShellRunner{Cfg: runner.ShellConfig{
 			Shell:         shellCmd,
 			Timeout:       timeout,
-			Env:           env,
+			Env:           expandedEnv,
 			BaseDir:       s.baseDir,
 			CaptureOutput: captureOutput,
 		}}
 		return r.Run(ctx, runParams, stepEmit)
 	}
+}
+
+// buildActionRunParams 构造 action step 的 runParams：以 merged 为变量源展开 env 与 step.params，再合并。
+// 必须在合并前展开：step.params 常含 { PACKAGE: "${PACKAGE}" }，若先把字面量合并进 runParams
+// 再展开，会覆盖 merged 的真实值并形成自引用（${PACKAGE} 查表查到自身），原样保留 → 设备端收到空包名。
+// 返回终值 runParams 与已展开的 env（供 ShellRunner 的 cfg.Env 使用）。
+func buildActionRunParams(merged map[string]any, env map[string]string, stepParams map[string]any) (map[string]any, map[string]string) {
+	expandedEnv := runner.ExpandMap(env, merged)
+	runParams := make(map[string]any, len(merged)+len(expandedEnv)+len(stepParams))
+	for k, v := range merged {
+		runParams[k] = v
+	}
+	for k, v := range expandedEnv {
+		runParams[k] = v
+	}
+	for k, v := range stepParams {
+		if sv, ok := v.(string); ok {
+			runParams[k] = runner.Expand(sv, merged)
+		} else {
+			runParams[k] = v
+		}
+	}
+	return runParams, expandedEnv
 }
 
 func workflowEventName(id, suffix string) string {

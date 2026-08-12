@@ -28,7 +28,7 @@ type ActionDef struct {
 type ParamSpec struct {
 	ID       string   `json:"id" yaml:"id"`
 	Label    string   `json:"label" yaml:"label"`
-	Type     string   `json:"type" yaml:"type"` // text|bool|select|path
+	Type     string   `json:"type" yaml:"type"` // text|bool|select|path|file
 	Required bool     `json:"required" yaml:"required"`
 	Default  string   `json:"default" yaml:"default"`
 	Options  []string `json:"options" yaml:"options"`
@@ -48,12 +48,15 @@ type Command struct {
 	Cwd     string            `yaml:"cwd"`
 	Timeout string            `yaml:"timeout"`
 	Env     map[string]string `yaml:"env"`
-	Stream  string            `yaml:"stream"` // "" 普通逐行；"llm" 按 stream-json 解析；"logcat" 前端走结构化日志视图
+	Stream  string            `yaml:"stream"` // "" 普通逐行；"logcat" 前端走结构化日志视图
 	// nil/true=默认捕获；false=关闭（scrcpy/logcat 等长跑用）
 	CaptureOutput *bool `yaml:"capture_output"`
 	// Adb 是第三种执行形态：调用内置 ADBRunner 按 operation 分发到 adb 域服务。
-	// 与 shell/script 三选一互斥。
+	// 与 shell/script/llm 四选一互斥。
 	Adb AdbCommand `yaml:"adb"`
+	// LLM 是第四种执行形态：调用内置 LLMRunner，按 System/Prompt 指向的 param 拼装 CLI 调用。
+	// 与 shell/script/adb 四选一互斥。
+	LLM LLMCommand `yaml:"llm"`
 }
 
 // AdbCommand 描述一个 adb 域操作调用。
@@ -61,6 +64,16 @@ type AdbCommand struct {
 	// Operation 是 adb 域操作名（如 install-package/logcat-stream/push/scrcpy-start）。
 	// 空表示该动作不是 adb 形态。
 	Operation string `yaml:"operation"`
+}
+
+// LLMCommand 描述一次 LLM 调用：作者只声明「哪个 param 是 system、哪个是 prompt」，
+// CLI 名（config.yaml LLM_CLI，默认 ducc）、固定 flag 拼装、stream-json 解析全在 LLMRunner 内部。
+type LLMCommand struct {
+	// System 可选，param id，值通过 --append-system-prompt 作为独立 argv 传给 CLI
+	// （不经 shell 字符串，多行/引号/$ 都零风险）。空表示不追加系统提示。
+	System string `yaml:"system"`
+	// Prompt 必填，param id，值写入子进程 stdin。空表示该动作不是 llm 形态。
+	Prompt string `yaml:"prompt"`
 }
 
 // LoadedAction 是已校验、字段已解析的动作。
@@ -143,7 +156,7 @@ func Validate(def *ActionDef) error {
 	if def.Title == "" {
 		return fmt.Errorf("title 必填")
 	}
-	// command 三选一互斥：shell / script / adb.operation
+	// command 四选一互斥：shell / script / adb.operation / llm.prompt
 	commandForms := 0
 	if def.Command.Shell != "" {
 		commandForms++
@@ -154,31 +167,53 @@ func Validate(def *ActionDef) error {
 	if def.Command.Adb.Operation != "" {
 		commandForms++
 	}
+	if def.Command.LLM.Prompt != "" {
+		commandForms++
+	}
 	if commandForms == 0 {
-		return fmt.Errorf("command 必须指定 shell/script/adb 之一")
+		return fmt.Errorf("command 必须指定 shell/script/adb/llm 之一")
 	}
 	if commandForms > 1 {
-		return fmt.Errorf("command.shell/script/adb 三选一互斥")
+		return fmt.Errorf("command.shell/script/adb/llm 四选一互斥")
 	}
 	// params 校验
 	for i, p := range def.Params {
 		switch p.Type {
-		case "text", "bool", "select", "path":
+		case "text", "bool", "select", "path", "file", "textarea":
 			// 合法
 		default:
-			return fmt.Errorf("params[%d].type 非法 %q（应为 text/bool/select/path）", i, p.Type)
+			return fmt.Errorf("params[%d].type 非法 %q（应为 text/bool/select/path/file/textarea）", i, p.Type)
 		}
 		if p.Type == "select" && len(p.Options) == 0 {
 			return fmt.Errorf("params[%d] (%s) 是 select 必须提供 options", i, p.ID)
 		}
 	}
+	// command.llm 校验：prompt/system 引用的 param 必须存在
+	if def.Command.LLM.Prompt != "" {
+		if !hasParam(def.Params, def.Command.LLM.Prompt) {
+			return fmt.Errorf("command.llm.prompt 引用的 param %q 不存在于 params 中", def.Command.LLM.Prompt)
+		}
+		if def.Command.LLM.System != "" && !hasParam(def.Params, def.Command.LLM.System) {
+			return fmt.Errorf("command.llm.system 引用的 param %q 不存在于 params 中", def.Command.LLM.System)
+		}
+	}
 	switch def.Command.Stream {
-	case "", "llm", "logcat":
+	case "", "logcat":
 		// 合法
 	default:
-		return fmt.Errorf("command.stream 非法 %q（应为空 / llm / logcat）", def.Command.Stream)
+		return fmt.Errorf("command.stream 非法 %q（应为空 / logcat）", def.Command.Stream)
 	}
 	return nil
+}
+
+// hasParam 判断 params 中是否存在指定 id 的参数。
+func hasParam(params []ParamSpec, id string) bool {
+	for _, p := range params {
+		if p.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func parseTimeout(s string) time.Duration {

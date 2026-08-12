@@ -29,8 +29,9 @@ type ShellRunner struct {
 func (r *ShellRunner) Run(ctx context.Context, params map[string]any, emit EmitFunc) Result {
 	start := time.Now()
 
-	// Phase 3：所有 Runner 实现都用 params 替换 ${VAR}（params>env，未定义保留+warning）
 	cfg := r.Cfg
+
+	// Phase 3：所有 Runner 实现都用 params 替换 ${VAR}（params>env，未定义保留+warning）
 	cfg.Shell = Expand(cfg.Shell, params)
 	cfg.Script = Expand(cfg.Script, params)
 	cfg.Cwd = Expand(cfg.Cwd, params)
