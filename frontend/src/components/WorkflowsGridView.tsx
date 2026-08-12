@@ -68,8 +68,8 @@ export function WorkflowsGridView() {
                     running={runningWorkflowId === wf.id}
                     level={footprintLevel(wf.id)}
                     score={getScore(wf.id)}
-                    onRun={(params) => {
-                      runWorkflow(wf.id, params);
+                    onRun={(params, background) => {
+                      runWorkflow(wf.id, params, background);
                       recordUsage(wf.id);
                     }}
                     onEdit={() => selectWorkflow(wf.id)}
@@ -90,7 +90,7 @@ interface WorkflowCardProps {
   running: boolean;
   level: number;
   score: number;
-  onRun: (params: Record<string, string>) => void;
+  onRun: (params: Record<string, string>, background?: boolean) => void;
   onEdit: () => void;
 }
 
@@ -184,7 +184,19 @@ function WorkflowCard({
                 <HugeiconsIcon icon={Edit02Icon} strokeWidth={2} className="size-3" />
               </button>
             )}
-            <span className="text-primary tracking-[0.14em]">▸ {hasParams ? t("grid.open") : t("grid.run")}</span>
+            <button
+              type="button"
+              aria-label={hasParams ? t("grid.open") : t("grid.run")}
+              title={hasParams ? t("grid.open") : t("grid.run")}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (hasParams) onEdit();
+                else onRun({}, true);
+              }}
+              className="text-primary tracking-[0.14em] hover:opacity-70"
+            >
+              ▸ {hasParams ? t("grid.open") : t("grid.run")}
+            </button>
           </span>
         )}
       </div>

@@ -64,8 +64,8 @@ export function ActionsGridView() {
                     running={isRunning(action.id)}
                     level={footprintLevel(action.id)}
                     score={getScore(action.id)}
-                    onRun={(params) => {
-                      runAction(action.id, params);
+                    onRun={(params, background) => {
+                      runAction(action.id, params, background);
                       recordUsage(action.id);
                     }}
                     onEdit={() => selectPreset(action.id, "")}
@@ -92,7 +92,7 @@ interface ActionCardProps {
   running: boolean;
   level: number;
   score: number;
-  onRun: (params: Record<string, string>) => void;
+  onRun: (params: Record<string, string>, background?: boolean) => void;
   onEdit: () => void;
   onPresetRun: (values: Record<string, string>) => void;
   onPresetEdit: (name: string) => void;
@@ -234,7 +234,15 @@ function ActionCard({
                 <HugeiconsIcon icon={Edit02Icon} strokeWidth={2} className="size-3" />
               </button>
             )}
-            <span className="text-primary tracking-[0.14em]">▸ {t("grid.run")}</span>
+            <button
+              type="button"
+              aria-label={t("grid.run")}
+              title={t("grid.run")}
+              onClick={(e) => { e.stopPropagation(); onRun(hasParams ? buildDefaults() : {}, true); }}
+              className="text-primary tracking-[0.14em] hover:opacity-70"
+            >
+              ▸ {t("grid.run")}
+            </button>
           </span>
         )}
       </div>

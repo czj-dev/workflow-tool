@@ -17,6 +17,7 @@ import {
   GetFragments,
   SetFragments,
   PickDirectory,
+  PickFile,
   OpenActionsDir,
   GetActionYaml,
   SetActionYaml,
@@ -98,7 +99,7 @@ export interface RunnerContextValue {
   workflowSteps: WorkflowStepState[];
   workflowFormValues: Record<string, string>;
   runningWorkflowId: string | null;
-  runAction: (id: string, params?: Record<string, any>) => Promise<void>;
+  runAction: (id: string, params?: Record<string, any>, background?: boolean) => Promise<void>;
   // 上次运行时实际使用的 params（按 id 索引，action / workflow 共用）。空对象表示无参运行过。
   // 存在即代表"跑过至少一次"，OutputToolbar / WorkflowView 据此显示再跑入口。
   lastRunParams: Record<string, Record<string, string>>;
@@ -120,11 +121,12 @@ export interface RunnerContextValue {
   setFormValue: (id: string, value: string) => void;
   setWorkflowFormValue: (id: string, value: string) => void;
   pickDirectory: () => Promise<string>;
+  pickFile: () => Promise<string>;
   openActionsDir: () => Promise<void>;
   getActionYaml: (id: string) => Promise<string>;
   saveActionYaml: (id: string, text: string) => Promise<void>;
   addPreset: (name: string, description: string) => Promise<void>;
-  runWorkflow: (id: string, params?: Record<string, any>) => Promise<void>;
+  runWorkflow: (id: string, params?: Record<string, any>, background?: boolean) => Promise<void>;
   cancelWorkflow: () => void;
   selectWorkflow: (id: string) => void;
   getWorkflowYaml: (id: string) => Promise<string>;
@@ -406,42 +408,62 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentId]);
 
-  const runAction = async (id: string, params: Record<string, any> = {}) => {
+  const runAction = async (id: string, params: Record<string, any> = {}, background = false) => {
     setLastRunParams((prev) => ({ ...prev, [id]: params as Record<string, string> }));
-    setLines([]);
-    setCurrentId(id);
-    setStatus("running");
-    setExitInfo(null);
-    setSelectedPreset(null);
     setRunningIds((prev) => new Set(prev).add(id));
     const action = actions.find((a) => a.id === id);
-    if (action?.stream === "llm") {
-      setLlmText("");
-      setThinkingText("");
-      setView("llm");
-    } else if (action?.stream === "logcat") {
-      logcatBufferRef.current = [];
-      setLogcatEntries([]);
-      // 把表单的服务端预过滤参数带到运行时面板：LEVEL→minLevel、TAG→tag、INCLUDE→search。
-      // 服务端已按这些值过滤（减少 IPC），面板反映当前状态并可在其上进一步收窄；
-      // TAG 按空白拆分任一命中（与后端 allow 一致），故多 tag 不会误隐藏。
-      const lvlRaw = String(params.LEVEL ?? "").trim().toUpperCase();
-      setLogFilterState({
-        minLevel: lvlRaw && "VDIWEF".includes(lvlRaw[0]) ? lvlRaw[0] : "V",
-        tag: String(params.TAG ?? ""),
-        search: String(params.INCLUDE ?? ""),
-      });
-      setView("logcat");
-    } else {
-      setView("output");
+    // 用 spec.default 回填未提供的参数：双击 / rerun / grid 静默运行等绕过表单的路径也带上默认值，
+    // 避免命令里的 ${VAR} 被后端展开成空（后端不读 ParamSpec.Default，回填责任在前端）。
+    // 仅补 undefined 的 key——表单路径已逐项写入值（含空串），不覆盖用户清空的意图。
+    action?.params?.forEach((p) => {
+      if (params[p.id] === undefined && p.default) params[p.id] = p.default;
+    });
+    // background=true（grid 卡片 run 按钮）：只登记 runningIds 驱动徽标，不切视图/不清输出，
+    // 用户留在 grid 继续操作；要看输出就点卡片本体走前台路径（单缓冲不恢复是已知限制）。
+    if (!background) {
+      setLines([]);
+      setCurrentId(id);
+      setStatus("running");
+      setExitInfo(null);
+      setSelectedPreset(null);
+      if (action?.llm) {
+        setLlmText("");
+        setThinkingText("");
+        setView("llm");
+      } else if (action?.stream === "logcat") {
+        logcatBufferRef.current = [];
+        setLogcatEntries([]);
+        // 把表单的服务端预过滤参数带到运行时面板：LEVEL→minLevel、TAG→tag、INCLUDE→search。
+        // 服务端已按这些值过滤（减少 IPC），面板反映当前状态并可在其上进一步收窄；
+        // TAG 按空白拆分任一命中（与后端 allow 一致），故多 tag 不会误隐藏。
+        const lvlRaw = String(params.LEVEL ?? "").trim().toUpperCase();
+        setLogFilterState({
+          minLevel: lvlRaw && "VDIWEF".includes(lvlRaw[0]) ? lvlRaw[0] : "V",
+          tag: String(params.TAG ?? ""),
+          search: String(params.INCLUDE ?? ""),
+        });
+        setView("logcat");
+      } else {
+        setView("output");
+      }
     }
-    // 注册持久 done 订阅：无论用户是否切走，done 回调都能正确标记该 id 结束
+    // 注册持久 done 订阅：无论用户是否切走，done 回调都能正确标记该 id 结束（清 runningIds）
     registerActionDone(id);
     try {
       await RunAction(id, params);
     } catch (e) {
-      setLines((prev) => [...prev, t("error.startFailed") + ": " + e]);
-      setStatus("error");
+      // 后端判定该 action 已在运行（前端 runningIds 偶发与之不同步，
+      // 或用户双击了运行中动作/预设）：此时上方的乐观状态
+      // （currentId=id / status=running / 已入 runningIds / view 已切到 output|llm|logcat）
+      // 恰好就是「回到运行视图」的目标态，直接保留——这样点运行中的动作会回到其输出界面
+      // 且停止按钮可用，而不是把 UI 打成 error 并写一行「启动失败」。
+      if (String(e).includes("正在运行")) {
+        return;
+      }
+      if (!background) {
+        setLines((prev) => [...prev, t("error.startFailed") + ": " + e]);
+        setStatus("error");
+      }
       setRunningIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
     }
   };
@@ -460,6 +482,24 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     const unsub = Events.On(`action:${id}:done`, onDone);
     actionDoneUnsubs.current[id] = () => {
       delete handlers[`action:${id}:done:persistent`];
+      unsub();
+    };
+  };
+
+  // 为指定 workflow 注册持久 done 监听（grid 静默运行路径用）：只清 runningWorkflowId，
+  // 不订阅 output、不切视图（与 subscribeWorkflow 的 done 各管一件事，键带 :persistent 不冲突）。
+  const wfDoneUnsubs = useRef<Record<string, () => void>>({});
+  const registerWorkflowDone = (id: string) => {
+    wfDoneUnsubs.current[id]?.();
+    const onDone = () => {
+      setRunningWorkflowId(null);
+      wfDoneUnsubs.current[id]?.();
+      delete wfDoneUnsubs.current[id];
+    };
+    handlers[`workflow:${id}:done:persistent`] = onDone;
+    const unsub = Events.On(`workflow:${id}:done`, onDone);
+    wfDoneUnsubs.current[id] = () => {
+      delete handlers[`workflow:${id}:done:persistent`];
       unsub();
     };
   };
@@ -494,22 +534,33 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setView("workflow");
   };
 
-  // runWorkflow：先同步订阅事件再启动执行，确保不漏首帧
-  const runWorkflow = async (id: string, params: Record<string, any> = {}) => {
+  // runWorkflow：先同步订阅事件再启动执行，确保不漏首帧。
+  // background=true（grid 卡片 run 按钮）则不切视图/不订阅，仅登记徽标由 done 清理。
+  const runWorkflow = async (id: string, params: Record<string, any> = {}, background = false) => {
+    // 用 spec.default 回填未提供的参数（双击 / rerun / grid 静默运行），语义同 runAction。
+    workflows.find((w) => w.id === id)?.params?.forEach((p) => {
+      if (params[p.id] === undefined && p.default) params[p.id] = p.default;
+    });
     setLastRunParams((prev) => ({ ...prev, [id]: params as Record<string, string> }));
-    setWorkflowSteps([]);
-    setCurrentId(id);
-    setSelectedPreset(null);
-    setStatus("running");
-    setExitInfo(null);
-    setView("workflow");
-    workflowIdRef.current = id;
     setRunningWorkflowId(id);
-    subscribeWorkflow(id);
+    if (!background) {
+      setWorkflowSteps([]);
+      setCurrentId(id);
+      setSelectedPreset(null);
+      setStatus("running");
+      setExitInfo(null);
+      setView("workflow");
+      workflowIdRef.current = id;
+      // 同步订阅 output/done：前台运行要展示 pipeline spine 与状态。
+      subscribeWorkflow(id);
+    } else {
+      // grid 静默运行：不订阅 output、不切视图，仅注册持久 done 清 runningWorkflowId（驱动徽标）。
+      registerWorkflowDone(id);
+    }
     try {
       await RunWorkflow(id, params);
     } catch {
-      setStatus("error");
+      if (!background) setStatus("error");
       setRunningWorkflowId(null);
     }
   };
@@ -587,6 +638,10 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     const res = await SetWorkflowYaml(id, text);
     setWorkflows((res && res.workflows) || []);
     setWorkflowErrors((res && res.errors) || []);
+    // workflow 改动可能改变 ${VAR} 引用（step.shell/params/env），刷新计数
+    GetVarReferenceCounts()
+      .then((m) => setVarRefCounts(m ?? {}))
+      .catch(() => {});
   };
 
   // saveActionYaml：写回 yaml（后端校验+重载），成功后用返回的列表刷新 actions/errors。
@@ -616,6 +671,11 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
 
   const pickDirectory = async () => {
     const p = await PickDirectory();
+    return p || "";
+  };
+
+  const pickFile = async () => {
+    const p = await PickFile();
     return p || "";
   };
 
@@ -721,6 +781,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setFormValue,
     setWorkflowFormValue,
     pickDirectory,
+    pickFile,
     openActionsDir,
     getActionYaml,
     saveActionYaml,

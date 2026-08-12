@@ -10,6 +10,7 @@ const {
   mockGetGlobalConfig,
   mockSetGlobalConfig,
   mockPickDirectory,
+  mockPickFile,
   mockGetActionYaml,
   mockSetActionYaml,
   mockListWorkflows,
@@ -32,6 +33,7 @@ const {
       mockGetGlobalConfig: vi.fn(),
       mockSetGlobalConfig: vi.fn(),
       mockPickDirectory: vi.fn(),
+      mockPickFile: vi.fn(),
       mockGetActionYaml: vi.fn(),
       mockSetActionYaml: vi.fn(),
       mockListWorkflows: vi.fn(),
@@ -52,6 +54,7 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   GetVarReferenceCounts: vi.fn().mockResolvedValue({}),
   SetFragments: vi.fn().mockResolvedValue(undefined),
   PickDirectory: mockPickDirectory,
+  PickFile: mockPickFile,
   GetActionYaml: mockGetActionYaml,
   SetActionYaml: mockSetActionYaml,
   ListWorkflows: mockListWorkflows,
@@ -78,6 +81,7 @@ beforeEach(() => {
   mockGetGlobalConfig.mockReset().mockResolvedValue({});
   mockSetGlobalConfig.mockReset().mockResolvedValue(undefined);
   mockPickDirectory.mockReset().mockResolvedValue("");
+  mockPickFile.mockReset().mockResolvedValue("");
   mockGetActionYaml.mockReset();
   mockSetActionYaml.mockReset();
   mockListWorkflows.mockReset().mockResolvedValue({ workflows: [], errors: [] });
@@ -235,12 +239,25 @@ describe("ActionRunnerProvider", () => {
     expect(mockSetGlobalConfig).toHaveBeenCalledWith({ OUTPUT_DIR: "D:/new" });
   });
 
-  it("stream=llm 的 output 事件累加到 llmText 并切 view=llm", async () => {
+  it("pickFile 转发后端 PickFile 并返回其值", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    mockPickFile.mockResolvedValue("/tmp/app.apk");
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    let picked = "";
+    await act(async () => {
+      picked = await result.current.pickFile();
+    });
+    expect(mockPickFile).toHaveBeenCalled();
+    expect(picked).toBe("/tmp/app.apk");
+  });
+
+  it("llm 形态的 output 事件累加到 llmText 并切 view=llm", async () => {
     mockListActions.mockResolvedValue({
       actions: [
         {
           id: "a1", title: "A", icon: "▶", description: "", params: [], presets: [],
-          stream: "llm",
+          stream: "", llm: { systemParam: "", promptParam: "Q" },
         },
       ],
       errors: [],
@@ -269,7 +286,7 @@ describe("ActionRunnerProvider", () => {
       actions: [
         {
           id: "a1", title: "A", icon: "▶", description: "", params: [], presets: [],
-          stream: "llm",
+          stream: "", llm: { systemParam: "", promptParam: "Q" },
         },
       ],
       errors: [],
@@ -366,6 +383,25 @@ describe("ActionRunnerProvider", () => {
       _emitForTest("action:adb-scrcpy:done", { data: { exitCode: 0, err: "", duration: "9s" } });
     });
     expect(result.current.isRunning("adb-scrcpy")).toBe(false);
+  });
+
+  // 回归：抓取日志（adb-logcat）这类长跑动作已运行时，再点它发 RunAction，
+  // 后端会拒「动作正在运行」。前端不应打成 error / 写「启动失败」，而应保留运行态，
+  // 使用户回到输出界面且停止按钮可用。
+  it("RunAction 后端报「正在运行」时保留运行态（不写启动失败、不掉运行徽标）", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    mockRunAction.mockReset().mockRejectedValue(new Error('动作 "adb-logcat" 正在运行'));
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.runAction("adb-logcat", {});
+    });
+    // 保留运行态：停止按钮据此启用
+    expect(result.current.status).toBe("running");
+    expect(result.current.isRunning("adb-logcat")).toBe(true);
+    expect(result.current.view).toBe("output");
+    // 不写「启动失败」
+    expect(result.current.lines).toEqual([]);
   });
 
   it("挂载时拉取 workflow 列表", async () => {
