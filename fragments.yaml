@@ -29,3 +29,7 @@ fragments:
         adb shell am force-stop com.baidu.che.codriver
       tags:
         - adb
+    - title: 任务大师环境日志
+      content: CUISkillHandler
+      tags:
+        - Log
