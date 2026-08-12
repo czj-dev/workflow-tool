@@ -1,7 +1,0 @@
-id: adb-debug-log
-title: 打开 Debug 日志
-icon: hi:settings
-description: "adb shell setprop persist.log.tag D"
-command:
-  shell: adb shell 'setprop persist.log.tag D'
-  timeout: 30s

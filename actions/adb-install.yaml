@@ -5,7 +5,7 @@ description: adb install 安装指定 APK 到激活设备（-r 覆盖安装，�
 params:
   - id: APK_PATH
     label: APK 文件
-    type: path
+    type: file
     required: true
   - id: ALLOW_TEST
     label: 允许测试包（-t）

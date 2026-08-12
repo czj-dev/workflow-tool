@@ -1,0 +1,16 @@
+id: adb-uninstall
+title: 卸载应用
+icon: hi:cancel
+description: 卸载指定应用（支持批量，空格分隔多个包名）
+params:
+  - id: PACKAGE
+    label: 包名（多个空格分隔）
+    type: text
+    required: true
+  - id: PACKAGES
+    label: 批量包名（多个空格分隔，填此项则忽略上方的包名）
+    type: text
+command:
+  adb:
+    operation: uninstall-package
+  timeout: 60s

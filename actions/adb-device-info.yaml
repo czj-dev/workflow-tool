@@ -1,0 +1,21 @@
+id: adb-device-info
+title: 设备信息
+icon: hi:settings
+description: 聚合设备画像：型号 / 品牌 / 系统版本 / 分辨率 / 密度 / CPU / 内存 / IP / MAC
+command:
+  shell: |
+    S="${ADB_SERIAL}"
+    [ -n "$S" ] && ADB="adb -s $S" || ADB="adb"
+    echo "===== 设备信息 ====="
+    echo "[型号]    $($ADB shell getprop ro.product.model)"
+    echo "[品牌]    $($ADB shell getprop ro.product.brand) / $($ADB shell getprop ro.product.manufacturer)"
+    echo "[系统]    Android $($ADB shell getprop ro.build.version.release) (SDK $($ADB shell getprop ro.build.version.sdk))"
+    echo "[版本号]  $($ADB shell getprop ro.build.display.id)"
+    echo "[分辨率]  $($ADB shell wm size)"
+    echo "[密度]    $($ADB shell wm density)"
+    echo "[ABI]     $($ADB shell getprop ro.product.cpu.abilist)"
+    echo "[CPU]     $($ADB shell getprop ro.hardware) ($($ADB shell cat /proc/cpuinfo | grep -c ^processor) 核)"
+    echo "[内存]    $($ADB shell cat /proc/meminfo | head -1)"
+    echo "[IP/MAC]  $($ADB shell ip addr show wlan0 | grep -E 'inet ' | awk '{print $2}') / $($ADB shell ip addr show wlan0 | grep -E 'link/ether' | awk '{print $2}')"
+    echo "===================="
+  timeout: 30s

@@ -1,0 +1,15 @@
+id: adb-wifi
+title: WiFi 开关
+icon: hi:radio
+description: 开启 / 关闭设备 WiFi（svc wifi）
+params:
+  - id: STATE
+    label: 状态
+    type: select
+    default: enable
+    options: ["enable", "disable"]
+command:
+  shell: |
+    S="${ADB_SERIAL}"
+    [ -n "$S" ] && adb -s "$S" shell svc wifi "${STATE}" || adb shell svc wifi "${STATE}"
+  timeout: 30s

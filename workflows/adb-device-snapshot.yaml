@@ -1,0 +1,15 @@
+id: adb-device-snapshot
+title: 设备画像
+icon: hi:workflow
+description: "设备信息 → 电池信息 → 第三方应用列表，一次性出设备快照"
+steps:
+  - id: info
+    name: 设备信息
+    action: adb-device-info
+  - id: battery
+    name: 电池信息
+    action: adb-battery
+  - id: packages
+    name: 第三方应用列表
+    action: adb-list-packages
+    params: { FILTER: user }

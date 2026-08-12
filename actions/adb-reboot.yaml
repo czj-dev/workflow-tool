@@ -1,0 +1,26 @@
+id: adb-reboot
+title: 重启设备
+icon: hi:flash
+description: ⚠️ 破坏性操作：重启设备到指定模式，设备会断开 adb 连接
+params:
+  - id: MODE
+    label: 模式
+    type: select
+    default: ""
+    options: ["", "recovery", "bootloader"]
+presets:
+  - name: 正常重启
+    description: reboot
+    values: { MODE: "" }
+  - name: 重启到 Recovery
+    description: reboot recovery
+    values: { MODE: recovery }
+  - name: 重启到 Bootloader
+    description: reboot bootloader
+    values: { MODE: bootloader }
+command:
+  shell: |
+    S="${ADB_SERIAL}"
+    [ -n "$S" ] && ADB="adb -s $S" || ADB="adb"
+    $ADB reboot ${MODE}
+  timeout: 30s

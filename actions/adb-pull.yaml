@@ -1,0 +1,18 @@
+id: adb-pull
+title: 拉取文件
+icon: hi:download
+description: 从设备拉取文件到本地（进度推送、3 次重试、可取消）
+params:
+  - id: REMOTE_PATH
+    label: 设备路径
+    type: text
+    required: true
+    default: /sdcard/
+  - id: LOCAL_PATH
+    label: 本地目录
+    type: path
+    required: true
+command:
+  adb:
+    operation: pull
+  timeout: 10m

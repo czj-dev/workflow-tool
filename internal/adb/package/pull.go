@@ -29,13 +29,20 @@ func handlePull(op *adb.OpContext) adb.OpResult {
 		return adb.OpResult{ExitCode: 2, Err: adbcore.NewOperationError("pull-apk", "Failed to resolve APK path", err.Error(), false)}
 	}
 
-	// 2. 选定本地落盘路径：临时目录下 <pkg>.apk。
-	tmpDir, err := os.MkdirTemp("", "workflow-tool-apk-*")
-	if err != nil {
+	// 2. 选定本地落盘路径：OUTPUT_PATH 指定目录（备份用），否则临时目录。
+	outDir := op.ParamStr("OUTPUT_PATH")
+	if outDir == "" {
+		tmp, err := os.MkdirTemp("", "workflow-tool-apk-*")
+		if err != nil {
+			op.EmitStderr(err.Error())
+			return adb.OpResult{ExitCode: -1, Err: adbcore.NewOperationError("pull-apk", "Failed to create temp directory", err.Error(), true)}
+		}
+		outDir = tmp
+	} else if err := os.MkdirAll(outDir, 0o755); err != nil {
 		op.EmitStderr(err.Error())
-		return adb.OpResult{ExitCode: -1, Err: adbcore.NewOperationError("pull-apk", "Failed to create temp directory", err.Error(), true)}
+		return adb.OpResult{ExitCode: -1, Err: adbcore.NewOperationError("pull-apk", "Failed to create output directory", err.Error(), true)}
 	}
-	localPath := filepath.Join(tmpDir, pkg+".apk")
+	localPath := filepath.Join(outDir, pkg+".apk")
 
 	// 3. adb pull。
 	pullRes, fail := runOrFail(op, "pull-apk", "Failed to export APK",

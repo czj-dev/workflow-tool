@@ -2,6 +2,14 @@ id: adb-debug-activity
 title: 拉起测试页面
 icon: hi:test
 description: "adb shell am start DebugActivity"
+params:
+  - id: EXEC_ID
+    label: 执行项目
+    type: text
+    required: true
+    default: "展示语音链路悬框"
 command:
-  shell: adb shell am start -n com.baidu.che.codriver/com.baidu.che.codriver.ui.DebugActivity
+  shell: |
+    S="${ADB_SERIAL}"
+    [ -n "$S" ] && adb -s "$S" shell am start -n com.baidu.che.codriver/com.baidu.che.codriver.ui.DebugActivity --es exec_button "${EXEC_ID}" || adb shell am start -n com.baidu.che.codriver/com.baidu.che.codriver.ui.DebugActivity --es exec_button "${EXEC_ID}"
   timeout: 30s

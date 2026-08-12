@@ -1,0 +1,14 @@
+id: adb-list-packages
+title: 应用列表
+icon: hi:package
+description: 列出设备应用（user 第三方 / system 系统 / all 全部，合并 enabled/disabled 状态）
+params:
+  - id: FILTER
+    label: 过滤
+    type: select
+    default: user
+    options: ["user", "system", "all"]
+command:
+  adb:
+    operation: list-packages
+  timeout: 30s

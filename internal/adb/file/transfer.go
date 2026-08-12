@@ -15,7 +15,7 @@ import (
 )
 
 // handlePush pushes a single local file or directory to the device.
-// Params: LOCAL_PATH (required), REMOTE_PATH (required).
+// Params: LOCAL_PATH (required), REMOTE_PATH (required), ALLOW_PROTECTED (optional).
 func handlePush(op *adb.OpContext) adb.OpResult {
 	const opName = "push"
 	localPath := op.ParamStr("LOCAL_PATH")
@@ -30,8 +30,10 @@ func handlePush(op *adb.OpContext) adb.OpResult {
 	if err != nil {
 		return abortWith(op, opName, err)
 	}
-	if err := validateRemoteMutationPath(opName, normalizedRemote); err != nil {
-		return abortWith(op, opName, err)
+	if !op.ParamBool("ALLOW_PROTECTED") {
+		if err := validateRemoteMutationPath(opName, normalizedRemote); err != nil {
+			return abortWith(op, opName, err)
+		}
 	}
 
 	fileName := info.Name()
@@ -77,8 +79,10 @@ func handlePushMultiple(op *adb.OpContext) adb.OpResult {
 	if err != nil {
 		return abortWith(op, opName, err)
 	}
-	if err := validateRemoteMutationPath(opName, normalizedRemoteDir); err != nil {
-		return abortWith(op, opName, err)
+	if !op.ParamBool("ALLOW_PROTECTED") {
+		if err := validateRemoteMutationPath(opName, normalizedRemoteDir); err != nil {
+			return abortWith(op, opName, err)
+		}
 	}
 
 	entries, err := os.ReadDir(localDir)

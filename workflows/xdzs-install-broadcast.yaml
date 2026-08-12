@@ -2,6 +2,8 @@ id: xdzs-install-broadcast
 title: 安装后拉起测试页面
 icon: hi:package
 description: "安装 APK → 等待 5s → 拉起 DebugActivity"
+env:
+  EXEC_ID: "展示语音链路悬框"
 steps:
   - id: find-apk
     name: 定位 APK

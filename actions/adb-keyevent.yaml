@@ -1,0 +1,28 @@
+id: adb-keyevent
+title: 模拟按键
+icon: hi:flash
+description: 模拟设备按键（input keyevent），常用键见预设
+params:
+  - id: KEYCODE
+    label: KEYCODE（数字）
+    type: text
+    required: true
+    default: "3"
+presets:
+  - name: HOME（3）
+    values: { KEYCODE: "3" }
+  - name: BACK（4）
+    values: { KEYCODE: "4" }
+  - name: MENU（82）
+    values: { KEYCODE: "82" }
+  - name: POWER（26）
+    values: { KEYCODE: "26" }
+  - name: 音量+（24）
+    values: { KEYCODE: "24" }
+  - name: 音量-（25）
+    values: { KEYCODE: "25" }
+command:
+  shell: |
+    S="${ADB_SERIAL}"
+    [ -n "$S" ] && adb -s "$S" shell input keyevent "${KEYCODE}" || adb shell input keyevent "${KEYCODE}"
+  timeout: 30s

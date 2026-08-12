@@ -1,0 +1,19 @@
+id: adb-pull-apk
+title: 拉取 APK
+icon: hi:download
+description: 根据包名定位安装路径并 pull APK 到本地（pm path → adb pull）
+params:
+  - id: PACKAGE
+    label: 包名
+    type: text
+    required: true
+    default: com.baidu.che.codriver
+  - id: OUTPUT_PATH
+    label: 备份目录
+    type: path
+    required: false
+    description: 留空则存到临时目录；填则存到 <目录>/<包名>.apk（常用于备份）
+command:
+  adb:
+    operation: pull-apk
+  timeout: 2m

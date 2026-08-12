@@ -1,0 +1,40 @@
+id: adb-push-apk-libs
+title: 推送 APK 的 lib
+icon: hi:upload
+description: 解压 APK 的 lib 目录（删 armeabi-v7a，arm64-v8a 重命名为 arm64）并 push 到设备目录（系统应用原生库场景）
+params:
+  - id: APK_PATH
+    label: APK 文件
+    type: file
+    required: true
+  - id: REMOTE_PATH
+    label: 设备目标目录
+    type: text
+    required: true
+    default: /system/app/DuerOSAutoVr/
+command:
+  shell: |
+    APK="${APK_PATH}"
+    [ -f "$APK" ] || { echo "APK 不存在: $APK"; exit 1; }
+    DIR="${REMOTE_PATH}"
+    TMP=$(mktemp -d)
+    trap 'rm -rf "$TMP"' EXIT
+    # APK 本质是 zip，直接解压取 lib
+    unzip -o "$APK" -d "$TMP" >/dev/null
+    if [ ! -d "$TMP/lib" ]; then
+      echo "APK 无 lib 目录，跳过"
+      exit 0
+    fi
+    # 删 32 位；arm64-v8a 重命名为 arm64（匹配系统应用原生库目录约定）
+    rm -rf "$TMP/lib/armeabi-v7a"
+    if [ -d "$TMP/lib/arm64-v8a" ]; then
+      mv "$TMP/lib/arm64-v8a" "$TMP/lib/arm64"
+    fi
+    S="${ADB_SERIAL}"
+    echo "推送 lib -> ${DIR}"
+    if [ -n "$S" ]; then
+      adb -s "$S" push "$TMP/lib" "$DIR" || { echo "push lib 失败"; exit 1; }
+    else
+      adb push "$TMP/lib" "$DIR" || { echo "push lib 失败"; exit 1; }
+    fi
+  timeout: 5m

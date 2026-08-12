@@ -1,0 +1,9 @@
+id: adb-foreground-activity
+title: 前台 Activity
+icon: hi:test
+description: 查询当前前台 Activity（dumpsys activity），用于排查拉起是否成功
+command:
+  shell: |
+    S="${ADB_SERIAL}"
+    [ -n "$S" ] && adb -s "$S" shell "dumpsys activity activities | grep -E 'ResumedActivity|mResumedActivity'" || adb shell "dumpsys activity activities | grep -E 'ResumedActivity|mResumedActivity'"
+  timeout: 30s

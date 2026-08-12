@@ -1,0 +1,14 @@
+id: adb-app-details
+title: 应用详情
+icon: hi:file
+description: 查看应用版本号 / APK 大小 / 数据大小
+params:
+  - id: PACKAGE
+    label: 包名
+    type: text
+    required: true
+    default: com.baidu.che.codriver
+command:
+  adb:
+    operation: package-details
+  timeout: 30s

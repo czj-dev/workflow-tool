@@ -1,0 +1,9 @@
+id: adb-battery
+title: 电池信息
+icon: hi:car
+description: 查看设备电池状况（dumpsys battery）
+command:
+  shell: |
+    S="${ADB_SERIAL}"
+    [ -n "$S" ] && adb -s "$S" shell dumpsys battery || adb shell dumpsys battery
+  timeout: 30s

@@ -124,6 +124,25 @@ func (s *Service) ActiveSerial() string {
 	return s.active
 }
 
+// IsReady 报告 serial 当前是否在线且处于 ready（可执行 adb 命令）状态。
+// 用于校验注入的 ADB_SERIAL 是否仍有效：车载/网络设备重连后 transport serial 可能变化，
+// 缓存的 serial 会失效，此时应重新解析而非盲目传给 adb（否则 adb -s <失效serial> 无限 waiting）。
+func (s *Service) IsReady(ctx context.Context, serial string) bool {
+	if serial == "" {
+		return false
+	}
+	devices, err := s.ListDevices(ctx)
+	if err != nil {
+		return false
+	}
+	for _, d := range devices {
+		if d.Serial == serial {
+			return d.State == StateReady
+		}
+	}
+	return false
+}
+
 // ResolveActive 返回应使用的设备 serial：激活设备仍在线且 ready 则用它，
 // 否则在当前设备里选第一个 ready 的 adb 设备并记为激活。无可用设备返回 ""。
 func (s *Service) ResolveActive(ctx context.Context) (string, error) {

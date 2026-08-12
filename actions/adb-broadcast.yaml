@@ -1,0 +1,29 @@
+id: adb-broadcast
+title: 发送广播
+icon: hi:radio
+description: am broadcast 发送广播（泛化自原 adb-query / adb-car-broadcast）
+params:
+  - id: ACTION
+    label: Action
+    type: text
+    required: true
+    default: WECARSPEECH_COME_ALIVE
+  - id: EXTRA
+    label: Extra（可空，如 --es query "打开空调"）
+    type: text
+presets:
+  - name: 车控激活
+    description: WECARSPEECH_COME_ALIVE
+    values: { ACTION: WECARSPEECH_COME_ALIVE, EXTRA: "" }
+  - name: 你好小度
+    description: vr.intent.action.QUERY / 你好小度
+    values: { ACTION: "vr.intent.action.QUERY", EXTRA: "--es query \"你好小度\"" }
+  - name: 打开空调
+    description: vr.intent.action.QUERY / 打开空调
+    values: { ACTION: "vr.intent.action.QUERY", EXTRA: "--es query \"打开空调\"" }
+command:
+  shell: |
+    S="${ADB_SERIAL}"
+    [ -n "$S" ] && ADB="adb -s $S" || ADB="adb"
+    $ADB shell am broadcast -a "${ACTION}" ${EXTRA}
+  timeout: 30s

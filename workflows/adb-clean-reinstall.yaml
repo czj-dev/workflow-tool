@@ -1,0 +1,90 @@
+id: adb-clean-reinstall
+title: 干净重装
+icon: hi:package
+description: "强制停止 → 清除数据 → 卸载 → 定位/备份 APK → 推送到 /system/app → 重启 → 等待连接 → 设备初始化 → 强制停止"
+params:
+  - id: PACKAGE
+    label: 包名
+    type: text
+    required: true
+    default: com.baidu.che.codriver
+  - id: REMOTE_PATH
+    label: 推送目标目录
+    type: text
+    required: true
+    default: /system/app/DuerOSAutoVr
+    description: APK 与 lib 都推送到此目录；push 前会自动 mkdir -p
+steps:
+  - id: force-stop
+    name: 强制停止
+    action: adb-force-stop
+    params: { PACKAGE: "${PACKAGE}" }
+  - id: clear-data
+    name: 清除数据
+    shell: |
+      S="${ADB_SERIAL}"
+      [ -n "$S" ] && adb -s "$S" shell pm clear "${PACKAGE}" || adb shell pm clear "${PACKAGE}"
+  - id: uninstall
+    name: 卸载应用
+    action: adb-uninstall
+    params: { PACKAGE: "${PACKAGE}" }
+    continue_on_error: true   # 系统应用 pm uninstall 会失败，属正常，跳过继续
+  - id: find-apk
+    name: 定位 APK
+    shell: |
+      APK=$(find "${VOICE_DEBUG_OUTPUT}" -maxdepth 1 -name "*.apk" | head -1)
+      if [ -z "$APK" ]; then echo "未找到 APK: ${VOICE_DEBUG_OUTPUT}"; exit 1; fi
+      echo "定位 APK: $APK"
+      echo "##[output apk_path=$APK]"
+  - id: pull-apk
+    name: 备份已安装 APK
+    action: adb-pull-apk
+    params:
+      PACKAGE: "${PACKAGE}"
+      OUTPUT_PATH: "${OUTPUT_DIR}"
+    continue_on_error: true   # 卸载成功后无已安装包，备份失败属正常
+  - id: clean-app-data
+    name: 清理应用残留数据
+    shell: |
+      S="${ADB_SERIAL}"; PKG="${PACKAGE}"
+      if [ -n "$S" ]; then A="adb -s $S"; else A="adb"; fi
+      DATA_APP=$($A shell find /data/app/ -name "*${PKG}-*" 2>/dev/null | tr -d '\r')
+      echo "dataAppFilePath: ${DATA_APP}"
+      [ -n "$DATA_APP" ] && $A shell rm -rf $DATA_APP
+      $A shell rm -rf /data/data/${PKG}
+  - id: mkdir-remote
+    name: 清理并创建目标目录
+    shell: |
+      S="${ADB_SERIAL}"
+      [ -n "$S" ] && A="adb -s $S" || A="adb"
+      $A shell rm -rf "${REMOTE_PATH}"
+      $A shell mkdir -p "${REMOTE_PATH}"
+  - id: push-lib
+    name: 推送 APK 的 lib
+    action: adb-push-apk-libs
+    params:
+      APK_PATH: "${{ steps.find-apk.outputs.apk_path }}"
+      REMOTE_PATH: "${REMOTE_PATH}"
+  - id: push-apk
+    name: 推送 APK 到 /system/app
+    action: adb-push
+    params:
+      LOCAL_PATH: "${{ steps.find-apk.outputs.apk_path }}"
+      REMOTE_PATH: "${REMOTE_PATH}/DuerOSAutoVr.apk"
+      ALLOW_PROTECTED: "true"
+  - id: reboot
+    name: 重启设备
+    action: adb-reboot
+  - id: wait
+    name: 等待连接
+    shell: |
+      S="${ADB_SERIAL}"
+      [ -n "$S" ] && adb -s "$S" wait-for-device || adb wait-for-device
+    timeout: 120s
+  - id: device-init
+    name: 设备初始化
+    action: xdzs-device-init
+  - id: force-stop-app
+    name: 强制停止应用
+    action: adb-force-stop
+    params: { PACKAGE: "${PACKAGE}" }

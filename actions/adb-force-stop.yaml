@@ -1,0 +1,14 @@
+id: adb-force-stop
+title: 强制停止
+icon: hi:cancel
+description: 强制停止指定应用（am force-stop）
+params:
+  - id: PACKAGE
+    label: 包名
+    type: text
+    required: true
+    default: com.baidu.che.codriver
+command:
+  adb:
+    operation: force-stop
+  timeout: 30s

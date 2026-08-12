@@ -1,0 +1,14 @@
+id: adb-delete-file
+title: 删除设备文件
+icon: hi:cancel
+description: ⚠️ 破坏性操作：删除设备上的文件或目录（不可恢复），请确认路径无误
+params:
+  - id: REMOTE_PATH
+    label: 设备路径
+    type: text
+    required: true
+    default: null
+command:
+  adb:
+    operation: delete
+  timeout: 60s

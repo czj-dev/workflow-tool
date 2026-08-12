@@ -7,15 +7,21 @@ import (
 	"time"
 
 	"workflow-tool/internal/adb/binary"
-	"workflow-tool/internal/adb/device"
 	"workflow-tool/internal/runner"
 )
+
+// deviceResolver 抽象 ADBRunner 所需的设备解析能力。
+// 用接口而非具体 *device.Service，便于测试注入 fake，也解耦 runner 对 device 包的强依赖。
+type deviceResolver interface {
+	ResolveActive(ctx context.Context) (string, error)
+	IsReady(ctx context.Context, serial string) bool
+}
 
 // ADBRunner 实现 runner.Runner：按 command.adb.operation 分发到域 handler。
 // 共享依赖（Bin/Dev/Overrides）挂在结构上；Operation/Timeout 由调用方按动作设置。
 type ADBRunner struct {
 	Bin       *binary.Service
-	Dev       *device.Service
+	Dev       deviceResolver
 	Operation string        // 动作的 command.adb.operation
 	Timeout   time.Duration // 动作超时（透传给每个子命令）
 	// GetOverrides 返回 config.yaml 里的 ADB_PATH/FASTBOOT_PATH/SCRCPY_PATH（可空）。
@@ -38,13 +44,11 @@ func (r *ADBRunner) Run(ctx context.Context, params map[string]any, emit runner.
 		}
 	}
 
-	// 解析 serial：优先 params 里的 ${ADB_SERIAL}（api 已注入），否则自动选首个 ready 设备。
-	serial := strParam(params, "ADB_SERIAL")
-	if serial == "" && r.Dev != nil {
-		if s, err := r.Dev.ResolveActive(ctx); err == nil {
-			serial = s
-		}
-	}
+	// 解析 serial：优先 params 里的 ${ADB_SERIAL}（api 已注入），但需校验仍在线。
+	// 设备（尤其车载/网络 ADB）重连后 transport serial 可能变化，缓存的 ADB_SERIAL 会失效；
+	// 若盲目把失效 serial 传给 adb，会得到 "- waiting for device -" 并悬挂到超时。
+	// 故失效时回退 ResolveActive 重新选首个 ready 设备。
+	serial := resolveSerial(ctx, r.Dev, strParam(params, "ADB_SERIAL"))
 
 	// 解析二进制路径（config 覆盖 -> PATH -> 常见路径）。
 	var ov map[string]string
@@ -88,4 +92,21 @@ func strMap(m map[string]string, key string) string {
 		return ""
 	}
 	return m[key]
+}
+
+// resolveSerial 决定本次 adb 命令的目标 serial。
+// paramSerial 非空且仍在线 → 沿用（尊重 UI 选择的设备 / config.yaml 显式 ADB_SERIAL）；
+// 否则回退 ResolveActive（重新选首个 ready 设备），避免 adb -s <失效serial> 无限 waiting。
+// dev 为 nil（测试/无设备服务）时直接返回 paramSerial。
+func resolveSerial(ctx context.Context, dev deviceResolver, paramSerial string) string {
+	if dev == nil {
+		return paramSerial
+	}
+	if paramSerial != "" && dev.IsReady(ctx, paramSerial) {
+		return paramSerial
+	}
+	if s, err := dev.ResolveActive(ctx); err == nil && s != "" {
+		return s
+	}
+	return paramSerial
 }

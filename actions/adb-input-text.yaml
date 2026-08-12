@@ -1,0 +1,14 @@
+id: adb-input-text
+title: 输入文本
+icon: hi:text
+description: 向设备输入文本（input text，不支持中文，需借助其他输入法）
+params:
+  - id: TEXT
+    label: 文本
+    type: text
+    required: true
+command:
+  shell: |
+    S="${ADB_SERIAL}"
+    [ -n "$S" ] && adb -s "$S" shell input text "${TEXT}" || adb shell input text "${TEXT}"
+  timeout: 30s

@@ -1,0 +1,36 @@
+id: adb-prop
+title: 属性读写
+icon: hi:settings
+description: getprop / setprop 读写系统属性（泛化自原 adb-debug-log）
+params:
+  - id: MODE
+    label: 操作
+    type: select
+    default: get
+    options: ["get", "set"]
+  - id: PROP
+    label: 属性名
+    type: text
+    required: true
+    default: persist.log.tag
+  - id: VALUE
+    label: 值（set 必填）
+    type: text
+presets:
+  - name: 打开 Debug 日志
+    description: setprop persist.log.tag D
+    values: { MODE: set, PROP: persist.log.tag, VALUE: D }
+  - name: 关闭 Debug 日志
+    description: setprop persist.log.tag I
+    values: { MODE: set, PROP: persist.log.tag, VALUE: I }
+command:
+  shell: |
+    S="${ADB_SERIAL}"
+    [ -n "$S" ] && ADB="adb -s $S" || ADB="adb"
+    if [ "${MODE}" = "set" ]; then
+      if [ -z "${VALUE}" ]; then echo "set 模式必须填值"; exit 1; fi
+      $ADB shell "setprop ${PROP} ${VALUE}"
+    else
+      $ADB shell "getprop ${PROP}"
+    fi
+  timeout: 30s

@@ -5,14 +5,23 @@ description: 推送本地文件到设备（解析 [NN%] 进度，3 次重试，�
 params:
   - id: LOCAL_PATH
     label: 本地文件
-    type: path
+    type: file
     required: true
   - id: REMOTE_PATH
     label: 设备目标路径
     type: text
     required: true
     default: /sdcard/
+  - id: ALLOW_PROTECTED
+    label: 允许写入受保护分区
+    type: bool
+    required: false
+    default: false
+    description: 开启后允许写入 /system、/vendor 等受保护路径（系统应用重装场景）
 command:
   adb:
     operation: push
   timeout: 10m
+presets:
+  - name: 语音内置文件目录
+    values: {ALLOW_PROTECTED: "true", LOCAL_PATH: "", REMOTE_PATH: /data/data/com.baidu.che.codriver/files}
