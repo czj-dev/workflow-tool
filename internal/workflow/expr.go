@@ -3,6 +3,7 @@ package workflow
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/expr-lang/expr"
 )
@@ -13,7 +14,7 @@ func EvalCondition(exprStr string, ctx *StepContext) (bool, error) {
 	if exprStr == "" {
 		return true, nil
 	}
-	out, err := expr.Eval(exprStr, ctx.Flatten())
+	out, err := expr.Eval(preprocessStepRefs(exprStr, ctx), ctx.Flatten())
 	if err != nil {
 		return false, fmt.Errorf("if 表达式求值失败 %q: %w", exprStr, err)
 	}
@@ -41,7 +42,7 @@ func Substitute(text string, ctx *StepContext) (string, error) {
 		if len(sub) < 2 {
 			return match
 		}
-		result, err := expr.Eval(sub[1], env)
+		result, err := expr.Eval(preprocessStepRefs(sub[1], ctx), env)
 		if err != nil {
 			firstErr = fmt.Errorf("${{ %s }} 求值失败: %w", sub[1], err)
 			return match
@@ -52,4 +53,23 @@ func Substitute(text string, ctx *StepContext) (string, error) {
 		return "", firstErr
 	}
 	return out, nil
+}
+
+// preprocessStepRefs 把 steps.<含连字符的 step id> 成员访问改写为
+// steps["<id>"] 方括号形式。expr-lang 把标识符中的连字符当作减法，
+// 故 steps.find-apk 会被解析成 steps.find - apk 而非成员访问。
+// 只改写 ctx.Steps 中确实存在的 id（运行时已执行的 step），安全且无副作用。
+func preprocessStepRefs(exprStr string, ctx *StepContext) string {
+	if exprStr == "" || ctx == nil {
+		return exprStr
+	}
+	for id := range ctx.Steps {
+		if !strings.ContainsRune(id, '-') {
+			continue
+		}
+		old := "steps." + id
+		new := `steps["` + id + `"]`
+		exprStr = strings.ReplaceAll(exprStr, old, new)
+	}
+	return exprStr
 }

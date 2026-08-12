@@ -77,6 +77,49 @@ func TestSubstitute_ExpressionInShell(t *testing.T) {
 	}
 }
 
+// TestSubstitute_HyphenatedStepID 覆盖含连字符的 step id 在表达式中的引用。
+// expr-lang 把 find-apk 解析成 find - apk（减法），preprocessStepRefs
+// 会把它改写成 steps["find-apk"] 方括号形式使其能正确求值。
+func TestSubstitute_HyphenatedStepID(t *testing.T) {
+	ctx := &StepContext{
+		Steps: map[string]StepOutput{
+			"find-apk": {Outputs: map[string]string{"apk_path": "/tmp/app.apk"}},
+		},
+	}
+	out, err := Substitute(`install ${{ steps.find-apk.outputs.apk_path }}`, ctx)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	want := "install /tmp/app.apk"
+	if out != want {
+		t.Fatalf("got %q, want %q", out, want)
+	}
+}
+
+// TestEvalCondition_HyphenatedStepID 覆盖 if 条件中引用含连字符 step id 的 outputs。
+func TestEvalCondition_HyphenatedStepID(t *testing.T) {
+	ctx := &StepContext{
+		Steps: map[string]StepOutput{
+			"find-apk": {Outputs: map[string]string{"success": "true"}},
+		},
+	}
+	got, err := EvalCondition(`steps["find-apk"].outputs.success == 'true'`, ctx)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	if !got {
+		t.Fatal("want true")
+	}
+	// 点号形式也应被 preprocessStepRefs 改写后正确求值
+	got, err = EvalCondition(`steps.find-apk.outputs.success == 'true'`, ctx)
+	if err != nil {
+		t.Fatalf("dotted form err: %v", err)
+	}
+	if !got {
+		t.Fatal("dotted form want true")
+	}
+}
+
 func TestSubstitute_NoExpression(t *testing.T) {
 	ctx := &StepContext{}
 	out, err := Substitute("echo hello", ctx)
