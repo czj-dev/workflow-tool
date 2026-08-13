@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon, Cancel01Icon, SentIcon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, Cancel01Icon, Clock01Icon, SentIcon } from "@hugeicons/core-free-icons";
 import { Popover } from "radix-ui";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -16,6 +16,7 @@ import { Message, MessageContent, MessageMarkdown } from "@/components/nexus-ui/
 import { Reasoning, ReasoningTrigger, ReasoningContent } from "@/components/nexus-ui/reasoning";
 import { Thread, ThreadContent, ThreadScrollToBottom } from "@/components/nexus-ui/thread";
 import type { ParamSpec } from "../../bindings/workflow-tool/internal/registry/models.js";
+import { type LlmHistoryEntry } from "../hooks/useLlmHistory";
 
 // 聊天式单页：底部输入框（绑 promptParam）+ 上方流式回答。单轮替换，每次发送清空上一轮。
 export function LlmChatView() {
@@ -23,9 +24,16 @@ export function LlmChatView() {
   const {
     actions, currentId, formValues, setFormValue,
     runAction, cancel, setView, status, exitInfo, llmText, thinkingText,
+    llmHistory, clearLlmHistory,
   } = useActionRunner();
   const action = actions.find((a) => a.id === currentId);
   const running = status === "running";
+
+  // 历史抽屉 + 只读查看态
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [viewing, setViewing] = useState<LlmHistoryEntry | null>(null);
+  // prompt 快照：send 时冻结，避免流式中编辑 textarea 导致 user 气泡漂移
+  const [sentPrompt, setSentPrompt] = useState("");
 
   if (!action?.llm || !action.params) return null;
   const { systemParam, promptParam } = action.llm;
@@ -41,7 +49,13 @@ export function LlmChatView() {
 
   const canRun = missingRequired(action.params, formValues).length === 0;
   const promptValue = formValues[promptParam] ?? promptSpec.default ?? "";
-  const hasConversation = running || llmText !== "" || thinkingText !== "" || !!exitInfo;
+  const hasConversation = running || llmText !== "" || thinkingText !== "" || !!exitInfo || !!viewing;
+
+  // viewing 非空时渲染只读历史条目，否则渲染当前轮
+  const shownPrompt = viewing ? viewing.prompt : sentPrompt || promptValue;
+  const shownText = viewing ? viewing.response : llmText;
+  const shownThinking = viewing ? viewing.thinking : thinkingText;
+  const shownStreaming = viewing ? false : running;
 
   const onSend = () => {
     if (!canRun || running) return;
@@ -49,6 +63,8 @@ export function LlmChatView() {
     action.params!.forEach((p) => {
       params[p.id] = formValues[p.id] ?? p.default ?? "";
     });
+    setSentPrompt(params[promptParam] ?? "");
+    setViewing(null);
     runAction(action.id, params);
   };
 
@@ -60,7 +76,16 @@ export function LlmChatView() {
   };
 
   return (
-    <main className="flex min-h-0 min-w-0 flex-1 flex-col">
+    <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+      {viewing && (
+        <div className="flex items-center gap-2 border-b border-primary/25 bg-primary/10 px-4 py-1.5 text-xs">
+          <HugeiconsIcon icon={Clock01Icon} strokeWidth={1.75} className="size-3.5" />
+          <span>{t("llmChat.viewingHistory")} · {new Date(viewing.timestamp).toLocaleString()}</span>
+          <Button variant="ghost" size="sm" className="ml-auto h-6" onClick={() => setViewing(null)}>
+            {t("llmChat.backToCurrent")}
+          </Button>
+        </div>
+      )}
       <header className="flex items-center justify-between border-b px-4 py-2">
         <div className="flex items-center gap-2">
           <SidebarTrigger />
@@ -85,12 +110,21 @@ export function LlmChatView() {
             </span>
           ) : null}
         </div>
-        {running && (
-          <Button variant="destructive" size="sm" onClick={cancel}>
-            <HugeiconsIcon icon={Cancel01Icon} strokeWidth={1.75} className="size-4" />
-            {t("llmChat.stop")}
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setHistoryOpen((v) => !v)}>
+            <HugeiconsIcon icon={Clock01Icon} strokeWidth={1.75} className="size-4" />
+            {t("llmChat.history")}
+            {llmHistory.length > 0 && (
+              <span className="ml-1 font-mono text-[11px] tabular-nums">{llmHistory.length}</span>
+            )}
           </Button>
-        )}
+          {running && (
+            <Button variant="destructive" size="sm" onClick={cancel}>
+              <HugeiconsIcon icon={Cancel01Icon} strokeWidth={1.75} className="size-4" />
+              {t("llmChat.stop")}
+            </Button>
+          )}
+        </div>
       </header>
 
       <Thread className="flex min-w-0 flex-1">
@@ -108,18 +142,18 @@ export function LlmChatView() {
           ) : (
             <>
               <Message from="user">
-                <MessageContent>{promptValue}</MessageContent>
+                <MessageContent>{shownPrompt}</MessageContent>
               </Message>
               <Message from="assistant">
                 <MessageContent>
-                  {thinkingText && (
-                    <Reasoning isStreaming={running}>
+                  {shownThinking && (
+                    <Reasoning isStreaming={shownStreaming}>
                       <ReasoningTrigger />
-                      <ReasoningContent>{thinkingText}</ReasoningContent>
+                      <ReasoningContent>{shownThinking}</ReasoningContent>
                     </Reasoning>
                   )}
-                  <MessageMarkdown>{llmText}</MessageMarkdown>
-                  {running && llmText === "" && !thinkingText && (
+                  <MessageMarkdown>{shownText}</MessageMarkdown>
+                  {shownStreaming && shownText === "" && !shownThinking && (
                     <div role="status" className="flex items-center gap-2">
                       <Skeleton className="h-4 w-32" />
                       <span className="sr-only">{t("llm.thinking")}</span>
@@ -185,7 +219,71 @@ export function LlmChatView() {
           </div>
         </div>
       </div>
+
+      {historyOpen && (
+        <LlmHistoryDrawer
+          entries={llmHistory}
+          viewingId={viewing?.id ?? null}
+          onSelect={(e) => { setViewing(e); setHistoryOpen(false); }}
+          onClose={() => setHistoryOpen(false)}
+          onClear={() => { clearLlmHistory(); setViewing(null); }}
+        />
+      )}
     </main>
+  );
+}
+
+interface LlmHistoryDrawerProps {
+  entries: LlmHistoryEntry[];
+  viewingId: string | null;
+  onSelect: (e: LlmHistoryEntry) => void;
+  onClose: () => void;
+  onClear: () => void;
+}
+
+function LlmHistoryDrawer({ entries, viewingId, onSelect, onClose, onClear }: LlmHistoryDrawerProps) {
+  const { t } = useTranslation();
+  return (
+    <aside className="absolute right-0 top-0 bottom-0 z-40 flex w-80 flex-col border-l bg-card/95 shadow-xl">
+      <div className="flex items-center justify-between border-b px-3 py-2.5">
+        <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+          {t("llmChat.historyTitle")} · {entries.length}
+        </span>
+        <IconButton icon={Cancel01Icon} label={t("main.clear")} onClick={onClose} />
+      </div>
+      <div className="flex-1 overflow-y-auto p-2">
+        {entries.length === 0 ? (
+          <div className="p-3 text-center text-xs text-muted-foreground">{t("llmChat.historyEmpty")}</div>
+        ) : (
+          entries.map((e) => (
+            <button
+              key={e.id}
+              type="button"
+              onClick={() => onSelect(e)}
+              className={`mb-1.5 flex w-full flex-col gap-1 rounded-lg border p-2.5 text-left hover:border-primary/50 ${viewingId === e.id ? "border-primary bg-primary/8" : "border-border"}`}
+            >
+              <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+                <span className={`size-1.5 rounded-full ${e.exitCode === 0 ? "bg-success" : "bg-destructive"}`} />
+                {new Date(e.timestamp).toLocaleString()}
+                {e.duration && <span>· {e.duration}</span>}
+              </span>
+              <span className="line-clamp-2 text-xs">{e.prompt}</span>
+              <span className="line-clamp-1 text-[11px] text-muted-foreground">{e.response}</span>
+            </button>
+          ))
+        )}
+      </div>
+      <div className="flex items-center justify-between border-t px-3 py-2">
+        <span className="font-mono text-[10px] text-muted-foreground">{t("llmChat.historyMax")}</span>
+        <button
+          type="button"
+          onClick={onClear}
+          className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-destructive"
+        >
+          {t("llmChat.historyClear")}
+        </button>
+      </div>
+    </aside>
   );
 }
 

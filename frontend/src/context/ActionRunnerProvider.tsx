@@ -33,6 +33,7 @@ import type {
   WorkflowItem,
 } from "../../bindings/workflow-tool/internal/api/models.js";
 import type { Fragment } from "../../bindings/workflow-tool/internal/registry/models.js";
+import { useLlmHistory, type LlmHistoryEntry } from "../hooks/useLlmHistory";
 import type {
   OutputEventData,
   DoneEventData,
@@ -88,6 +89,9 @@ export interface RunnerContextValue {
   view: RunnerView;
   llmText: string;
   thinkingText: string;
+  // LLM 运行历史（按 currentId 分桶，最新在前）+ 清空
+  llmHistory: LlmHistoryEntry[];
+  clearLlmHistory: () => void;
   // logcat 视图：结构化条目缓冲（环形 ~5000）+ 运行时过滤
   logcatEntries: LogcatEntry[];
   logFilter: LogcatFilter;
@@ -163,6 +167,19 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [view, setView] = useState<RunnerView>("output");
   const [llmText, setLlmText] = useState<string>("");
   const [thinkingText, setThinkingText] = useState<string>("");
+  // ref 镜像：done 回调闭包捕获旧 state，改用 ref 拿最新 llm 文本用于历史写入
+  const llmTextRef = useRef("");
+  llmTextRef.current = llmText;
+  const thinkingTextRef = useRef("");
+  thinkingTextRef.current = thinkingText;
+  // LLM 历史（按 currentId 分桶）
+  const { entries: llmHistory, append: appendLlmHistory, clear: clearLlmHistory } =
+    useLlmHistory(currentId);
+  // done 闭包由 currentId useEffect 捕获，读 actions/formValues 时闭包可能陈旧，用 ref
+  const actionsRef = useRef<ActionItem[]>([]);
+  actionsRef.current = actions;
+  const formValuesRef = useRef<Record<string, string>>({});
+  formValuesRef.current = formValues;
   // logcat 条目缓冲与过滤（按 currentId 单缓冲，runAction 时清空）
   const [logcatEntries, setLogcatEntries] = useState<LogcatEntry[]>([]);
   const [logFilter, setLogFilterState] = useState<LogcatFilter>({
@@ -396,6 +413,20 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       ]);
       setStatus(d.exitCode === 0 ? "done" : "error");
       setExitInfo(d);
+      // LLM 历史写入：done 时把本轮 prompt/response/thinking 持久化到 localStorage
+      const cur = actionsRef.current.find((a) => a.id === currentId);
+      if (cur?.llm) {
+        const promptId = cur.llm.promptParam;
+        const fv = formValuesRef.current;
+        appendLlmHistory({
+          prompt: fv[promptId] ?? "",
+          params: { ...fv },
+          response: llmTextRef.current,
+          thinking: thinkingTextRef.current,
+          exitCode: d.exitCode,
+          duration: d.duration,
+        });
+      }
     };
 
     handlers[`action:${currentId}:output`] = onOutput;
@@ -773,6 +804,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     view,
     llmText,
     thinkingText,
+    llmHistory,
+    clearLlmHistory,
     logcatEntries,
     logFilter,
     setLogFilter,

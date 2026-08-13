@@ -1,5 +1,5 @@
-import { describe, expect, it, vi } from "vitest";
-import { render, screen, act } from "@testing-library/react";
+import { describe, expect, it, vi, beforeEach } from "vitest";
+import { render, screen, act, fireEvent } from "@testing-library/react";
 import { useEffect } from "react";
 
 vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
@@ -68,6 +68,9 @@ function renderChat() {
 }
 
 describe("LlmChatView", () => {
+  // 历史存 localStorage，同文件内测试共享 jsdom：逐例清空保证隔离
+  beforeEach(() => localStorage.clear());
+
   it("渲染卡片标题", async () => {
     renderChat();
     await act(() => Promise.resolve());
@@ -85,5 +88,26 @@ describe("LlmChatView", () => {
       _emitForTest("action:c1:output", { data: { stream: "llm", line: "处理完成" } });
     });
     expect(await screen.findByText(/处理完成/)).toBeInTheDocument();
+  });
+
+  it("完成后写入历史，抽屉可浏览", async () => {
+    renderChat();
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    // 历史按钮常驻，初始无计数
+    const historyBtn = await screen.findByRole("button", { name: /历史/ });
+    expect(historyBtn.textContent).not.toMatch(/\d/);
+    act(() => {
+      _emitForTest("action:c1:output", { data: { stream: "llm", line: "done-text" } });
+    });
+    act(() => {
+      _emitForTest("action:c1:done", { data: { exitCode: 0, err: "", duration: "1.2s" } });
+    });
+    // done 写入 1 条历史 → 按钮出现计数
+    expect(await screen.findByRole("button", { name: /历史\s*1/ })).toBeInTheDocument();
+    // 打开抽屉能看到该条目的 prompt
+    fireEvent.click(screen.getByRole("button", { name: /历史\s*1/ }));
+    expect(await screen.findByText("历史记录 · 1")).toBeInTheDocument();
   });
 });
