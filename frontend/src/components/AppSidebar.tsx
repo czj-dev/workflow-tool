@@ -24,6 +24,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { useActionUsage } from "../hooks/useActionUsage";
+import { ActionIcon } from "./ActionIcon";
 import { ActionItem } from "./ActionItem";
 import { DeviceSelector } from "./DeviceSelector";
 import { WorkflowItem } from "./WorkflowItem";
@@ -34,13 +35,17 @@ const EYEBROW = "font-mono text-[11px] font-semibold uppercase tracking-[0.16em]
 // 左侧可折叠侧边栏：渲染工作流 + 常用 top 3 动作 + 全部动作入口 + 底部「片段 / 全局配置 / 设置」
 export function AppSidebar() {
   const { t } = useTranslation();
-  const { actions, errors, workflows, workflowErrors, setView, openActionsDir } =
+  const { actions, errors, workflows, workflowErrors, setView, openActionsDir, openLlmChat } =
     useActionRunner();
   const { topActions } = useActionUsage();
   const { topActions: topWorkflows } = useActionUsage("workflow-usage");
+  const { topActions: topLlm } = useActionUsage("llm-usage");
 
-  const top3 = topActions(actions, 3);
+  const shellActions = actions.filter((a) => !a.llm);
+  const llmActions = actions.filter((a) => a.llm);
+  const top3 = topActions(shellActions, 3);
   const top3Wf = topWorkflows(workflows, 3);
+  const top3Llm = topLlm(llmActions, 3);
 
   return (
     <Sidebar collapsible="icon">
@@ -120,7 +125,7 @@ export function AppSidebar() {
           </SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {actions.length === 0 && errors.length === 0 && (
+              {shellActions.length === 0 && errors.length === 0 && (
                 <Empty className="flex-none items-start border-none p-2 text-left">
                   <EmptyDescription>{t("empty.noActions")}</EmptyDescription>
                 </Empty>
@@ -137,7 +142,7 @@ export function AppSidebar() {
                 </SidebarMenuItem>
               ))}
               {/* 全部动作入口 */}
-              {actions.length > 0 && (
+              {shellActions.length > 0 && (
                 <SidebarMenuItem>
                   <SidebarMenuButton
                     onClick={() => setView("actions-grid")}
@@ -155,6 +160,42 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
+        {/* AI 对话：llm 卡片单击直接进聊天页，不复用 ActionItem（那会进 form 视图） */}
+        {llmActions.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel className={EYEBROW}>
+              {t("sidebar.aiChat")}
+            </SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {top3Llm.map((a) => (
+                  <SidebarMenuItem key={a.id}>
+                    <SidebarMenuButton
+                      tooltip={a.description || a.title}
+                      onClick={() => openLlmChat(a.id)}
+                    >
+                      <ActionIcon name={a.icon} className="shrink-0" />
+                      <span>{a.title}</span>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+                <SidebarMenuItem>
+                  <SidebarMenuButton
+                    onClick={() => setView("llm-grid")}
+                    tooltip={t("sidebar.allLlm")}
+                  >
+                    <HugeiconsIcon
+                      icon={GridViewIcon}
+                      strokeWidth={1.75}
+                      className="size-4 shrink-0"
+                    />
+                    <span>{t("sidebar.allLlm")}</span>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
       </SidebarContent>
       <SidebarFooter>
         <SidebarGroupLabel className={EYEBROW}>
