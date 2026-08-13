@@ -252,7 +252,7 @@ describe("ActionRunnerProvider", () => {
     expect(picked).toBe("/tmp/app.apk");
   });
 
-  it("llm 形态的 output 事件累加到 llmText 并切 view=llm", async () => {
+  it("llm 形态的 output 事件累加到 llmText 并切 view=llm-chat", async () => {
     mockListActions.mockResolvedValue({
       actions: [
         {
@@ -268,7 +268,7 @@ describe("ActionRunnerProvider", () => {
     await act(async () => {
       await result.current.runAction("a1", {});
     });
-    expect(result.current.view).toBe("llm");
+    expect(result.current.view).toBe("llm-chat");
     act(() => {
       _emitForTest("action:a1:output", { data: { stream: "llm", line: "你好" } });
       _emitForTest("action:a1:output", { data: { stream: "llm", line: "世界" } });
