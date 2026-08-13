@@ -108,6 +108,8 @@ export interface RunnerContextValue {
   rerun: (id: string) => void;
   // 用 lastRunParams[id] 预填表单并切到 form / workflow-form 视图，供用户改后再跑
   editRerun: (id: string) => void;
+  // 打开某 LLM 卡片的聊天页空态
+  openLlmChat: (id: string) => void;
   // 把 id 切回 currentId 并切视图（用于点侧栏"运行中的动作"回到其输出）
   focusRunning: (id: string, targetView: "output" | "llm-chat" | "logcat") => void;
   // 把仍在运行的 workflow 切回 workflow 视图（点侧栏运行中 workflow 用）
@@ -526,6 +528,18 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setView(targetView);
   };
 
+  // openLlmChat：打开某 LLM 卡片的聊天页（空态）——设为当前、清上次输出缓冲、切 llm-chat。
+  // 与 focusRunning("llm-chat") 的区别：那个是切回仍在跑的动作（status=running），这个是全新空态。
+  const openLlmChat = (id: string) => {
+    setCurrentId(id);
+    setSelectedPreset(null);
+    setLlmText("");
+    setThinkingText("");
+    setStatus("idle");
+    setExitInfo(null);
+    setView("llm-chat");
+  };
+
   // focusWorkflow：切回仍在运行的 workflow，不清 steps（保留已跑到的进度）。
   // 与 focusRunning（action）语义类似，但不重置 status：workflow 的 status 由 done 事件更新，
   // 切回时若仍在跑，status 已是 "running"；若已完成，保留 done/error 徽标。
@@ -770,6 +784,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     lastRunParams,
     rerun,
     editRerun,
+    openLlmChat,
     focusRunning,
     focusWorkflow,
     cancel,
