@@ -18,7 +18,8 @@ export function ActionsGridView() {
   const { actions, runAction, selectPreset, isRunning } = useActionRunner();
   const { groupByPrefix, footprintLevel, getScore, recordUsage, topActions } = useActionUsage();
 
-  const groups = groupByPrefix(actions);
+  const shellActions = actions.filter((a) => !a.llm);
+  const groups = groupByPrefix(shellActions);
   const groupEntries = Object.entries(groups).sort(([a], [b]) => {
     // MISC_KEY 永远排最后
     if (a === MISC_KEY) return 1;
@@ -35,7 +36,7 @@ export function ActionsGridView() {
           <h1 className="text-sm font-semibold">{t("grid.title")}</h1>
         </div>
         <span className="font-mono text-[11px] tracking-[0.14em] uppercase text-muted-foreground">
-          {t("grid.itemsCount", { count: actions.length })}
+          {t("grid.itemsCount", { count: shellActions.length })}
           {" · "}
           {t("grid.groupsCount", { count: groupCount })}
         </span>
