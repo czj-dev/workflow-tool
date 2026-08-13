@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon, Cancel01Icon, Clock01Icon, SentIcon } from "@hugeicons/core-free-icons";
@@ -34,6 +34,12 @@ export function LlmChatView() {
   const [viewing, setViewing] = useState<LlmHistoryEntry | null>(null);
   // prompt 快照：send 时冻结，避免流式中编辑 textarea 导致 user 气泡漂移
   const [sentPrompt, setSentPrompt] = useState("");
+
+  // 切换卡片（currentId 变化）时重置查看态，避免 viewing/sentPrompt 跨卡片残留
+  useEffect(() => {
+    setViewing(null);
+    setSentPrompt("");
+  }, [currentId]);
 
   if (!action?.llm || !action.params) return null;
   const { systemParam, promptParam } = action.llm;

@@ -178,8 +178,6 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   // done 闭包由 currentId useEffect 捕获，读 actions/formValues 时闭包可能陈旧，用 ref
   const actionsRef = useRef<ActionItem[]>([]);
   actionsRef.current = actions;
-  const formValuesRef = useRef<Record<string, string>>({});
-  formValuesRef.current = formValues;
   // logcat 条目缓冲与过滤（按 currentId 单缓冲，runAction 时清空）
   const [logcatEntries, setLogcatEntries] = useState<LogcatEntry[]>([]);
   const [logFilter, setLogFilterState] = useState<LogcatFilter>({
@@ -235,6 +233,9 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [runningWorkflowId, setRunningWorkflowId] = useState<string | null>(null);
   // 上次运行时实际使用的 params（action / workflow 共用一份，按 id 索引）
   const [lastRunParams, setLastRunParams] = useState<Record<string, Record<string, string>>>({});
+  // ref 镜像：done 闭包按 [currentId] 捕获，读 state 会陈旧
+  const lastRunParamsRef = useRef<Record<string, Record<string, string>>>({});
+  lastRunParamsRef.current = lastRunParams;
 
   // 挂载时拉取动作列表
   useEffect(() => {
@@ -417,10 +418,11 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       const cur = actionsRef.current.find((a) => a.id === currentId);
       if (cur?.llm) {
         const promptId = cur.llm.promptParam;
-        const fv = formValuesRef.current;
+        // 用发送时快照而非当前表单值：防止流式期间编辑 textarea 导致历史记录漂移
+        const sentParams = lastRunParamsRef.current[currentId] ?? {};
         appendLlmHistory({
-          prompt: fv[promptId] ?? "",
-          params: { ...fv },
+          prompt: sentParams[promptId] ?? "",
+          params: { ...sentParams },
           response: llmTextRef.current,
           thinking: thinkingTextRef.current,
           exitCode: d.exitCode,
