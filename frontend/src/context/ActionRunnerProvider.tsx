@@ -59,7 +59,6 @@ export type RunnerView =
   | "output"
   | "form"
   | "global"
-  | "llm"
   | "logcat"
   | "fragments"
   | "edit"
@@ -68,7 +67,9 @@ export type RunnerView =
   | "workflow-edit"
   | "settings"
   | "actions-grid"
-  | "workflows-grid";
+  | "workflows-grid"
+  | "llm-grid"
+  | "llm-chat";
 
 export interface RunnerContextValue {
   actions: ActionItem[];
@@ -108,7 +109,7 @@ export interface RunnerContextValue {
   // 用 lastRunParams[id] 预填表单并切到 form / workflow-form 视图，供用户改后再跑
   editRerun: (id: string) => void;
   // 把 id 切回 currentId 并切视图（用于点侧栏"运行中的动作"回到其输出）
-  focusRunning: (id: string, targetView: "output" | "llm" | "logcat") => void;
+  focusRunning: (id: string, targetView: "output" | "llm-chat" | "logcat") => void;
   // 把仍在运行的 workflow 切回 workflow 视图（点侧栏运行中 workflow 用）
   focusWorkflow: (id: string) => void;
   cancel: () => void;
@@ -429,7 +430,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       if (action?.llm) {
         setLlmText("");
         setThinkingText("");
-        setView("llm");
+        setView("llm-chat");
       } else if (action?.stream === "logcat") {
         logcatBufferRef.current = [];
         setLogcatEntries([]);
@@ -508,14 +509,14 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   // 重置 status=running 与 exitInfo=null，让 UI 显示「运行中」而不是上次运行的完成态。
   const focusRunning = (
     id: string,
-    targetView: "output" | "llm" | "logcat",
+    targetView: "output" | "llm-chat" | "logcat",
   ) => {
     setCurrentId(id);
     setStatus("running");
     setExitInfo(null);
     setSelectedPreset(null);
     setLines([]); // 单缓冲已被覆盖，保留会误导
-    if (targetView === "llm") {
+    if (targetView === "llm-chat") {
       setLlmText("");
       setThinkingText("");
     } else if (targetView === "logcat") {
