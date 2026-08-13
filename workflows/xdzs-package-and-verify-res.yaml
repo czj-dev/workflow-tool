@@ -1,0 +1,32 @@
+id: xdzs-package-and-verify-res
+title: 资源打包并验证
+icon: hi:package
+description: "打包语音项目资源 → push 到设备 backup 目录 → chmod 777 验证"
+params:
+  - id: RES_DIR
+    label: 资源文件夹（全路径）
+    type: path
+    required: true
+    default: /Users/v_chenzhaojun/Documents/Project/baidu/asd-edc/xdzs-resource/resource/buick-xd-tinnove/
+steps:
+  - id: device-init
+    name: 设备初始化
+    action: xdzs-device-init
+  - id: package
+    name: 打包资源
+    shell: |
+      cd /Users/v_chenzhaojun/Documents/Project/baidu/asd-edc/xdzs-resource
+      ./scripts/package_speech_res.sh "${RES_DIR}"
+  - id: mkdir-remote
+    name: 创建设备目录
+    shell: adb shell mkdir -p /resources/sota/speech/backup/
+  - id: push
+    name: push 资源包
+    shell: |
+      ZIP="${RES_DIR%/}/speech_project_res.zip"
+      if [ ! -f "$ZIP" ]; then echo "未找到打包产物: $ZIP" >&2; exit 1; fi
+      echo "推送: $ZIP"
+      adb push "$ZIP" /resources/sota/speech/backup/
+  - id: chmod
+    name: 授权 777
+    shell: adb shell chmod -R 777 /resources/sota/speech

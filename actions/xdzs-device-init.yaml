@@ -16,7 +16,7 @@ command:
 
     echo "[init] 授予权限"
     for pkg in com.baidu.che.codriver com.baidu.che.codriver.voicesetting.demo; do
-      for perm in RECORD_AUDIO READ_EXTERNAL_STORAGE WRITE_EXTERNAL_STORAGE CALL_PHONE SYSTEM_ALERT_WINDOW ACCESS_FINE_LOCATION WRITE_SECURE_SETTINGS READ_CONTACTS WRITE_CONTACTS; do
+      for perm in RECORD_AUDIO READ_EXTERNAL_STORAGE WRITE_EXTERNAL_STORAGE CALL_PHONE SYSTEM_ALERT_WINDOW ACCESS_FINE_LOCATION WRITE_SECURE_SETTINGS ; do
         adb shell pm grant "$pkg" "android.permission.$perm" || true
       done
     done

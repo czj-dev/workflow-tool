@@ -45,17 +45,22 @@ export function DeviceSelector() {
   const [devices, setDevices] = useState<Summary[]>([]);
   const [active, setActive] = useState("");
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const refresh = useCallback(() => {
     // 绑定可能被测试 mock 省略，做存在性保护。
     if (typeof ListDevices !== "function") return;
     setLoading(true);
+    setError("");
     Promise.resolve(ListDevices())
       .then((res: DeviceListResult | undefined) => {
         setDevices((res && res.devices) || []);
         setActive((res && res.active) || "");
       })
-      .catch(() => {})
+      .catch((err: unknown) => {
+        // 不静默吞错：adb 未装/调用失败时，避免把真实错误伪装成「无设备」。
+        setError(err instanceof Error ? err.message : String(err));
+      })
       .finally(() => setLoading(false));
   }, []);
 
@@ -103,7 +108,15 @@ export function DeviceSelector() {
 
   return (
     <div className="flex items-center gap-1 px-2 py-1.5">
-      <Select value={active} onValueChange={(v) => onSelect(String(v ?? ""))}>
+      <Select
+        value={active}
+        onValueChange={(v) => onSelect(String(v ?? ""))}
+        onOpenChange={(open) => {
+          // 每次展开重新拉取设备列表：设备常在应用启动后才接入，
+          // 否则挂载时拉取的旧列表会让下拉「点击后看不到已连接的设备」。
+          if (open) refresh();
+        }}
+      >
         <SelectTrigger className="h-8 min-w-0 flex-1" size="sm">
           <span className="flex min-w-0 items-center gap-1.5">
             <HugeiconsIcon
@@ -122,11 +135,15 @@ export function DeviceSelector() {
           </span>
         </SelectTrigger>
         <SelectContent>
-          {devices.length === 0 && (
-            <div className="px-2 py-1.5 text-xs text-muted-foreground">
-              {t("device.empty")}
+          {error ? (
+            <div className="px-2 py-1.5 text-xs text-destructive">
+              {t("device.error")}: {error}
             </div>
-          )}
+          ) : devices.length === 0 ? (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">
+              {loading ? t("device.loading") : t("device.empty")}
+            </div>
+          ) : null}
           {devices.map((d) => (
             <SelectItem key={d.serial} value={d.serial}>
               <span className="flex min-w-0 items-center gap-1.5">

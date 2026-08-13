@@ -122,6 +122,8 @@
   "device.select": "Select device",
   "device.empty": "No devices",
   "device.refresh": "Refresh devices",
+  "device.loading": "Loading devices…",
+  "device.error": "Failed to load",
   "logcat.level.V": "Verbose",
   "logcat.level.D": "Debug",
   "logcat.level.I": "Info",

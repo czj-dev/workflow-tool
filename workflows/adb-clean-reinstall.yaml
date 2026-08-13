@@ -15,6 +15,8 @@ params:
     default: /system/app/DuerOSAutoVr
     description: APK 与 lib 都推送到此目录；push 前会自动 mkdir -p
 steps:
+  - id: init
+    action: xdzs-device-init
   - id: force-stop
     name: 强制停止
     action: adb-force-stop

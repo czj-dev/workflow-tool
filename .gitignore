@@ -31,6 +31,9 @@ frontend/bindings/
 .agents/
 skills-lock.json
 
+# 工具缓存
+.cache/
+
 # OS
 .DS_Store
 Thumbs.db

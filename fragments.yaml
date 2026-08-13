@@ -33,3 +33,7 @@ fragments:
       content: CUISkillHandler
       tags:
         - Log
+    - title: 中间识别结果
+      content: name:asr.partial
+      tags:
+        - Log

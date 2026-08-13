@@ -12,6 +12,8 @@ params:
       - 加载 icafe-skill 技能后按操作要求处理指定卡片
       - 如果没有找到 icafe-skill 技能，请直接输出：未找到 icafe-skill 操作手册，请确保 icafe-skill 技能已安装
       - 如果操作要求添加评论，需要注意使用换行符 \n 来分隔多行内容
+      - 目前是在 headless 模式下运行，用户无法回答，自行按照目标完成任务
+      - 脚本的调用和执行使用绝对路径，不能使用 CD
   - id: CARD_ID
     label: iCafe 卡片信息
     type: text

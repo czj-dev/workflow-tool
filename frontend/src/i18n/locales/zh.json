@@ -122,6 +122,8 @@
   "device.select": "选择设备",
   "device.empty": "无设备",
   "device.refresh": "刷新设备列表",
+  "device.loading": "加载设备中…",
+  "device.error": "加载失败",
   "logcat.level.V": "详细",
   "logcat.level.D": "调试",
   "logcat.level.I": "信息",

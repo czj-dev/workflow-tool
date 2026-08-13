@@ -5,6 +5,8 @@ description: "安装 APK → 等待 5s → 拉起 DebugActivity"
 env:
   EXEC_ID: "展示语音链路悬框"
 steps:
+  - id: init
+    action: xdzs-device-init
   - id: find-apk
     name: 定位 APK
     shell: |
@@ -21,7 +23,7 @@ steps:
       ALLOW_DOWNGRADE: "true"
   - id: wait
     name: 等待安装落地
-    sleep: 5
+    sleep: 10
   - id: launch
     name: 拉起 DebugActivity
     action: adb-debug-activity

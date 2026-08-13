@@ -1,0 +1,29 @@
+id: xdzs-sync-time
+title: 同步电脑时间到安卓
+icon: hi:clock
+description: "adb root + 设置设备系统时间为电脑当前时间并同步硬件时钟"
+command:
+  shell: |
+    # ponytail: 不用 set -e —— adb root 等命令偶发非零码/无害 stderr，逐条尽力执行即可
+    if ! command -v adb &> /dev/null; then
+      echo "错误：未找到 adb"
+      exit 1
+    fi
+
+    datetime=$(date +%m%d%H%M%Y.%S)
+    echo "电脑当前时间: $(date +"%Y-%m-%d %H:%M:%S")"
+    echo "即将设置为  : $datetime"
+
+    echo "adb root..."
+    adb root
+    sleep 1
+
+    echo "设置系统时间..."
+    adb shell date "$datetime" set
+
+    echo "同步硬件时钟..."
+    adb shell hwclock -w
+
+    echo "同步完成，设备时间："
+    adb shell date +"%Y-%m-%d %H:%M:%S"
+  timeout: 30s
