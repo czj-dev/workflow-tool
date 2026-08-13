@@ -533,8 +533,11 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const openLlmChat = (id: string) => {
     setCurrentId(id);
     setSelectedPreset(null);
+    setLines([]);
     setLlmText("");
     setThinkingText("");
+    logcatBufferRef.current = [];
+    setLogcatEntries([]);
     setStatus("idle");
     setExitInfo(null);
     setView("llm-chat");
