@@ -1,5 +1,5 @@
 id: xdzs-device-init
-title: 设备初始化
+title: 语音权限赋予
 icon: hi:settings
 description: "adb root/remount/setenforce + 授予 codriver & voicesetting 权限"
 command:
