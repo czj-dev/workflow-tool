@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon, Cancel01Icon, Clock01Icon, SentIcon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, Cancel01Icon, Clock01Icon, SentIcon, Tag01Icon } from "@hugeicons/core-free-icons";
 import { Popover } from "radix-ui";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
@@ -69,7 +69,9 @@ export function LlmChatView() {
   const hasConversation = running || llmText !== "" || thinkingText !== "" || !!exitInfo || !!viewing;
 
   // viewing 非空时渲染只读历史条目，否则渲染当前轮
-  const shownPrompt = viewing ? viewing.prompt : sentPrompt || promptValue;
+  // 历史条目存的是发送时的原始模板（可能含 ${VAR}）；只读查看时按其 params 快照展开，
+  // 与实时气泡（sentPrompt 已 expandVars）保持一致，避免历史里出现 "处理 ${CARD_ID}"。
+  const shownPrompt = viewing ? expandVars(viewing.prompt, viewing.params) : sentPrompt || promptValue;
   const shownText = viewing ? viewing.response : llmText;
   const shownThinking = viewing ? viewing.thinking : thinkingText;
   const shownStreaming = viewing ? false : running;
@@ -92,6 +94,12 @@ export function LlmChatView() {
       e.preventDefault();
       onSend();
     }
+  };
+
+  // 应用预设：把 preset.values 写入对应 param 的 formValue（同 selectPreset 的合并语义，
+  // 但不切视图/不动 currentId——聊天页留在原地，只是把值填进 composer）。
+  const applyPreset = (values: Record<string, string | undefined>) => {
+    Object.entries(values).forEach(([id, v]) => setFormValue(id, v ?? ""));
   };
 
   return (
@@ -187,6 +195,22 @@ export function LlmChatView() {
       </Thread>
 
       <div className="border-t bg-muted/20 px-4 pt-2.5 pb-3">
+        {action.presets && action.presets.length > 0 && (
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            {action.presets.map((p) => (
+              <button
+                key={p.name}
+                type="button"
+                title={p.description || p.name}
+                onClick={() => applyPreset(p.values as Record<string, string | undefined>)}
+                className="inline-flex items-center gap-1 rounded-md border border-dashed bg-muted/60 px-2 py-1 font-mono text-[11px] tracking-[0.02em] text-muted-foreground hover:border-primary/60 hover:bg-primary/8 hover:text-foreground"
+              >
+                <HugeiconsIcon icon={Tag01Icon} strokeWidth={1.75} className="size-3" />
+                {p.name}
+              </button>
+            ))}
+          </div>
+        )}
         <div className="mb-2 flex flex-wrap items-center gap-1.5">
           {systemSpec && (
             <ContextChip
@@ -286,7 +310,7 @@ function LlmHistoryDrawer({ entries, viewingId, onSelect, onClose, onClear }: Ll
                 {new Date(e.timestamp).toLocaleString()}
                 {e.duration && <span>· {e.duration}</span>}
               </span>
-              <span className="line-clamp-2 text-xs">{e.prompt}</span>
+              <span className="line-clamp-2 text-xs">{expandVars(e.prompt, e.params)}</span>
               <span className="line-clamp-1 text-[11px] text-muted-foreground">{e.response}</span>
             </button>
           ))

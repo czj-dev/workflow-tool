@@ -564,6 +564,14 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   // openLlmChat：打开某 LLM 卡片的聊天页（空态）——设为当前、清上次输出缓冲、切 llm-chat。
   // 与 focusRunning("llm-chat") 的区别：那个是切回仍在跑的动作（status=running），这个是全新空态。
   const openLlmChat = (id: string) => {
+    // 按 selectPreset 的同一优先级预填 formValues（default > 全局配置），否则上个动作的
+    // 同名 param 值会残留到这张卡片（聊天页的 chip / composer 直接读 formValues）。
+    const a = actions.find((x) => x.id === id);
+    const vals: Record<string, string> = {};
+    a?.params?.forEach((spec) => {
+      vals[spec.id] = spec.default || globalConfig[spec.id] || "";
+    });
+    setFormValues(vals);
     setCurrentId(id);
     setSelectedPreset(null);
     setLines([]);

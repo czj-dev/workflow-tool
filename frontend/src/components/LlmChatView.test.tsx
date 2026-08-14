@@ -14,9 +14,21 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
           { id: "ROLE", label: "角色", type: "textarea", required: false, default: "你是助手" },
           { id: "TASK", label: "任务", type: "textarea", required: true, default: "请处理 ${X}" },
         ],
-        presets: [],
+        presets: [{ name: "打招呼", description: "", values: { TASK: "介绍你自己" } }],
         stream: "",
         llm: { systemParam: "ROLE", promptParam: "TASK" },
+      },
+      {
+        id: "c2",
+        title: "卡片二",
+        icon: "◇",
+        description: "描述二",
+        params: [
+          { id: "TASK", label: "任务", type: "textarea", required: true, default: "C2_TASK_DEFAULT" },
+        ],
+        presets: [],
+        stream: "",
+        llm: { promptParam: "TASK" },
       },
     ],
     errors: [],
@@ -125,6 +137,42 @@ describe("LlmChatView", () => {
     const sendBtn = await screen.findByRole("button", { name: /发送/ });
     expect(sendBtn).toBeEnabled();
   });
+
+  it("点预设 chip 把预设值填入 composer", async () => {
+    render(
+      <ActionRunnerProvider>
+        <SidebarProvider>
+          <OpenOnly />
+        </SidebarProvider>
+      </ActionRunnerProvider>,
+    );
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    // 打开时 composer 显示 TASK 的 default
+    const textarea = await screen.findByPlaceholderText(/输入/);
+    expect(textarea).toHaveValue("请处理 ${X}");
+    // 点预设 chip → TASK 被替换为预设值
+    fireEvent.click(screen.getByRole("button", { name: /打招呼/ }));
+    expect(textarea).toHaveValue("介绍你自己");
+  });
+
+  it("切换卡片时 formValues 不串改（c1 编辑后打开 c2 显示 c2 默认值）", async () => {
+    render(
+      <ActionRunnerProvider>
+        <SidebarProvider>
+          <CrossCardDrive />
+        </SidebarProvider>
+      </ActionRunnerProvider>,
+    );
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    // c2 的 composer 应显示其 TASK 默认值，而非 c1 上编辑过的值（formValues 须被重置）
+    const textarea = await screen.findByPlaceholderText(/输入/) as HTMLTextAreaElement;
+    expect(textarea).toHaveValue("C2_TASK_DEFAULT");
+    expect(textarea).not.toHaveValue("EDITED_ON_C1");
+  });
 });
 
 // 只打开聊天页、不发送——复现「带 default 的必填 param 未编辑时按钮置灰」的场景。
@@ -132,6 +180,18 @@ function OpenOnly() {
   const { openLlmChat } = useActionRunner();
   useEffect(() => {
     openLlmChat("c1");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return <LlmChatView />;
+}
+
+// 打开 c1 并编辑共享参数 TASK，再打开 c2——复现「跨卡片同名 param 残留」场景。
+function CrossCardDrive() {
+  const { openLlmChat, setFormValue } = useActionRunner();
+  useEffect(() => {
+    openLlmChat("c1");
+    setFormValue("TASK", "EDITED_ON_C1");
+    openLlmChat("c2");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
   return <LlmChatView />;
