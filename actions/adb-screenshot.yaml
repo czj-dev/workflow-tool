@@ -7,6 +7,7 @@ params:
     label: 保存路径（含文件名 .png）
     type: path
     required: true
+    default: ${OUTPUT_DIR}
 command:
   adb:
     operation: screenshot
