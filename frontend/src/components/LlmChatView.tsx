@@ -121,10 +121,15 @@ export function LlmChatView() {
             label={t("llmChat.back")}
             onClick={() => setView("llm-grid")}
           />
-          <span className="flex items-center gap-1.5 rounded px-1 font-semibold">
+          <button
+            type="button"
+            onClick={() => setView("edit")}
+            title={t("edit.tooltip")}
+            className="flex items-center gap-1.5 rounded px-1 font-semibold hover:bg-accent cursor-pointer"
+          >
             <ActionIcon name={action.icon ?? "hi:play"} />
             {action.title}
-          </span>
+          </button>
           {running ? (
             <span className="inline-flex items-center gap-1.5 font-mono text-xs text-primary">
               <span className="size-1.5 rounded-full bg-primary live-pulse" />
