@@ -26,6 +26,9 @@ frontend/bindings/
 .vscode/
 *.swp
 
+# 设计稿（本地 mockup，不入仓库）
+.design/
+
 # Claude Code（本地 skill / 工具配置，不入仓库）
 .claude/
 .agents/
