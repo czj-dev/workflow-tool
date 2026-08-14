@@ -110,4 +110,29 @@ describe("LlmChatView", () => {
     fireEvent.click(screen.getByRole("button", { name: /历史\s*1/ }));
     expect(await screen.findByText("历史记录 · 1")).toBeInTheDocument();
   });
+
+  it("必填 param 仅有 default（用户未编辑）时发送按钮可用", async () => {
+    render(
+      <ActionRunnerProvider>
+        <SidebarProvider>
+          <OpenOnly />
+        </SidebarProvider>
+      </ActionRunnerProvider>,
+    );
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    const sendBtn = await screen.findByRole("button", { name: /发送/ });
+    expect(sendBtn).toBeEnabled();
+  });
 });
+
+// 只打开聊天页、不发送——复现「带 default 的必填 param 未编辑时按钮置灰」的场景。
+function OpenOnly() {
+  const { openLlmChat } = useActionRunner();
+  useEffect(() => {
+    openLlmChat("c1");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return <LlmChatView />;
+}

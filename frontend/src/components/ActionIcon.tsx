@@ -6,6 +6,7 @@ import {
   Camera02Icon,
   Cancel01Icon,
   Car01Icon,
+  Clock01Icon,
   Copy01Icon,
   Download04Icon,
   File02Icon,
@@ -54,6 +55,7 @@ const REGISTRY = {
   folder: Folder02Icon,
   upload: Upload04Icon,
   camera: Camera02Icon,
+  clock: Clock01Icon,
 } as const;
 
 const PREFIX = "hi:";

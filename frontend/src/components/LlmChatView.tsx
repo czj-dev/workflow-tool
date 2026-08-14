@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon, Cancel01Icon, Clock01Icon, SentIcon } from "@hugeicons/core-free-icons";
@@ -12,6 +12,7 @@ import { ActionIcon } from "./ActionIcon";
 import { ParamFields } from "./ParamFields";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { missingRequired } from "../lib/params";
+import { expandVars } from "../lib/vars";
 import { Message, MessageContent, MessageMarkdown } from "@/components/nexus-ui/message";
 import { Reasoning, ReasoningTrigger, ReasoningContent } from "@/components/nexus-ui/reasoning";
 import { Thread, ThreadContent, ThreadScrollToBottom } from "@/components/nexus-ui/thread";
@@ -35,11 +36,15 @@ export function LlmChatView() {
   // prompt 快照：send 时冻结，避免流式中编辑 textarea 导致 user 气泡漂移
   const [sentPrompt, setSentPrompt] = useState("");
 
-  // 切换卡片（currentId 变化）时重置查看态，避免 viewing/sentPrompt 跨卡片残留
-  useEffect(() => {
+  // 切换卡片（currentId 变化）时重置查看态，避免 viewing/sentPrompt 跨卡片残留。
+  // 用 render-time setState 模式（参见 ActionYamlEditor、React 官方「You Might Not Need an Effect」）：
+  // 比 useEffect 早一帧生效，且不触发级联渲染（react-hooks/set-state-in-effect）。
+  const [prevId, setPrevId] = useState(currentId);
+  if (currentId !== prevId) {
+    setPrevId(currentId);
     setViewing(null);
     setSentPrompt("");
-  }, [currentId]);
+  }
 
   if (!action?.llm || !action.params) return null;
   const { systemParam, promptParam } = action.llm;
@@ -53,7 +58,13 @@ export function LlmChatView() {
     ? action.params.find((p) => p.id === systemParam)
     : null;
 
-  const canRun = missingRequired(action.params, formValues).length === 0;
+  // canRun 用 default 兜底后再判必填，与 onSend 里 `formValues[p.id] ?? p.default` 的合并语义对齐；
+  // 否则带 default 的必填 param（如 claude-card-transfrom 的 ROLE/TASK）用户没点开编辑时按钮会一直置灰。
+  const effectiveValues: Record<string, string> = {};
+  action.params.forEach((p) => {
+    effectiveValues[p.id] = formValues[p.id] ?? p.default ?? "";
+  });
+  const canRun = missingRequired(action.params, effectiveValues).length === 0;
   const promptValue = formValues[promptParam] ?? promptSpec.default ?? "";
   const hasConversation = running || llmText !== "" || thinkingText !== "" || !!exitInfo || !!viewing;
 
@@ -69,7 +80,9 @@ export function LlmChatView() {
     action.params!.forEach((p) => {
       params[p.id] = formValues[p.id] ?? p.default ?? "";
     });
-    setSentPrompt(params[promptParam] ?? "");
+    // 展示用 prompt 要和后端 ExpandParams 一致地替换 ${VAR}——否则气泡里出现原始模板
+    // （如 "处理 ${CARD_ID} 卡片"）。expandVars 与 runner.Expand 行为对齐：未命中保留原样。
+    setSentPrompt(expandVars(params[promptParam] ?? "", params));
     setViewing(null);
     runAction(action.id, params);
   };
@@ -310,23 +323,26 @@ function ContextChip({
 }: ContextChipProps) {
   const [open, setOpen] = useState(false);
   const filled = value.trim().length > 0;
-  const summary = filled
-    ? configuredLabel ?? (value.length > 16 ? value.slice(0, 16) + "…" : value)
-    : emptyLabel;
+  const summary = filled ? configuredLabel ?? value : emptyLabel;
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
         <button
           type="button"
-          className={`inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[11px] ${dashed ? "border-dashed" : ""} ${filled ? "border-success/40" : "border-border"} bg-muted/55 text-muted-foreground hover:border-primary/55 hover:text-foreground`}
+          className={`inline-flex max-w-56 items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[11px] ${dashed ? "border-dashed" : ""} ${filled ? "border-success/40" : "border-border"} bg-muted/55 text-muted-foreground hover:border-primary/55 hover:text-foreground`}
         >
-          {label}
-          <b className={`font-medium ${filled ? "text-foreground" : "italic opacity-60"}`}>{summary}</b>
+          <span className="shrink-0">{label}</span>
+          <b className={`min-w-0 truncate font-medium ${filled ? "text-foreground" : "italic opacity-60"}`}>{summary}</b>
         </button>
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content
+          // 固定向上开：chip 位于底部 composer，向下没有空间，翻转会导致方向忽上忽下。
+          // align="start" 锚定左边缘，chip 宽度随输入变化时弹窗不再横向漂移。
+          side="top"
+          align="start"
           sideOffset={6}
+          collisionPadding={8}
           className="z-50 w-96 rounded-lg border bg-popover p-3 shadow-md"
           onCloseAutoFocus={(e) => e.preventDefault()}
         >
