@@ -26,8 +26,10 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
 vi.mock("@wailsio/runtime", () => ({ Events: { On: mockOn } }));
 
 import { SidebarProvider } from "@/components/ui/sidebar";
+import { ThemeProvider } from "@/components/theme-provider";
 import { ActionRunnerProvider } from "../context/ActionRunnerProvider";
 import { WorkflowYamlEditor } from "./WorkflowYamlEditor";
+import { getCmValue } from "../test/codemirror";
 
 const mkWf = (id: string, title: string) => ({
   id,
@@ -47,11 +49,13 @@ beforeEach(() => {
 
 function wrap() {
   return (
-    <ActionRunnerProvider>
-      <SidebarProvider>
-        <WorkflowYamlEditor />
-      </SidebarProvider>
-    </ActionRunnerProvider>
+    <ThemeProvider>
+      <ActionRunnerProvider>
+        <SidebarProvider>
+          <WorkflowYamlEditor />
+        </SidebarProvider>
+      </ActionRunnerProvider>
+    </ThemeProvider>
   );
 }
 
@@ -67,9 +71,9 @@ describe("WorkflowYamlEditor", () => {
     await waitFor(() => {
       expect(mockGetWorkflowYaml).toHaveBeenCalledWith("wf-a");
     });
-    // 加载完成后 textarea 显示该 yaml 原文
+    // 加载完成后编辑器显示该 yaml 原文
     await waitFor(() => {
-      expect(screen.getByRole("textbox")).toHaveValue("id: wf-a\ntitle: 工作流A\n");
+      expect(getCmValue()).toBe("id: wf-a\ntitle: 工作流A\n");
     });
   });
 

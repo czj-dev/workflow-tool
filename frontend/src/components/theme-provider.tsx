@@ -228,3 +228,19 @@ export const useTheme = () => {
 
   return context
 }
+
+// 把 theme（dark/light/system）解析为实际生效的 dark|light，并在 OS 偏好变化时（system 模式）跟随更新。
+// 用 useSyncExternalStore 订阅系统配色变化，避免在 effect 内 setState（react-hooks/set-state-in-effect）。
+function subscribeSystemTheme(cb: () => void): () => void {
+  const mq = window.matchMedia(COLOR_SCHEME_QUERY)
+  mq.addEventListener("change", cb)
+  return () => mq.removeEventListener("change", cb)
+}
+export function useResolvedTheme(): ResolvedTheme {
+  const { theme } = useTheme()
+  return React.useSyncExternalStore(
+    subscribeSystemTheme,
+    () => (theme === "system" ? getSystemTheme() : theme),
+    () => "light",
+  )
+}

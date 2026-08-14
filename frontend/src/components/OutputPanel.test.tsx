@@ -24,17 +24,20 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
 vi.mock("@wailsio/runtime", () => ({ Events: { On: () => () => ({}) } }));
 
 import { SidebarProvider } from "@/components/ui/sidebar";
+import { ThemeProvider } from "@/components/theme-provider";
 import { ActionRunnerProvider } from "../context/ActionRunnerProvider";
 import { OutputPanel } from "./OutputPanel";
 
 describe("OutputPanel", () => {
   it("渲染默认提示与工具栏按钮", async () => {
     render(
-      <ActionRunnerProvider>
-        <SidebarProvider>
-          <OutputPanel />
-        </SidebarProvider>
-      </ActionRunnerProvider>
+      <ThemeProvider>
+        <ActionRunnerProvider>
+          <SidebarProvider>
+            <OutputPanel />
+          </SidebarProvider>
+        </ActionRunnerProvider>
+      </ThemeProvider>
     );
     expect(await screen.findByText("选择一个动作")).toBeInTheDocument();
     expect(screen.getByText("停止")).toBeInTheDocument();
@@ -45,11 +48,13 @@ describe("OutputPanel", () => {
   it("点击标题进入编辑视图", async () => {
     const user = userEvent.setup();
     render(
-      <ActionRunnerProvider>
-        <SidebarProvider>
-          <OutputPanel />
-        </SidebarProvider>
-      </ActionRunnerProvider>
+      <ThemeProvider>
+        <ActionRunnerProvider>
+          <SidebarProvider>
+            <OutputPanel />
+          </SidebarProvider>
+        </ActionRunnerProvider>
+      </ThemeProvider>
     );
     await screen.findByText("选择一个动作");
     await user.click(screen.getByRole("button", { name: "选择一个动作" }));

@@ -172,6 +172,35 @@
     }
 }
 
+/* —— CodeMirror 6（YAML 编辑器）容器与滚动覆写：撑满 flex、等宽字体、滚动条与全局一致 —— */
+.cm-editor {
+  height: 100%;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: transparent;
+}
+.cm-editor .cm-scroller {
+  font-family: var(--font-mono);
+  line-height: 1.6;
+}
+.cm-editor.cm-focused {
+  outline: none;
+}
+.cm-editor .cm-scroller::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.cm-editor .cm-scroller::-webkit-scrollbar-thumb {
+  background: color-mix(in oklch, var(--foreground) 18%, transparent);
+  border-radius: 9999px;
+}
+.cm-editor .cm-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+.cm-editor .cm-content {
+  padding-bottom: 4rem;
+}
+
 @source "../node_modules/streamdown/dist/index.js";
 
 @source "../node_modules/@streamdown/code/dist/*.js";

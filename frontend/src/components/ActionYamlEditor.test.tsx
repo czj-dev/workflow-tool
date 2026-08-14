@@ -2,6 +2,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import i18n from "../i18n";
+import { ThemeProvider } from "@/components/theme-provider";
+import { getCmValue, typeIntoCm } from "../test/codemirror";
 
 const { mockListActions, mockGetActionYaml, mockSetActionYaml, mockOn, listeners } =
   vi.hoisted(() => {
@@ -42,13 +44,18 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { ActionRunnerProvider } from "../context/ActionRunnerProvider";
 import { ActionYamlEditor } from "./ActionYamlEditor";
 
+const ORIGINAL_YAML =
+  "# 注释\nid: a\ntitle: 动作A\ncommand:\n  shell: echo hi\n";
+
 function renderEditor() {
   return render(
-    <SidebarProvider>
-      <ActionRunnerProvider>
-        <ActionYamlEditor />
-      </ActionRunnerProvider>
-    </SidebarProvider>
+    <ThemeProvider>
+      <SidebarProvider>
+        <ActionRunnerProvider>
+          <ActionYamlEditor />
+        </ActionRunnerProvider>
+      </SidebarProvider>
+    </ThemeProvider>
   );
 }
 
@@ -67,21 +74,24 @@ beforeEach(async () => {
 describe("ActionYamlEditor", () => {
   it("进入时加载首个 action 原文到编辑区", async () => {
     renderEditor();
-    const ta = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
-    await waitFor(() => expect(ta.value).toContain("# 注释"));
+    await waitFor(() => expect(getCmValue()).toContain("# 注释"));
   });
 
   it("编辑后保存调用 saveActionYaml 并清 dirty", async () => {
     const user = userEvent.setup();
     renderEditor();
-    const ta = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
-    await waitFor(() => expect(ta.value).toContain("echo hi"));
+    await waitFor(() => expect(getCmValue()).toContain("echo hi"));
     const saveBtn = screen.getByRole("button", { name: "保存" });
     expect(saveBtn).toBeDisabled();
-    await user.type(ta, "{End}\n# 新行");
-    expect(saveBtn).not.toBeDisabled();
+    typeIntoCm("\n# 新行");
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
     await user.click(saveBtn);
-    await waitFor(() => expect(mockSetActionYaml).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(mockSetActionYaml).toHaveBeenCalledWith(
+        "a",
+        expect.stringContaining("# 新行"),
+      ),
+    );
     // 保存成功后 dirty 清零 → 再次禁用
     await waitFor(() => expect(saveBtn).toBeDisabled());
   });
@@ -90,10 +100,11 @@ describe("ActionYamlEditor", () => {
     mockSetActionYaml.mockRejectedValueOnce("YAML 解析失败: line 1");
     const user = userEvent.setup();
     renderEditor();
-    const ta = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
-    await waitFor(() => expect(ta.value).toContain("echo hi"));
-    await user.type(ta, "{End}x");
-    await user.click(screen.getByRole("button", { name: "保存" }));
+    await waitFor(() => expect(getCmValue()).toContain("echo hi"));
+    typeIntoCm("x");
+    const saveBtn = screen.getByRole("button", { name: "保存" });
+    await waitFor(() => expect(saveBtn).not.toBeDisabled());
+    await user.click(saveBtn);
     expect(await screen.findByText(/YAML 解析失败/)).toBeInTheDocument();
   });
 
@@ -105,27 +116,29 @@ describe("ActionYamlEditor", () => {
   });
 
   it("Provider 重渲染不覆盖未保存编辑（回归）", async () => {
-    const user = userEvent.setup();
     const { rerender } = render(
-      <SidebarProvider>
-        <ActionRunnerProvider>
-          <ActionYamlEditor />
-        </ActionRunnerProvider>
-      </SidebarProvider>
+      <ThemeProvider>
+        <SidebarProvider>
+          <ActionRunnerProvider>
+            <ActionYamlEditor />
+          </ActionRunnerProvider>
+        </SidebarProvider>
+      </ThemeProvider>
     );
-    const ta = (await screen.findByRole("textbox")) as HTMLTextAreaElement;
-    await waitFor(() => expect(ta.value).toContain("echo hi"));
-    await user.type(ta, "{End}x");
-    const edited = ta.value;
-    expect(edited).not.toBe("# 注释\nid: a\ntitle: 动作A\ncommand:\n  shell: echo hi\n");
+    await waitFor(() => expect(getCmValue()).toContain("echo hi"));
+    typeIntoCm("x");
+    const edited = getCmValue();
+    expect(edited).not.toBe(ORIGINAL_YAML);
     // 强制 Provider 重渲染 → getActionYaml 新引用；修复前 effect 会重跑覆盖，修复后保留
     rerender(
-      <SidebarProvider>
-        <ActionRunnerProvider>
-          <ActionYamlEditor />
-        </ActionRunnerProvider>
-      </SidebarProvider>
+      <ThemeProvider>
+        <SidebarProvider>
+          <ActionRunnerProvider>
+            <ActionYamlEditor />
+          </ActionRunnerProvider>
+        </SidebarProvider>
+      </ThemeProvider>
     );
-    expect(ta.value).toBe(edited);
+    expect(getCmValue()).toBe(edited);
   });
 });
