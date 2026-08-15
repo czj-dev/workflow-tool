@@ -1,9 +1,31 @@
 id: adb-foreground-activity
-title: 前台 Activity
+title: 前台信息
 icon: hi:test
-description: 查询当前前台 Activity（dumpsys activity），用于排查拉起是否成功
+description: 一键查看前台 Activity、焦点窗口（多 display 分组）与 View 树（uiautomator 无障碍树），格式化报告
+params:
+  - id: ACTIVITY
+    label: 前台 Activity
+    type: bool
+    default: "true"
+  - id: WINDOWS
+    label: 焦点窗口
+    type: bool
+    default: "true"
+  - id: VIEW_TREE
+    label: View 树
+    type: bool
+    default: "true"
+  - id: TREE_MAX_DEPTH
+    label: 树深度上限（空=不限）
+    type: text
+presets:
+  - name: 全部
+    description: Activity + 焦点窗口 + View 树
+    values: { ACTIVITY: true, WINDOWS: true, VIEW_TREE: true }
+  - name: 仅 View 树
+    description: uiautomator 无障碍树
+    values: { ACTIVITY: false, WINDOWS: false, VIEW_TREE: true }
 command:
-  shell: |
-    S="${ADB_SERIAL}"
-    [ -n "$S" ] && adb -s "$S" shell "dumpsys activity activities | grep -E 'ResumedActivity|mResumedActivity'" || adb shell "dumpsys activity activities | grep -E 'ResumedActivity|mResumedActivity'"
+  adb:
+    operation: foreground-info
   timeout: 30s
