@@ -50,7 +50,8 @@ TEXT 含非 ASCII → 剪贴板桥：
                   a. RESTORE_CLIPBOARD=true 时先 cmd clipboard get 备份
                   b. cmd clipboard set <text>
                   c. input keyevent 279（KEYCODE_PASTE）
-                  d. RESTORE_CLIPBOARD=true 时恢复备份
+                  d. RESTORE_CLIPBOARD=true 时等待 ~500ms（让 App 先读到新剪贴板）
+                     再恢复备份，避免恢复竞态覆盖粘贴内容
                   任一步失败 → 结构化报错 + 提示「需 Android 10+；若 App 拦截粘贴键，可安装 ADBKeyboard」
 ```
 
