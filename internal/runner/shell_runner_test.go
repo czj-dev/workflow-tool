@@ -173,8 +173,14 @@ func TestBuildCommandWindowsShellUsesPowerShell(t *testing.T) {
 }
 
 func TestShellRunner_CaptureOutput_DefaultOn(t *testing.T) {
+	// Windows 走 PowerShell：`1>&2` 在 Windows PowerShell 5.1 是保留字（解析失败），
+	// 用 [Console]::Error.WriteLine 写 stderr；Unix 走 sh -c 用 POSIX 语法。
+	shell := `echo "hello"; echo "err" 1>&2`
+	if runtime.GOOS == "windows" {
+		shell = `echo "hello"; [Console]::Error.WriteLine("err")`
+	}
 	r := &ShellRunner{Cfg: ShellConfig{
-		Shell:   `echo "hello"; echo "err" 1>&2`,
+		Shell:   shell,
 		Timeout: 5 * time.Second,
 	}}
 	res := r.Run(context.Background(), nil, func(string, string) {})

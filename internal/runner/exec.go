@@ -98,12 +98,25 @@ func scanLines(r io.Reader, stream string, onLine OnLine, done chan<- struct{}) 
 
 // splitLines 是 bufio.SplitFunc：\n 或 \r 均视为行结束（adb push/install
 // 等命令用 \r 刷新同一行显示进度，标准 bufio.ScanLines 只认 \n 会把整条进度流当一行）。
+// \r\n（CRLF，Windows 子进程如 PowerShell 的标准行尾）视作单个行结束，
+// 避免行尾后多出一个空行。
 func splitLines(data []byte, atEOF bool) (advance int, token []byte, err error) {
 	if atEOF && len(data) == 0 {
 		return 0, nil, nil
 	}
 	for i, b := range data {
 		if b == '\n' || b == '\r' {
+			if b == '\r' {
+				if i+1 < len(data) {
+					if data[i+1] == '\n' {
+						return i + 2, data[:i], nil // CRLF：一起消费
+					}
+					return i + 1, data[:i], nil // 单 \r：进度刷新行
+				}
+				if !atEOF {
+					return 0, nil, nil // \r 在缓冲末尾：等下一字节判断是否 CRLF
+				}
+			}
 			return i + 1, data[:i], nil
 		}
 	}

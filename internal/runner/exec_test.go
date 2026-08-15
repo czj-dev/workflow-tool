@@ -80,3 +80,62 @@ func TestExecRun_CarriageReturnSplitsLines(t *testing.T) {
 		}
 	}
 }
+
+// TestSplitLines 跨平台直接测 splitLines：CRLF（Windows PowerShell 等子进程行尾）
+// 视作单个行结束、单 \r 仍切行（adb 进度覆写）、\r 落在缓冲末尾时等待后续字节。
+func TestSplitLines(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		want  []string
+	}{
+		{"LF only", "a\nb\n", []string{"a", "b"}},
+		{"CRLF is one break", "a\r\nb\r\n", []string{"a", "b"}},
+		{"lone CR splits", "a\rb\r", []string{"a", "b"}},
+		{"mixed", "a\r\nb\rc\n", []string{"a", "b", "c"}},
+		{"no trailing break", "tail", []string{"tail"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var got []string
+			rest := []byte(tc.input)
+			for {
+				// 先模拟"还有数据"（atEOF=false）扫描，读不尽时再以 atEOF=true 收尾，
+				// 复刻 bufio.Scanner 的调用方式
+				adv, token, err := splitLines(rest, false)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if adv > 0 {
+					got = append(got, string(token))
+					rest = rest[adv:]
+					continue
+				}
+				// atEOF=false 无进展 → 以 atEOF=true 收尾
+				adv, token, err = splitLines(rest, true)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if adv == 0 && token == nil {
+					break
+				}
+				if adv == 0 {
+					t.Fatalf("atEOF 仍无进展，剩余 %q", rest)
+				}
+				got = append(got, string(token))
+				rest = rest[adv:]
+				if len(rest) == 0 {
+					break
+				}
+			}
+			if len(got) != len(tc.want) {
+				t.Fatalf("got %v, want %v", got, tc.want)
+			}
+			for i, w := range tc.want {
+				if got[i] != w {
+					t.Fatalf("line[%d]=%q want %q (all: %v)", i, got[i], w, got)
+				}
+			}
+		})
+	}
+}
