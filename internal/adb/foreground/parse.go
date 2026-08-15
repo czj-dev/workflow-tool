@@ -42,3 +42,60 @@ func splitComponent(comp string) (pkg, short string) {
 	}
 	return comp, comp
 }
+
+// focusKV 是一行焦点键值对。
+type focusKV struct {
+	Key   string
+	Value string
+}
+
+// WindowDisplay 是单个 display 的焦点窗口摘要。
+type WindowDisplay struct {
+	ID    string // display id，如 "8"；无块头 fallback 块为 ""
+	Focus []focusKV
+}
+
+// 块头两种形态：真机 Android 14 车机 `Display: mDisplayId=8 (organized)`；
+// 部分 ROM 为 `Display 8`。都认，避免对 OEM 格式押注单一形态。
+var windowDisplayHeaderRes = []*regexp.Regexp{
+	regexp.MustCompile(`^\s*Display: mDisplayId=(\d+)`),
+	regexp.MustCompile(`^\s*Display (\d+)`),
+}
+
+// windowFocusKeys 是要提取的焦点键（按 dumpsys 输出顺序自然出现）。
+var windowFocusKeys = []string{"mCurrentFocus", "mFocusedApp", "mInputMethodTarget", "mTopFullscreenOpaqueWindowState"}
+
+// parseWindowDisplays 解析 dumpsys window displays：按块头分组，块内提取焦点键值行。
+// 无块头而直接出现焦点行时归入单个隐式块（ID ""）。
+func parseWindowDisplays(dump string) []WindowDisplay {
+	var out []WindowDisplay
+	cur := -1
+	for _, raw := range strings.Split(dump, "\n") {
+		matched := false
+		for _, re := range windowDisplayHeaderRes {
+			if m := re.FindStringSubmatch(raw); m != nil {
+				out = append(out, WindowDisplay{ID: m[1]})
+				cur = len(out) - 1
+				matched = true
+				break
+			}
+		}
+		if matched {
+			continue
+		}
+		line := strings.TrimSpace(raw)
+		for _, key := range windowFocusKeys {
+			v, ok := strings.CutPrefix(line, key+"=")
+			if !ok {
+				continue
+			}
+			if cur < 0 { // 无块头 fallback：隐式单块
+				out = append(out, WindowDisplay{})
+				cur = 0
+			}
+			out[cur].Focus = append(out[cur].Focus, focusKV{Key: key, Value: strings.TrimSpace(v)})
+			break
+		}
+	}
+	return out
+}
