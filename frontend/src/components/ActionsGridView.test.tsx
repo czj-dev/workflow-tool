@@ -145,10 +145,11 @@ describe("ActionsGridView", () => {
       errors: [],
     });
     render(wrap());
-    await user.click(await screen.findByText("直跑"));
+    // 用 role 查询：Tooltip 打开后其内容也含 title 文本，getByText 会命中多个
+    await user.click(await screen.findByRole("button", { name: "直跑" }));
     expect(mockRunAction).toHaveBeenCalledTimes(1);
     // 仍在运行（done 未发）→ 再点卡片应回到输出视图，不再发 RunAction
-    await user.click(screen.getByText("直跑"));
+    await user.click(screen.getByRole("button", { name: "直跑" }));
     expect(mockRunAction).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("view-probe")).toHaveTextContent("output");
   });
@@ -162,5 +163,101 @@ describe("ActionsGridView", () => {
     render(wrap());
     await user.click(await screen.findByText("直跑"));
     expect(mockRunAction).toHaveBeenCalledWith("demo-run", {});
+  });
+
+  it("点击 preset 分段格直跑该预设(不进表单)", async () => {
+    const user = userEvent.setup();
+    mockListActions.mockResolvedValue({
+      actions: [
+        mkAction("demo-pre", "带预设", {
+          presets: [
+            { name: "微信", values: { APP: "com.tencent.mm" } },
+            { name: "抖音", values: { APP: "com.ss.android.ugc.aweme" } },
+          ],
+        }),
+      ],
+      errors: [],
+    });
+    render(wrap());
+    await user.click(await screen.findByText("微信"));
+    expect(mockRunAction).toHaveBeenCalledTimes(1);
+    expect(mockRunAction).toHaveBeenCalledWith("demo-pre", { APP: "com.tencent.mm" });
+    // background=false → preset 运行会切 output 视图
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("output");
+  });
+
+  it("点击 +N 格进表单选其余预设(不运行)", async () => {
+    const user = userEvent.setup();
+    mockListActions.mockResolvedValue({
+      actions: [
+        mkAction("demo-more", "多预设", {
+          presets: [
+            { name: "甲", values: { K: "1" } },
+            { name: "乙", values: { K: "2" } },
+            { name: "丙", values: { K: "3" } },
+            { name: "丁", values: { K: "4" } },
+          ],
+        }),
+      ],
+      errors: [],
+    });
+    render(wrap());
+    await user.click(await screen.findByText("+2"));
+    expect(mockRunAction).not.toHaveBeenCalled();
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("form");
+  });
+
+  it("点击 preset 分段格不冒泡触发键身默认运行", async () => {
+    const user = userEvent.setup();
+    mockListActions.mockResolvedValue({
+      actions: [
+        mkAction("demo-stop", "防冒泡", {
+          presets: [{ name: "一号", values: { K: "x" } }],
+        }),
+      ],
+      errors: [],
+    });
+    render(wrap());
+    await user.click(await screen.findByText("一号"));
+    // 仅 preset 那一次调用，无第二次默认直跑
+    expect(mockRunAction).toHaveBeenCalledTimes(1);
+    expect(mockRunAction).toHaveBeenCalledWith("demo-stop", { K: "x" });
+  });
+
+  it("点击 hover 浮现的编辑入口进表单", async () => {
+    const user = userEvent.setup();
+    mockListActions.mockResolvedValue({
+      actions: [mkAction("demo-gear", "齿轮")],
+      errors: [],
+    });
+    render(wrap());
+    const gear = await screen.findByRole("button", { name: "编辑参数" });
+    await user.click(gear);
+    expect(mockRunAction).not.toHaveBeenCalled();
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("form");
+  });
+
+  it("无动作时渲染空态指引(不崩)", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    render(wrap());
+    expect(await screen.findByText("暂无动作")).toBeInTheDocument();
+    expect(screen.getByText(/actions\/ 目录新增 YAML/)).toBeInTheDocument();
+  });
+
+  it("点击 preset 格内 ✎ 进表单并预填该预设(不运行)", async () => {
+    const user = userEvent.setup();
+    mockListActions.mockResolvedValue({
+      actions: [
+        mkAction("demo-pedit", "预设编辑", {
+          presets: [{ name: "微信", values: { APP: "com.tencent.mm" } }],
+        }),
+      ],
+      errors: [],
+    });
+    render(wrap());
+    const edit = await screen.findByRole("button", { name: "编辑预设参数" });
+    await user.click(edit);
+    expect(mockRunAction).not.toHaveBeenCalled();
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("form");
   });
 });

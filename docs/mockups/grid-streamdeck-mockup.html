@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Grid · StreamDeck 键面 Mockup（方案 B）</title>
+<style>
+  /* ——— 主题 token：与 frontend/src/index.css 对齐（dark 默认） ——— */
+  :root[data-theme="dark"] {
+    --background: oklch(0.165 0.008 245);
+    --card: oklch(0.205 0.01 245);
+    --card-foreground: oklch(0.95 0.003 240);
+    --primary: oklch(0.8 0.155 70);
+    --primary-foreground: oklch(0.2 0.04 70);
+    --muted: oklch(0.245 0.012 245);
+    --muted-foreground: oklch(0.62 0.012 240);
+    --border: oklch(1 0 0 / 8%);
+    --card-sh: 0 1px 3px rgb(0 0 0 / 0.3);
+    --card-sh-hover: 0 3px 8px rgb(0 0 0 / 0.35);
+  }
+  :root[data-theme="light"] {
+    --background: oklch(0.985 0.002 240);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.22 0.01 245);
+    --primary: oklch(0.62 0.16 68);
+    --primary-foreground: oklch(0.99 0.02 70);
+    --muted: oklch(0.96 0.004 240);
+    --muted-foreground: oklch(0.48 0.012 240);
+    --border: oklch(0.2 0.01 245 / 12%);
+    --card-sh: 0 1px 2px rgb(0 0 0 / 0.05);
+    --card-sh-hover: 0 2px 6px rgb(0 0 0 / 0.08);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--background);
+    color: var(--card-foreground);
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+    transition: background 0.25s ease, color 0.25s ease;
+  }
+  .mono { font-family: "Cascadia Code", Consolas, "SF Mono", monospace; }
+
+  /* ——— 页头 ——— */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+  }
+  header .left { display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 14px; font-weight: 600; }
+  .eyebrow {
+    font-family: Consolas, monospace; font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.16em;
+    color: color-mix(in oklch, var(--muted-foreground) 80%, transparent);
+  }
+  .theme-toggle {
+    background: var(--muted); color: var(--card-foreground);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 4px 12px; font-size: 12px; cursor: pointer;
+  }
+  .theme-toggle:hover { border-color: color-mix(in oklch, var(--primary) 55%, transparent); }
+
+  /* ——— 分组头：label ── tick-ruler ── count（沿用现有 GridCardParts 语言） ——— */
+  .group { padding: 16px 16px 0; }
+  .group-head {
+    display: grid; grid-template-columns: auto 1fr auto; align-items: center;
+    gap: 12px; padding-bottom: 10px;
+  }
+  .tick-ruler { display: flex; gap: 3px; align-items: center; }
+  .tick-ruler i { display: block; width: 3px; height: 8px; border-radius: 1px; background: color-mix(in oklch, var(--card-foreground) 14%, transparent); }
+  .tick-ruler i[data-lit] { background: color-mix(in oklch, var(--primary) 75%, transparent); }
+  .group-count {
+    font-family: Consolas, monospace; font-size: 11px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ——— 键面网格：StreamDeck 密度核心 ——— */
+  .deck {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(96px, 1fr));
+    gap: 10px;
+  }
+
+  /* 单个键面：识别级信息 only（状态点 / 图标 / 短标题 / preset 色点） */
+  .key {
+    position: relative;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px;
+    height: 96px;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    cursor: pointer;
+    box-shadow: var(--card-sh);
+    transition: border-color 0.15s ease, transform 0.1s ease, box-shadow 0.15s ease;
+    user-select: none;
+  }
+  .key:hover, .key:focus-visible {
+    border-color: color-mix(in oklch, var(--primary) 55%, transparent);
+    box-shadow: var(--card-sh-hover), inset 0 0 0 1px color-mix(in oklch, var(--primary) 30%, transparent);
+    outline: none;
+  }
+  .key:active { transform: scale(0.96); }
+  .key .icon { font-size: 22px; line-height: 1; }
+  .key .label {
+    font-family: Consolas, "Microsoft YaHei", monospace;
+    font-size: 12px; font-weight: 600; letter-spacing: 0.01em;
+    max-width: 84px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .key .dot {  /* 运行状态点：左上角 */
+    position: absolute; top: 7px; left: 7px;
+    width: 6px; height: 6px; border-radius: 50%;
+    background: color-mix(in oklch, var(--card-foreground) 25%, transparent);
+  }
+  .key.running { border-color: var(--primary); }
+  .key.running .dot { background: var(--primary); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+  .key.running::before {  /* 运行流光（复用 spine-flow-h 语言） */
+    content: ""; position: absolute; inset: 0 0 auto 0; height: 2px; border-radius: 12px 12px 0 0;
+    background: linear-gradient(90deg, transparent, var(--primary), transparent);
+    background-size: 45% 100%; background-repeat: no-repeat;
+    animation: flow 1.6s linear infinite;
+  }
+  @keyframes flow {
+    0% { background-position: -45% 0; } 100% { background-position: 145% 0; }
+  }
+
+  /* ——— preset 色点：方案 B 的签名元素 ———
+     每个点 = 一个 preset。点键身跑默认，点色点直跑该 preset（零跳转）。
+     ≤3 时常驻；>3 收成 +N 扇出。 */
+  .presets {
+    position: absolute; right: 6px; bottom: 5px;
+    display: flex; gap: 3px; align-items: center;
+  }
+  .p-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    border: 1.5px solid color-mix(in oklch, var(--primary) 65%, transparent);
+    background: transparent;
+    cursor: pointer; padding: 0;
+    transition: transform 0.1s ease, background 0.15s ease;
+  }
+  .p-dot:hover { background: var(--primary); transform: scale(1.35); }
+  .p-dot.hot { background: var(--primary); }   /* 最常用 preset 实心 */
+  .p-more {
+    font-family: Consolas, monospace; font-size: 10px;
+    color: var(--muted-foreground); cursor: pointer;
+    padding: 0 2px; font-variant-numeric: tabular-nums;
+  }
+  .p-more:hover { color: var(--primary); }
+
+  /* 色点 hover 名牌 */
+  .tip {
+    position: fixed; z-index: 50; pointer-events: none;
+    background: var(--card); border: 1px solid var(--border);
+    box-shadow: var(--card-sh-hover);
+    border-radius: 6px; padding: 3px 8px;
+    font-family: Consolas, monospace; font-size: 11px;
+    color: var(--card-foreground); white-space: nowrap;
+  }
+  .tip::before { content: "▸ "; color: var(--primary); }
+
+  /* ——— 详情 Popover（长按 / 右键 / 齿轮进入） ——— */
+  .key .gear {
+    position: absolute; top: 5px; right: 6px;
+    width: 16px; height: 16px; display: grid; place-items: center;
+    font-size: 11px; color: var(--muted-foreground);
+    opacity: 0; transition: opacity 0.15s ease; cursor: pointer;
+    border-radius: 4px;
+  }
+  .key:hover .gear, .key:focus-within .gear { opacity: 1; }
+  .gear:hover { color: var(--primary); }
+
+  .popover {
+    position: fixed; z-index: 60; width: 264px;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: 12px; box-shadow: var(--card-sh-hover);
+    padding: 14px; display: none; flex-direction: column; gap: 10px;
+  }
+  .popover.open { display: flex; }
+  .popover .p-head { display: flex; align-items: center; gap: 8px; }
+  .popover .p-head .icon { font-size: 18px; }
+  .popover .p-head b { font-size: 13px; }
+  .popover .p-desc { font-size: 12px; line-height: 1.6; color: var(--muted-foreground); }
+  .p-params { display: flex; flex-wrap: wrap; gap: 4px 10px; }
+  .p-params span {
+    font-family: Consolas, monospace; font-size: 10.5px; text-transform: uppercase;
+    letter-spacing: 0.1em; color: color-mix(in oklch, var(--muted-foreground) 90%, transparent);
+    position: relative; padding-left: 11px;
+  }
+  .p-params span::before {
+    content: ""; position: absolute; left: 0; top: 50%; width: 5px; height: 5px;
+    transform: translateY(-50%); border-radius: 1px;
+    background: color-mix(in oklch, var(--card-foreground) 30%, transparent);
+  }
+  .p-presets { display: flex; flex-direction: column; gap: 4px; }
+  .p-preset-row {
+    display: flex; align-items: center; gap: 8px;
+    font-family: Consolas, monospace; font-size: 11.5px;
+    padding: 4px 6px; border-radius: 6px; cursor: pointer;
+  }
+  .p-preset-row:hover { background: color-mix(in oklch, var(--primary) 8%, transparent); }
+  .p-preset-row .k {
+    width: 16px; height: 16px; display: grid; place-items: center;
+    border: 1px solid var(--border); border-radius: 4px;
+    font-size: 10px; color: var(--muted-foreground);
+  }
+  .p-preset-row .name { color: var(--card-foreground); }
+  .p-preset-row .edit { margin-left: auto; color: var(--muted-foreground); font-size: 10px; }
+  .p-preset-row .edit:hover { color: var(--primary); }
+  .p-foot {
+    display: flex; justify-content: space-between; align-items: center;
+    border-top: 1px dashed var(--border); padding-top: 8px;
+    font-family: Consolas, monospace; font-size: 10px; text-transform: uppercase;
+    letter-spacing: 0.06em; color: var(--muted-foreground);
+  }
+  .p-foot .run { color: var(--primary); cursor: pointer; letter-spacing: 0.14em; }
+  .p-foot .run:hover { opacity: 0.7; }
+
+  /* toast：模拟 preset 直跑反馈 */
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(8px);
+    background: var(--card); border: 1px solid var(--border);
+    border-left: 2px solid var(--primary);
+    border-radius: 8px; box-shadow: var(--card-sh-hover);
+    padding: 8px 16px; font-family: Consolas, monospace; font-size: 12px;
+    opacity: 0; transition: opacity 0.2s ease, transform 0.2s ease; z-index: 70;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast .mono-primary { color: var(--primary); }
+
+  /* 图例（mockup 说明用，非产品 UI） */
+  .legend {
+    margin: 20px 16px 32px; padding: 12px 16px;
+    border: 1px dashed var(--border); border-radius: 10px;
+    font-family: Consolas, monospace; font-size: 11.5px; line-height: 2;
+    color: var(--muted-foreground);
+  }
+  .legend b { color: var(--card-foreground); }
+  .legend .swatch {
+    display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+    border: 1.5px solid color-mix(in oklch, var(--primary) 65%, transparent);
+    vertical-align: -1px; margin: 0 2px;
+  }
+  .legend .swatch.filled { background: var(--primary); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="left">
+    <span class="eyebrow">Grid</span>
+    <h1>动作</h1>
+    <span class="group-count">14 items · 3 groups</span>
+  </div>
+  <button class="theme-toggle" onclick="toggleTheme()">◐ 深浅切换</button>
+</header>
+
+<!-- 分组 ADB -->
+<section class="group">
+  <div class="group-head">
+    <span class="eyebrow">ADB</span>
+    <span class="tick-ruler"><i data-lit></i><i data-lit></i><i data-lit></i><i data-lit></i><i></i><i></i></span>
+    <span class="group-count">6 slots</span>
+  </div>
+  <div class="deck">
+    <button class="key" data-name="安装 APK" onclick="runKey(this)">
+      <span class="dot"></span>
+      <span class="icon">📦</span>
+      <span class="label">安装</span>
+      <span class="presets">
+        <span class="p-dot hot" data-preset="微信" onclick="runPreset(event,this)"></span>
+        <span class="p-dot" data-preset="抖音" onclick="runPreset(event,this)"></span>
+        <span class="p-more" data-more onclick="runPreset(event,this)">+2</span>
+      </span>
+      <span class="gear" onclick="openPop(event,this)">⚙</span>
+    </button>
+    <button class="key" data-name="卸载应用" onclick="runKey(this)">
+      <span class="dot"></span>
+      <span class="icon">🗑️</span>
+      <span class="label">卸载</span>
+      <span class="gear" onclick="openPop(event,this)">⚙</span>
+    </button>
+    <button class="key running" data-name="清除数据" onclick="runKey(this)">
+      <span class="dot"></span>
+      <span class="icon">🧹</span>
+      <span class="label">清数据</span>
+      <span class="presets">
+        <span class="p-dot" data-preset="微信" onclick="runPreset(event,this)"></span>
+        <span class="p-dot" data-preset="抖音" onclick="runPreset(event,this)"></span>
+      </span>
+      <span class="gear" onclick="openPop(event,this)">⚙</span>
+    </button>
+    <button class="key" data-name="停止应用" onclick="runKey(this)">
+      <span class="dot"></span>
+      <span class="icon">⏹️</span>
+      <span class="label">停止</span>
+      <span class="gear" onclick="openPop(event,this)">⚙</span>
+    </button>
+    <button class="key" data-name="应用列表" onclick="runKey(this)">
+      <span class="dot"></span>
+      <span class="icon">📋</span>
+      <span class="label">列表</span>
+      <span class="gear" onclick="openPop(event,this)">⚙</span>
+    </button>
+    <button class="key" data-name="应用详情" onclick="runKey(this)">
+      <span class="dot"></span>
+      <span class="icon">🔍</span>
+      <span class="label">详情</span>
+      <span class="presets">
+        <span class="p-dot hot" data-preset="当前前台" onclick="runPreset(event,this)"></span>
+      </span>
+      <span class="gear" onclick="openPop(event,this)">⚙</span>
+    </button>
+  </div>
+</section>
+
+<!-- 分组 设备 -->
+<section class="group">
+  <div class="group-head">
+    <span class="eyebrow">Device</span>
+    <span class="tick-ruler"><i data-lit></i><i></i><i></i><i></i></span>
+    <span class="group-count">4 slots</span>
+  </div>
+  <div class="deck">
+    <button class="key" data-name="截图" onclick="runKey(this)">
+      <span class="dot"></span>
+      <span class="icon">📸</span>
+      <span class="label">截图</span>
+      <span class="gear" onclick="openPop(event,this)">⚙</span>
+    </button>
+    <button class="key" data-name="录屏" onclick="runKey(this)">
+      <span class="dot"></span>
+      <span class="icon">⏺️</span>
+      <span class="label">录屏</span>
+      <span class="presets">
+        <span class="p-dot" data-preset="30秒" onclick="runPreset(event,this)"></span>
+        <span class="p-dot" data-preset="2分钟" onclick="runPreset(event,this)"></span>
+        <span class="p-dot" data-preset="5分钟" onclick="runPreset(event,this)"></span>
+      </span>
+      <span class="gear" onclick="openPop(event,this)">⚙</span>
+    </button>
+    <button class="key" data-name="剪贴板读取" onclick="runKey(this)">
+      <span class="dot"></span>
+      <span class="icon">📎</span>
+      <span class="label">剪贴板</span>
+      <span class="gear" onclick="openPop(event,this)">⚙</span>
+    </button>
+    <button class="key" data-name="无线连接" onclick="runKey(this)">
+      <span class="dot"></span>
+      <span class="icon">📶</span>
+      <span class="label">无线</span>
+      <span class="gear" onclick="openPop(event,this)">⚙</span>
+    </button>
+  </div>
+</section>
+
+<!-- 分组 杂项 -->
+<section class="group">
+  <div class="group-head">
+    <span class="eyebrow">Misc</span>
+    <span class="tick-ruler"><i></i><i></i><i></i><i></i></span>
+    <span class="group-count">4 slots</span>
+  </div>
+  <div class="deck">
+    <button class="key" data-name="输入文本" onclick="runKey(this)">
+      <span class="dot"></span>
+      <span class="icon">⌨️</span>
+      <span class="label">输入</span>
+      <span class="presets">
+        <span class="p-dot" data-preset="Hello" onclick="runPreset(event,this)"></span>
+        <span class="p-dot" data-preset="测试" onclick="runPreset(event,this)"></span>
+      </span>
+      <span class="gear" onclick="openPop(event,this)">⚙</span>
+    </button>
+    <button class="key" data-name="打开 URL" onclick="runKey(this)">
+      <span class="dot"></span>
+      <span class="icon">🔗</span>
+      <span class="label">URL</span>
+      <span class="gear" onclick="openPop(event,this)">⚙</span>
+    </button>
+    <button class="key" data-name="返回" onclick="runKey(this)">
+      <span class="dot"></span>
+      <span class="icon">↩️</span>
+      <span class="label">返回</span>
+      <span class="gear" onclick="openPop(event,this)">⚙</span>
+    </button>
+    <button class="key" data-name="回到主页" onclick="runKey(this)">
+      <span class="dot"></span>
+      <span class="icon">🏠</span>
+      <span class="label">主页</span>
+      <span class="gear" onclick="openPop(event,this)">⚙</span>
+    </button>
+  </div>
+</section>
+
+<!-- 详情 Popover：挂在 body 上，按需定位 -->
+<div class="popover" id="pop">
+  <div class="p-head"><span class="icon" id="pop-icon">📦</span><b id="pop-title">安装 APK</b></div>
+  <div class="p-desc" id="pop-desc">通过 adb install 把 APK 安装到当前激活设备，支持分身与降级安装。</div>
+  <div class="p-params" id="pop-params">
+    <span>APK_PATH</span><span>GRANT_PERMS</span><span>DOWNGRADE</span>
+  </div>
+  <div class="p-presets" id="pop-presets">
+    <div class="p-preset-row" onclick="runPresetRow(event,'微信')">
+      <span class="k">1</span><span class="name">微信</span><span class="edit">✎</span>
+    </div>
+    <div class="p-preset-row" onclick="runPresetRow(event,'抖音')">
+      <span class="k">2</span><span class="name">抖音</span><span class="edit">✎</span>
+    </div>
+    <div class="p-preset-row" onclick="runPresetRow(event,'测试包')">
+      <span class="k">3</span><span class="name">测试包</span><span class="edit">✎</span>
+    </div>
+    <div class="p-preset-row" onclick="runPresetRow(event,'旧版本')">
+      <span class="k">4</span><span class="name">旧版本</span><span class="edit">✎</span>
+    </div>
+  </div>
+  <div class="p-foot">
+    <span>3 params · 4 presets · usage 128</span>
+    <span class="run" onclick="popRun()">▸ RUN</span>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- 图例（mockup 说明，非产品 UI） -->
+<div class="legend">
+  <b>mockup 交互说明（方案 B：键面 + preset 色点）</b><br>
+  · 点<b>键身</b> = 跑默认参数（有必填无默认时进表单；运行中点击 = 回输出视图）<br>
+  · 点 <span class="swatch"></span><span class="swatch filled"></span> <b>preset 色点</b> = 零跳转直跑该 preset；实心 = 最常用；≤3 个常驻，更多收成 +N<br>
+  · 点 <b>⚙</b>（hover 键面右上角出现）= 展开详情 Popover：描述 / 参数 / preset 列表（数字键 1-9 直选）/ RUN<br>
+  · 左上角<b>状态点</b>：常灰 = 空闲，亮橙脉动 + 顶沿流光 = 运行中（见「清数据」）<br>
+  · 快捷键：Popover 打开时按 <b>1-9</b> 直跑对应 preset，<b>Esc</b> 关闭
+</div>
+
+<script>
+  /* ——— 主题切换 ——— */
+  function toggleTheme() {
+    const r = document.documentElement;
+    r.dataset.theme = r.dataset.theme === "dark" ? "light" : "dark";
+  }
+
+  /* ——— toast 反馈（模拟动作启动） ——— */
+  let toastTimer;
+  function toast(html) {
+    const el = document.getElementById("toast");
+    el.innerHTML = html;
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 1800);
+  }
+
+  /* ——— 键身点击：跑默认 ——— */
+  function runKey(key) {
+    const name = key.dataset.name;
+    if (key.classList.contains("running")) {
+      toast(`↩ <span class="mono-primary">${name}</span> → 回到输出视图`);
+      return;
+    }
+    key.classList.add("running");
+    setTimeout(() => key.classList.remove("running"), 2400);
+    toast(`▸ <span class="mono-primary">${name}</span> 已启动（默认参数）`);
+  }
+
+  /* ——— preset 色点点击：零跳转直跑 ——— */
+  function runPreset(ev, dot) {
+    ev.stopPropagation();
+    const key = dot.closest(".key");
+    toast(`▸ <span class="mono-primary">${key.dataset.name}</span> · preset「${dot.dataset.preset || "更多"}」已启动`);
+  }
+
+  /* ——— +N 扇出 / Popover preset 行 ——— */
+  function runPresetRow(ev, name) {
+    ev.stopPropagation();
+    closePop();
+    toast(`▸ preset「<span class="mono-primary">${name}</span>」已启动`);
+  }
+
+  /* ——— 详情 Popover ——— */
+  const pop = document.getElementById("pop");
+  function openPop(ev, gear) {
+    ev.stopPropagation();
+    const key = gear.closest(".key");
+    document.getElementById("pop-icon").textContent = key.querySelector(".icon").textContent;
+    document.getElementById("pop-title").textContent = key.dataset.name;
+    const r = gear.getBoundingClientRect();
+    pop.classList.add("open");
+    const pw = 264, ph = pop.offsetHeight;
+    let x = Math.min(r.right + 8, window.innerWidth - pw - 12);
+    let y = Math.min(r.bottom + 6, window.innerHeight - ph - 12);
+    pop.style.left = x + "px"; pop.style.top = y + "px";
+    pop.dataset.keyName = key.dataset.name;
+  }
+  function closePop() { pop.classList.remove("open"); }
+  function popRun() {
+    toast(`▸ <span class="mono-primary">${pop.dataset.keyName}</span> 已启动（默认参数）`);
+    closePop();
+  }
+  document.addEventListener("click", (e) => {
+    if (!pop.contains(e.target)) closePop();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (!pop.classList.contains("open")) return;
+    if (e.key === "Escape") closePop();
+    const n = parseInt(e.key, 10);
+    if (n >= 1 && n <= 9) {
+      const rows = pop.querySelectorAll(".p-preset-row");
+      if (rows[n - 1]) rows[n - 1].click();
+    }
+  });
+
+  /* ——— 色点 hover 名牌 ——— */
+  let tip;
+  document.addEventListener("mouseover", (e) => {
+    const dot = e.target.closest(".p-dot, .p-more");
+    if (!dot) { if (tip) { tip.remove(); tip = null; } return; }
+    if (tip) tip.remove();
+    tip = document.createElement("div");
+    tip.className = "tip";
+    tip.textContent = dot.dataset.preset || "更多 preset…";
+    document.body.appendChild(tip);
+    const r = dot.getBoundingClientRect();
+    tip.style.left = Math.min(r.left, window.innerWidth - tip.offsetWidth - 8) + "px";
+    tip.style.top = (r.top - 26) + "px";
+  });
+</script>
+</body>
+</html>
