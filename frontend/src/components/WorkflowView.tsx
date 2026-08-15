@@ -17,6 +17,7 @@ import { useActionRunner } from "../hooks/useActionRunner";
 import type { WorkflowStepState } from "../types/events";
 import { ActionIcon } from "./ActionIcon";
 import { IconButton } from "./IconButton";
+import { OutputLines } from "./OutputLines";
 import { ArrowLeft01Icon, ArrowReloadHorizontalIcon, PreferenceHorizontalIcon } from "@hugeicons/core-free-icons";
 
 // step status → i18n key 映射
@@ -221,7 +222,8 @@ export function WorkflowView() {
                                 st === "running" && "border-primary/60",
                               )}
                             >
-                              {step.lines.join("\n")}
+                              {/* 与 action 的 OutputConsole 共用行渲染：stderr 着色语义一致 */}
+                              <OutputLines lines={step.lines} />
                             </pre>
                           )}
                         </CollapsibleContent>

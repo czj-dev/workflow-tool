@@ -12,6 +12,9 @@ export interface OutputEventData {
     | "step-skip"
     | "progress";
   line: string;
+  // workflow output 事件专有：该行归属的 step 索引（后端下发，见 api.executeWorkflow）。
+  // 有它就按索引落桶，规避 Wails 事件乱序把 100% 折进下一个 step。action 事件无此字段。
+  step?: string;
 }
 
 // stream="logcat" 的 line 是一段紧凑 JSON，对应后端 logcatPayload。
@@ -45,4 +48,6 @@ export interface WorkflowStepState {
   status: "pending" | "running" | "done" | "error" | "skipped";
   exitCode?: number;
   lines: string[];
+  // 上一行是否是 progress——决定下一条 progress 覆盖还是追加（同 action 的 lines 语义）
+  lastWasProgress?: boolean;
 }

@@ -58,6 +58,16 @@ func (op *OpContext) AdbStream(capture bool, onLine func(stream, line string), a
 	}
 }
 
+// AdbStreamPTY 与 AdbStream 类似，但启用 PTY（让 adb 认为连着终端）——
+// push/pull/install 等操作的进度只有在 stdout 是 TTY 时才会输出。
+func (op *OpContext) AdbStreamPTY(capture bool, onLine func(stream, line string), args ...string) adbcore.StreamingRequest {
+	req := op.Adb(args...)
+	return adbcore.StreamingRequest{
+		Command: req.Command, Args: req.Args, Timeout: req.Timeout,
+		Capture: capture, UsePTY: true, OnLine: onLine,
+	}
+}
+
 // Fastboot 构造 fastboot ExecRequest（serial 非空时前置 -s serial）。
 func (op *OpContext) Fastboot(args ...string) adbcore.ExecRequest {
 	full := make([]string, 0, len(args)+2)

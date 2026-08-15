@@ -101,12 +101,22 @@ type StreamingRequest struct {
 	Args    []string
 	Timeout time.Duration
 	Capture bool // true=把 stdout/stderr 全量缓存进 ExecResult
-	OnLine  func(stream, line string)
+	// UsePTY=true 时用伪终端启动子进程（非 Windows 生效）——adb push/install 只有在
+	// stdout 是 TTY 时才打印 [NN%] 进度，走 pipe 直接静默；这里让 adb 认为连着终端，
+	// 进度就正常输出到 stdout。Windows adb 不检查 isatty，此字段无效果。
+	UsePTY bool
+	OnLine func(stream, line string)
 }
 
 // RunStreaming 启动进程并逐行流式回调（\n 与 \r 都切行，适配 adb 进度刷新）。
 // 超时/取消时杀整个进程组。Capture 控制是否同时缓存全量输出。
+// req.UsePTY=true 时优先用伪终端启动（非 Windows），失败或不支持则回退 pipe。
 func RunStreaming(ctx context.Context, req StreamingRequest) (*ExecResult, error) {
+	if req.UsePTY {
+		if res, err, ok := runStreamingPTY(ctx, req); ok {
+			return res, err
+		}
+	}
 	if req.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, req.Timeout)

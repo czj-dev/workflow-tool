@@ -695,9 +695,20 @@ func (s *Service) executeWorkflow(ctx context.Context, id string, lw workflow.Lo
 		s.wfMu.Unlock()
 	}()
 
+	// curStep 记录当前正在执行的 step 索引，随每条 output 事件下发。
+	// 必要性：Wails 的 Event.Emit 每次都起独立 goroutine 投递（application/events.go），
+	// 事件到达前端的顺序无保证——push 末尾的 100% progress 会与 step-done/下一个
+	// step-start 抢跑，输了就被前端折进下一个 step 的输出里。带上 step 归属后，
+	// 前端按索引落桶，与到达顺序无关。
+	// 并发安全：写发生在 executor goroutine 的 step 边界，读发生在 runner 的
+	// 输出 goroutine；runner.Run 返回前已 join 全部输出 goroutine，故两者有序不重叠。
+	curStep := ""
 	emit := func(stream, line string) {
+		if stream == "step-start" || stream == "step-skip" {
+			curStep = line
+		}
 		s.app.Event.Emit(workflowEventName(id, "output"), map[string]string{
-			"stream": stream, "line": line,
+			"stream": stream, "line": line, "step": curStep,
 		})
 	}
 

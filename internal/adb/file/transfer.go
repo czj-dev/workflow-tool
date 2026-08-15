@@ -190,7 +190,7 @@ func runTransfer(op *adb.OpContext, opName, direction, fileName string, args []s
 				}
 			}
 		}
-		res, err := adbcore.RunStreaming(transferCtx, op.AdbStream(false, onLine, args...))
+		res, err := adbcore.RunStreaming(transferCtx, op.AdbStreamPTY(false, onLine, args...))
 		if err == nil {
 			op.EmitProgress(fmt.Sprintf("%s %s: 100%%", direction, fileName))
 			op.EmitStdout(successMsg)
