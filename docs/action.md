@@ -271,6 +271,12 @@ command:
 | `clipboard-get` | 无 | 读取设备剪贴板，结果经 stdout |
 | `screenshot` | `OUTPUT_PATH`(path,必填) | `exec-out screencap -p` 存到本地 |
 
+**输入（1）**
+
+| operation | params | 说明 |
+|---|---|---|
+| `input-text` | `TEXT`(text,必填)、`RESTORE_CLIPBOARD`(bool) | 纯 ASCII 走 `input text`（空格转 `%s`）；含中文/emoji/换行自动剪贴板桥（`cmd clipboard set` → `input keyevent 279` 粘贴，需 Android 10+，个别 App 可能不响应粘贴键）；`RESTORE_CLIPBOARD=true` 时粘贴后延迟 ~500ms 恢复原剪贴板（恢复失败仅告警） |
+
 `scrcpy-start` / `scrcpy-record-start` 的投屏选项（均为可选，整数类空=不传）：
 
 | param | 类型 | 说明 |

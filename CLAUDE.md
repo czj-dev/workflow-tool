@@ -48,6 +48,7 @@ internal/adbcore/   adb 域子进程治理：RunCommand/RunStreaming/RunCommandW
 internal/adb/       adb 域框架：ADBRunner（实现 runner.Runner）+ operation 自注册路由表 + OpContext
   ├── binary/       adb/fastboot/scrcpy 路径探测级联（config→PATH→常见路径，仅探测不下载）
   ├── device/       设备列表/信息/模式/wireless + 激活 serial 解析
+  ├── input/        文本输入 1 operation（input-text：ASCII 走 input text，非 ASCII 剪贴板桥）
   ├── package/      包管理 9 operations（install/uninstall/list/enable/disable/clear/force-stop/pull-apk/details）
   ├── logcat/       结构化 logcat 2 operations（stream/batch，Go 端 threadtime 解析 + 过滤）
   ├── file/         文件传输 10 operations（push/pull/多文件/list/mkdir/delete/rename/size/storage，进度+重试+取消）
@@ -69,7 +70,7 @@ internal/api/       Wails Service 绑定 + 事件 emit（唯一依赖 Wails 的�
 
 ## 动作 YAML（actions/*.yaml）
 
-`id`（`^[a-z0-9-]+$` 全局唯一）+ `title` 必填；`command.shell` 与 `command.script` 与 `command.adb.operation` 与 `command.llm.prompt` **四选一互斥**必选其一。`script` 路径不含扩展名，按 OS 自动加 `.sh`/`.ps1`，相对路径基于 exe 目录。`command.adb` 是 adb 域形态：写 `command.adb.operation: <域操作名>`，由内置 ADBRunner 分发到 adb 域服务（27 个 operation：包管理/logcat/文件传输/scrcpy），各 operation 的 params 契约见 [docs/action.md](docs/action.md)。`command.llm{system, prompt}` 是 LLM 一等形态：`prompt`（必填）与 `system`（可选）都是 param id，由内置 LLMRunner 拼 CLI argv（见上方架构小节），详见 [docs/action.md](docs/action.md) 「LLM 域形态」章节。`command.stream` 只允许 `""` / `"logcat"`（`"logcat"` 为 adb logcat-stream 域专用，前端切 logcat 视图）。`params`（type: text|bool|select|path|file|textarea，select 必带 options）驱动前端表单；`presets` 是作者预设的整套参数值。可选 `icon`：写 `hi:<key>`（key 见 `frontend/src/components/ActionIcon.tsx` 注册表）渲染 hugeicons 矢量图标，或直接写 emoji/文本（原样显示，向后兼容）。校验逻辑在 `registry.validate`。
+`id`（`^[a-z0-9-]+$` 全局唯一）+ `title` 必填；`command.shell` 与 `command.script` 与 `command.adb.operation` 与 `command.llm.prompt` **四选一互斥**必选其一。`script` 路径不含扩展名，按 OS 自动加 `.sh`/`.ps1`，相对路径基于 exe 目录。`command.adb` 是 adb 域形态：写 `command.adb.operation: <域操作名>`，由内置 ADBRunner 分发到 adb 域服务（28 个 operation：包管理/logcat/文件传输/scrcpy/文本输入），各 operation 的 params 契约见 [docs/action.md](docs/action.md)。`command.llm{system, prompt}` 是 LLM 一等形态：`prompt`（必填）与 `system`（可选）都是 param id，由内置 LLMRunner 拼 CLI argv（见上方架构小节），详见 [docs/action.md](docs/action.md) 「LLM 域形态」章节。`command.stream` 只允许 `""` / `"logcat"`（`"logcat"` 为 adb logcat-stream 域专用，前端切 logcat 视图）。`params`（type: text|bool|select|path|file|textarea，select 必带 options）驱动前端表单；`presets` 是作者预设的整套参数值。可选 `icon`：写 `hi:<key>`（key 见 `frontend/src/components/ActionIcon.tsx` 注册表）渲染 hugeicons 矢量图标，或直接写 emoji/文本（原样显示，向后兼容）。校验逻辑在 `registry.validate`。
 
 `command` 新增可选 `capture_output`（布尔，默认 true；false 关闭全量 stdout/stderr 捕获，长跑/持续输出 action 如 scrcpy/logcat 用）。
 
