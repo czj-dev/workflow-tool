@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 
@@ -497,7 +498,7 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 	cwd := runner.Expand(la.Cwd, params)
 	if cwd != "" {
 		if _, err := os.Stat(cwd); err != nil {
-			s.emitDone(id, -1, fmt.Sprintf("工作目录不存在: %s", cwd), 0)
+			s.emitDone(id, -1, fmt.Sprintf("工作目录不存在: %s", cwd), 0, nil)
 			return
 		}
 	}
@@ -521,15 +522,45 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 	}
 
 	res := r.Run(ctx, params, emit)
-	s.emitDone(id, res.ExitCode, errStr(res.Err), res.Duration)
+	// LLM 动作附会话读数（聊天页终点读数行）：cost/tokens 来自 stream-json 的 result 事件
+	// （runner.recordStructuredFields 写入 Outputs），duration 用后端精确计时
+	var readout map[string]any
+	if la.Def.Command.LLM.Prompt != "" {
+		readout = llmReadout(res.Outputs, res.Duration)
+	}
+	s.emitDone(id, res.ExitCode, errStr(res.Err), res.Duration, readout)
 }
 
-func (s *Service) emitDone(id string, exitCode int, errMsg string, d time.Duration) {
-	s.app.Event.Emit(eventName(id, "done"), map[string]any{
+func (s *Service) emitDone(id string, exitCode int, errMsg string, d time.Duration, readout map[string]any) {
+	payload := map[string]any{
 		"exitCode": exitCode,
 		"err":      errMsg,
 		"duration": d.String(),
-	})
+	}
+	if readout != nil {
+		payload["readout"] = readout
+	}
+	s.app.Event.Emit(eventName(id, "done"), payload)
+}
+
+// llmReadout 从 LLM Result.Outputs 挑出终点读数字段（数值化）；无可读字段时返回 nil。
+func llmReadout(outputs map[string]string, d time.Duration) map[string]any {
+	r := map[string]any{"durationMs": d.Milliseconds()}
+	if v, err := strconv.ParseFloat(outputs["cost_usd"], 64); err == nil {
+		r["costUsd"] = v
+	}
+	in, errIn := strconv.Atoi(outputs["input_tokens"])
+	out, errOut := strconv.Atoi(outputs["output_tokens"])
+	if errIn == nil && errOut == nil {
+		r["inputTokens"] = in
+		r["outputTokens"] = out
+	}
+	if _, ok := r["costUsd"]; !ok {
+		if _, ok := r["inputTokens"]; !ok {
+			return nil
+		}
+	}
+	return r
 }
 
 func eventName(id, suffix string) string {

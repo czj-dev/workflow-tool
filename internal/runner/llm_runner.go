@@ -84,6 +84,9 @@ func (r *LLMRunner) Run(ctx context.Context, params map[string]any, emit EmitFun
 		if kind == "thinking" {
 			thinkingBuf.WriteString(delta)
 			emit("llm-thinking", delta)
+		} else if kind == "tool_use" || kind == "tool_result" {
+			// 工具调用对原样透传（delta 已是 JSON），不进 buffers——只供聊天页工序段展示
+			emit("llm-tool", delta)
 		} else {
 			textBuf.WriteString(delta)
 			emit("llm", delta)

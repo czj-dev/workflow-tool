@@ -6,16 +6,15 @@ import { Popover } from "radix-ui";
 import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Kbd } from "@/components/ui/kbd";
-import { Skeleton } from "@/components/ui/skeleton";
 import { IconButton } from "./IconButton";
 import { ActionIcon } from "./ActionIcon";
 import { ParamFields } from "./ParamFields";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { missingRequired } from "../lib/params";
 import { expandVars } from "../lib/vars";
-import { Message, MessageContent, MessageMarkdown } from "@/components/nexus-ui/message";
-import { Reasoning, ReasoningTrigger, ReasoningContent } from "@/components/nexus-ui/reasoning";
 import { Thread, ThreadContent, ThreadScrollToBottom } from "@/components/nexus-ui/thread";
+import { LlmOutputPanel } from "@/components/llm/LlmOutputPanel";
+import { panelFromHistory } from "@/components/llm/reduceStream";
 import type { ParamSpec } from "../../bindings/workflow-tool/internal/registry/models.js";
 import { type LlmHistoryEntry } from "../hooks/useLlmHistory";
 
@@ -24,7 +23,7 @@ export function LlmChatView() {
   const { t } = useTranslation();
   const {
     actions, currentId, formValues, setFormValue,
-    runAction, cancel, setView, status, exitInfo, llmText, thinkingText,
+    runAction, cancel, setView, status, exitInfo, llmText, thinkingText, llmPanel,
     llmHistory, clearLlmHistory,
   } = useActionRunner();
   const action = actions.find((a) => a.id === currentId);
@@ -35,6 +34,8 @@ export function LlmChatView() {
   const [viewing, setViewing] = useState<LlmHistoryEntry | null>(null);
   // prompt 快照：send 时冻结，避免流式中编辑 textarea 导致 user 气泡漂移
   const [sentPrompt, setSentPrompt] = useState("");
+  // 发送时刻：指令工单的时间读数（历史查看态用 entry.timestamp）
+  const [sentAt, setSentAt] = useState<number | null>(null);
 
   // 切换卡片（currentId 变化）时重置查看态，避免 viewing/sentPrompt 跨卡片残留。
   // 用 render-time setState 模式（参见 ActionYamlEditor、React 官方「You Might Not Need an Effect」）：
@@ -44,6 +45,7 @@ export function LlmChatView() {
     setPrevId(currentId);
     setViewing(null);
     setSentPrompt("");
+    setSentAt(null);
   }
 
   if (!action?.llm || !action.params) return null;
@@ -72,9 +74,10 @@ export function LlmChatView() {
   // 历史条目存的是发送时的原始模板（可能含 ${VAR}）；只读查看时按其 params 快照展开，
   // 与实时气泡（sentPrompt 已 expandVars）保持一致，避免历史里出现 "处理 ${CARD_ID}"。
   const shownPrompt = viewing ? expandVars(viewing.prompt, viewing.params) : sentPrompt || promptValue;
-  const shownText = viewing ? viewing.response : llmText;
-  const shownThinking = viewing ? viewing.thinking : thinkingText;
-  const shownStreaming = viewing ? false : running;
+  // 工序段面板：实时态用归约状态；历史态由条目重建（无段级计时，读数只有总时长）
+  const shownPanel = viewing ? panelFromHistory(viewing) : llmPanel;
+  const shownAt = viewing ? viewing.timestamp : sentAt;
+  const sentAtLabel = shownAt != null ? new Date(shownAt).toLocaleTimeString([], { hour12: false }) : undefined;
 
   const onSend = () => {
     if (!canRun || running) return;
@@ -85,6 +88,9 @@ export function LlmChatView() {
     // 展示用 prompt 要和后端 ExpandParams 一致地替换 ${VAR}——否则气泡里出现原始模板
     // （如 "处理 ${CARD_ID} 卡片"）。expandVars 与 runner.Expand 行为对齐：未命中保留原样。
     setSentPrompt(expandVars(params[promptParam] ?? "", params));
+    // 事件处理器内取当前时刻（非 render 路径），purity 规则误报，局部豁免
+    // eslint-disable-next-line react-hooks/purity
+    setSentAt(Date.now());
     setViewing(null);
     runAction(action.id, params);
   };
@@ -172,28 +178,7 @@ export function LlmChatView() {
               </div>
             </div>
           ) : (
-            <>
-              <Message from="user">
-                <MessageContent>{shownPrompt}</MessageContent>
-              </Message>
-              <Message from="assistant">
-                <MessageContent>
-                  {shownThinking && (
-                    <Reasoning isStreaming={shownStreaming}>
-                      <ReasoningTrigger />
-                      <ReasoningContent>{shownThinking}</ReasoningContent>
-                    </Reasoning>
-                  )}
-                  <MessageMarkdown>{shownText}</MessageMarkdown>
-                  {shownStreaming && shownText === "" && !shownThinking && (
-                    <div role="status" className="flex items-center gap-2">
-                      <Skeleton className="h-4 w-32" />
-                      <span className="sr-only">{t("llm.thinking")}</span>
-                    </div>
-                  )}
-                </MessageContent>
-              </Message>
-            </>
+            <LlmOutputPanel prompt={shownPrompt} sentAtLabel={sentAtLabel} state={shownPanel} />
           )}
         </ThreadContent>
         <ThreadScrollToBottom />

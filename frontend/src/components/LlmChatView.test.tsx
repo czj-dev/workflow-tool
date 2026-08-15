@@ -102,6 +102,24 @@ describe("LlmChatView", () => {
     expect(await screen.findByText(/处理完成/)).toBeInTheDocument();
   });
 
+  it("llm-tool 事件渲染为工序段（工具名 · 主参数摘要）", async () => {
+    renderChat();
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    act(() => {
+      _emitForTest("action:c1:output", {
+        data: {
+          stream: "llm-tool",
+          line: JSON.stringify({ id: "call_1", name: "Read", input: { file_path: "C:\\tmp\\package.json" } }),
+        },
+      });
+    });
+    // 段头标签：工具名 + summarizeInput 提取的路径末段（分属两个 span，分别断言）
+    expect(await screen.findByText("Read")).toBeInTheDocument();
+    expect(screen.getByText("· package.json")).toBeInTheDocument();
+  });
+
   it("完成后写入历史，抽屉可浏览", async () => {
     renderChat();
     await act(() => Promise.resolve());

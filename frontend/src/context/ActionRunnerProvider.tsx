@@ -34,6 +34,13 @@ import type {
 } from "../../bindings/workflow-tool/internal/api/models.js";
 import type { Fragment } from "../../bindings/workflow-tool/internal/registry/models.js";
 import { useLlmHistory, type LlmHistoryEntry } from "../hooks/useLlmHistory";
+import {
+  applyEvent,
+  finalizePanel,
+  parseToolEvent,
+  EMPTY_PANEL_STATE,
+  type LlmPanelState,
+} from "../components/llm/reduceStream";
 import { foldOutputLine } from "../lib/outputFold";
 import type {
   OutputEventData,
@@ -104,6 +111,8 @@ export interface RunnerContextValue {
   view: RunnerView;
   llmText: string;
   thinkingText: string;
+  // LLM 输出面板归约态（思考/工具/回答工序段 + 终点读数）；llmText/thinkingText 保留供历史与轻量判断
+  llmPanel: LlmPanelState;
   // LLM 运行历史（按 currentId 分桶，最新在前）+ 清空
   llmHistory: LlmHistoryEntry[];
   clearLlmHistory: () => void;
@@ -187,6 +196,11 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   llmTextRef.current = llmText;
   const thinkingTextRef = useRef("");
   thinkingTextRef.current = thinkingText;
+  // LLM 输出面板归约态 + 运行起点（事件时间轴 = Date.now() - 起点；done 时机段结算改用后端精确时长）
+  const [llmPanel, setLlmPanel] = useState<LlmPanelState>(EMPTY_PANEL_STATE);
+  const llmPanelRef = useRef(llmPanel);
+  llmPanelRef.current = llmPanel;
+  const llmRunStartRef = useRef(0);
   // LLM 历史（按 currentId 分桶）
   const { entries: llmHistory, append: appendLlmHistory, clear: clearLlmHistory } =
     useLlmHistory(currentId);
@@ -409,12 +423,25 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
 
     const onOutput = (e: unknown) => {
       const d = (((e as { data?: unknown })?.data) || {}) as OutputEventData;
+      // LLM 三通道共用归约器维护面板工序段；atMs 用到达时刻相对运行起点
+      const llmApply = (ev: ReturnType<typeof parseToolEvent>) => {
+        if (ev)
+          setLlmPanel((prev) =>
+            applyEvent(prev, ev, Math.max(0, Date.now() - llmRunStartRef.current)),
+          );
+      };
       if (d.stream === "llm") {
         setLlmText((prev) => prev + (d.line || ""));
+        llmApply({ kind: "text", delta: d.line || "" });
         return;
       }
       if (d.stream === "llm-thinking") {
         setThinkingText((prev) => prev + (d.line || ""));
+        llmApply({ kind: "thinking", delta: d.line || "" });
+        return;
+      }
+      if (d.stream === "llm-tool") {
+        llmApply(parseToolEvent(d.line || ""));
         return;
       }
       if (d.stream === "logcat") {
@@ -458,6 +485,30 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       // LLM 历史写入：done 时把本轮 prompt/response/thinking 持久化到 localStorage
       const cur = actionsRef.current.find((a) => a.id === currentId);
       if (cur?.llm) {
+        // 面板收尾：结算末段 + 写终点读数（后端 readout 优先，缺失字段不显示）
+        const finalized = finalizePanel(llmPanelRef.current, {
+          durationMs: d.readout?.durationMs,
+          inputTokens: d.readout?.inputTokens,
+          outputTokens: d.readout?.outputTokens,
+          costUsd: d.readout?.costUsd,
+          isError: d.exitCode !== 0,
+        });
+        setLlmPanel(finalized);
+        const tools = finalized.segments
+          .filter((s) => s.kind === "tool")
+          .map((s) =>
+            s.kind === "tool"
+              ? {
+                  id: s.id,
+                  name: s.name,
+                  summary: s.summary,
+                  result: s.result,
+                  isError: s.isError,
+                  durationMs: s.durationMs ?? undefined,
+                }
+              : undefined,
+          )
+          .filter((t): t is NonNullable<typeof t> => t != null);
         const promptId = cur.llm.promptParam;
         // 用发送时快照而非当前表单值：防止流式期间编辑 textarea 导致历史记录漂移
         const sentParams = lastRunParamsRef.current[currentId] ?? {};
@@ -466,6 +517,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
           params: { ...sentParams },
           response: llmTextRef.current,
           thinking: thinkingTextRef.current,
+          tools,
           exitCode: d.exitCode,
           duration: d.duration,
         });
@@ -511,6 +563,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       if (action?.llm) {
         setLlmText("");
         setThinkingText("");
+        setLlmPanel(EMPTY_PANEL_STATE);
+        llmRunStartRef.current = Date.now();
         setView("llm-chat");
       } else if (action?.stream === "logcat") {
         logcatBufferRef.current = [];
@@ -593,6 +647,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     if (targetView === "llm-chat") {
       setLlmText("");
       setThinkingText("");
+      setLlmPanel(EMPTY_PANEL_STATE);
+      llmRunStartRef.current = Date.now();
     } else if (targetView === "logcat") {
       logcatBufferRef.current = [];
       setLogcatEntries([]);
@@ -619,6 +675,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setLines([]);
     setLlmText("");
     setThinkingText("");
+    setLlmPanel(EMPTY_PANEL_STATE);
     logcatBufferRef.current = [];
     setLogcatEntries([]);
     setStatus("idle");
@@ -856,6 +913,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     view,
     llmText,
     thinkingText,
+    llmPanel,
     llmHistory,
     clearLlmHistory,
     logcatEntries,

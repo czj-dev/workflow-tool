@@ -6,6 +6,7 @@ export interface OutputEventData {
     | "stderr"
     | "llm"
     | "llm-thinking"
+    | "llm-tool"
     | "logcat"
     | "step-start"
     | "step-done"
@@ -35,11 +36,20 @@ export interface LogcatFilter {
   tag: string; // tag 子串
 }
 
+// LLM 会话终点读数（done 事件附带，LLM 动作专有；后端 api.llmReadout 构造）
+export interface LlmReadoutData {
+  durationMs?: number;
+  costUsd?: number;
+  inputTokens?: number;
+  outputTokens?: number;
+}
+
 // 后端 emit 的 done 事件 payload
 export interface DoneEventData {
   exitCode: number;
   err: string;
   duration: string;
+  readout?: LlmReadoutData;
 }
 
 // workflow 单个步骤的运行状态（前端根据协议帧维护）

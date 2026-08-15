@@ -1,6 +1,16 @@
 // frontend/src/hooks/useLlmHistory.ts
 import { useCallback, useEffect, useState } from "react";
 
+// 工具调用段快照（聊天页工序轨道回放用；字段对应 reduceStream.ToolSegment）
+export interface LlmHistoryTool {
+  id: string;
+  name: string;
+  summary: string;
+  result?: string;
+  isError?: boolean;
+  durationMs?: number;
+}
+
 export interface LlmHistoryEntry {
   id: string;
   timestamp: number;
@@ -8,6 +18,8 @@ export interface LlmHistoryEntry {
   params: Record<string, string>;
   response: string;
   thinking: string;
+  // 旧条目无此字段（undefined 兜底）
+  tools?: LlmHistoryTool[];
   exitCode: number;
   duration: string;
 }
@@ -15,6 +27,7 @@ export interface LlmHistoryEntry {
 export const LLM_HISTORY_MAX = 50;
 export const RESPONSE_CAP = 10_000;
 export const THINKING_CAP = 5_000;
+export const TOOL_RESULT_CAP = 2_000;
 const TRUNC_SUFFIX = "…（已截断）";
 
 const keyFor = (actionId: string) => `llm-history:${actionId}`;
@@ -65,6 +78,7 @@ export function useLlmHistory(actionId: string | null) {
         timestamp: Date.now(),
         response: cap(entry.response, RESPONSE_CAP),
         thinking: cap(entry.thinking, THINKING_CAP),
+        tools: entry.tools?.map((t) => ({ ...t, result: t.result ? cap(t.result, TOOL_RESULT_CAP) : undefined })),
       };
       setEntries((prev) => {
         const next = [full, ...prev].slice(0, LLM_HISTORY_MAX);
