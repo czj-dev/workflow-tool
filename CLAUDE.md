@@ -11,7 +11,7 @@ Workflow Tool：基于 **Wails v3 (alpha2.119) + Go** 的桌面工具。用 YAML
 构建（已封装为 `deploy/` 脚本，Windows 用 Git Bash，跨 macOS/Linux）：
 ```bash
 bash deploy/build.sh        # 一键全量：前端 → bindings → 单二进制（平台自适应）
-bash deploy/frontend.sh     # 仅前端（依赖缺则 npm install；bindings 缺则自动生成）
+bash deploy/frontend.sh     # 仅前端（总是 npm install 同步依赖；bindings 自动生成）
 bash deploy/backend.sh      # 仅后端（bindings + go build；Windows 自动 windowsgui + taskkill 释放占用）
 ```
 

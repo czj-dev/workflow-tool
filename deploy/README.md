@@ -16,7 +16,7 @@
 
 ```bash
 bash build/build.sh        # 全量：前端 → bindings → 单二进制
-bash build/frontend.sh     # 仅前端（依赖缺则 npm install；bindings 缺则自动生成）
+bash build/frontend.sh     # 仅前端（总是 npm install 同步依赖；bindings 自动生成）
 bash build/backend.sh      # 仅后端（bindings + go build；需 frontend/dist 已就绪）
 ```
 

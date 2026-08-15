@@ -82,7 +82,12 @@ describe("YamlEditor", () => {
     await user.click(screen.getByRole("combobox"));
     await user.click(await screen.findByRole("option", { name: "动作B" }));
     await user.click(await screen.findByRole("button", { name: "放弃" }));
-    await waitFor(() => expect(getCmValue()).toContain("id: b"));
+    // 编辑刚发生（typing latch 存活），@uiw/react-codemirror 会把外部 value 同步挂起，
+    // 等 latch 超时（200 ticks）后才应用。浏览器里 setInterval(1) 约 200ms 即超时；
+    // vitest jsdom 把 interval 钳到 ~15ms/tick，需 ~3 秒，故 waitFor 要放宽超时。
+    await waitFor(() => expect(getCmValue()).toContain("id: b"), {
+      timeout: 6000,
+    });
   });
 
   it("无 item 时显示空态且不渲染编辑器", async () => {

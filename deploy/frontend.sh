@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# 前端构建：bindings（总是重新生成，确保与 api.go 同步）→ 依赖（缺则安装）→ 产出 frontend/dist/
+# 前端构建：bindings（总是重新生成，确保与 api.go 同步）→ 依赖（总是 npm install，幂等）→ 产出 frontend/dist/
 # 用法：bash build/frontend.sh
 set -euo pipefail
 
@@ -19,10 +19,10 @@ echo "→ 生成 frontend/bindings…"
 ( cd "$ROOT" && wails3 generate bindings )
 
 cd "$FRONTEND"
-if [ ! -d node_modules ]; then
-  echo "→ 安装前端依赖…"
-  npm install
-fi
+# 总是 npm install：幂等且快（有 lockfile 时秒级）。只判 node_modules 目录存在的话，
+# package.json 新增依赖时不会补装，构建才报 "Cannot find module"（已踩过）。
+echo "→ 同步前端依赖（npm install）…"
+npm install
 echo "→ 前端构建（npm run build）…"
 npm run build
 echo "✓ 前端完成 → $FRONTEND/dist"
