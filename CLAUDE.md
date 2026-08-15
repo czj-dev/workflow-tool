@@ -48,6 +48,7 @@ internal/adbcore/   adb 域子进程治理：RunCommand/RunStreaming/RunCommandW
 internal/adb/       adb 域框架：ADBRunner（实现 runner.Runner）+ operation 自注册路由表 + OpContext
   ├── binary/       adb/fastboot/scrcpy 路径探测级联（config→PATH→常见路径，仅探测不下载）
   ├── device/       设备列表/信息/模式/wireless + 激活 serial 解析
+  ├── foreground/   前台信息 1 operation（foreground-info：前台 Activity/焦点窗口多 display 分组/View 树格式化报告，纯函数解析+排版）
   ├── input/        文本输入 1 operation（input-text：ASCII 走 input text，非 ASCII 剪贴板桥）
   ├── package/      包管理 9 operations（install/uninstall/list/enable/disable/clear/force-stop/pull-apk/details）
   ├── logcat/       结构化 logcat 2 operations（stream/batch，Go 端 threadtime 解析 + 过滤）
@@ -59,7 +60,7 @@ internal/api/       Wails Service 绑定 + 事件 emit（唯一依赖 Wails 的�
 ```
 
 - **runner.Runner** 接口 `Run(ctx, params, emit) Result` 是稳定扩展点。当前实现 `ShellRunner`（按 OS 构造 `exec.Cmd`，Windows 用 PowerShell/pwsh，其他用 `sh -c`，逐行 `emit` stdout/stderr）、`SleepRunner`（workflow sleep step）与 `LLMRunner`（LLM 一等形态，见下）。
-- **adb 域**：`command.adb.operation` 形态由 `adb.ADBRunner`（实现同一 `Runner` 接口）处理。`api.execute` 按 `command.shell`/`script`/`adb.operation`/`llm.prompt` 四选一选型。ADBRunner 解析设备 serial（params `ADB_SERIAL` 或 `device.ResolveActive`）+ 二进制路径（config 覆盖→PATH→常见路径），构造 `OpContext` 后按 `operation` 查路由表分发到域 handler。**各域子包（package/logcat/file/scrcpy）在自己的 `init()` 中调 `adb.RegisterOperation` 自登记，`main.go` blank-import 触发登记；新增 operation 不需改 `internal/adb/runner.go` 共享文件。** 输出走与 shell 动作完全相同的 `action:<id>:output` 通道；文件传输进度发 `stream:"progress"`。
+- **adb 域**：`command.adb.operation` 形态由 `adb.ADBRunner`（实现同一 `Runner` 接口）处理。`api.execute` 按 `command.shell`/`script`/`adb.operation`/`llm.prompt` 四选一选型。ADBRunner 解析设备 serial（params `ADB_SERIAL` 或 `device.ResolveActive`）+ 二进制路径（config 覆盖→PATH→常见路径），构造 `OpContext` 后按 `operation` 查路由表分发到域 handler。**各域子包（package/logcat/file/scrcpy/foreground 等）在自己的 `init()` 中调 `adb.RegisterOperation` 自登记，`main.go` blank-import 触发登记；新增 operation 不需改 `internal/adb/runner.go` 共享文件。** 输出走与 shell 动作完全相同的 `action:<id>:output` 通道；文件传输进度发 `stream:"progress"`。
 - **LLM 域**：`command.llm{system, prompt}` 形态由 `runner.LLMRunner` 处理（对标 ADBRunner 的一等形态，不再寄生在 shell/stdin/stream 三个字段上）。`LLMRunner.Run` 直接 `exec.Command` 构造子进程 argv：CLI 名取 `config.yaml` 的 `LLM_CLI`（默认 `ducc`）+ 固定 flags（`-p --output-format=stream-json --verbose --thinking enabled`）+ `system` 对应 param 值作为 `--append-system-prompt` 的**独立 argv**（不经 shell 字符串，多行/引号/`$` 零风险）；`prompt` 对应 param 值写入 `cmd.Stdin`。stdout 按 stream-json 解析（`llm.go` 的 `parseLLMLine`/`recordStructuredFields`），只把 assistant 的 text / thinking 增量 emit 为 `"llm"` / `"llm-thinking"`。
 - **变量替换**在**运行时**由 `runner.Expand` 完成（不在 registry 加载时）。优先级：动作参数 > 全局配置(config.yaml) > 环境变量；未命中保留 `${VAR}` 原样 + warning。`command.llm` 的 system/prompt 值同样走这条链路展开后再传给 LLMRunner。
 - **workflow.Executor** 串行执行 workflow 的 steps（action / inline shell / sleep 三选一），支持 `retry` 和 `continue_on_error`。step 边界 emit `step-start` / `step-done` 事件。执行 action step 时通过回调查 registry 合并 params 构造对应 Runner（Shell/ADB/LLM）。
@@ -70,7 +71,7 @@ internal/api/       Wails Service 绑定 + 事件 emit（唯一依赖 Wails 的�
 
 ## 动作 YAML（actions/*.yaml）
 
-`id`（`^[a-z0-9-]+$` 全局唯一）+ `title` 必填；`command.shell` 与 `command.script` 与 `command.adb.operation` 与 `command.llm.prompt` **四选一互斥**必选其一。`script` 路径不含扩展名，按 OS 自动加 `.sh`/`.ps1`，相对路径基于 exe 目录。`command.adb` 是 adb 域形态：写 `command.adb.operation: <域操作名>`，由内置 ADBRunner 分发到 adb 域服务（28 个 operation：包管理/logcat/文件传输/scrcpy/文本输入），各 operation 的 params 契约见 [docs/action.md](docs/action.md)。`command.llm{system, prompt}` 是 LLM 一等形态：`prompt`（必填）与 `system`（可选）都是 param id，由内置 LLMRunner 拼 CLI argv（见上方架构小节），详见 [docs/action.md](docs/action.md) 「LLM 域形态」章节。`command.stream` 只允许 `""` / `"logcat"`（`"logcat"` 为 adb logcat-stream 域专用，前端切 logcat 视图）。`params`（type: text|bool|select|path|file|textarea，select 必带 options）驱动前端表单；`presets` 是作者预设的整套参数值。可选 `icon`：写 `hi:<key>`（key 见 `frontend/src/components/ActionIcon.tsx` 注册表）渲染 hugeicons 矢量图标，或直接写 emoji/文本（原样显示，向后兼容）。校验逻辑在 `registry.validate`。
+`id`（`^[a-z0-9-]+$` 全局唯一）+ `title` 必填；`command.shell` 与 `command.script` 与 `command.adb.operation` 与 `command.llm.prompt` **四选一互斥**必选其一。`script` 路径不含扩展名，按 OS 自动加 `.sh`/`.ps1`，相对路径基于 exe 目录。`command.adb` 是 adb 域形态：写 `command.adb.operation: <域操作名>`，由内置 ADBRunner 分发到 adb 域服务（29 个 operation：包管理/logcat/文件传输/scrcpy/文本输入/前台信息），各 operation 的 params 契约见 [docs/action.md](docs/action.md)。`command.llm{system, prompt}` 是 LLM 一等形态：`prompt`（必填）与 `system`（可选）都是 param id，由内置 LLMRunner 拼 CLI argv（见上方架构小节），详见 [docs/action.md](docs/action.md) 「LLM 域形态」章节。`command.stream` 只允许 `""` / `"logcat"`（`"logcat"` 为 adb logcat-stream 域专用，前端切 logcat 视图）。`params`（type: text|bool|select|path|file|textarea，select 必带 options）驱动前端表单；`presets` 是作者预设的整套参数值。可选 `icon`：写 `hi:<key>`（key 见 `frontend/src/components/ActionIcon.tsx` 注册表）渲染 hugeicons 矢量图标，或直接写 emoji/文本（原样显示，向后兼容）。校验逻辑在 `registry.validate`。
 
 `command` 新增可选 `capture_output`（布尔，默认 true；false 关闭全量 stdout/stderr 捕获，长跑/持续输出 action 如 scrcpy/logcat 用）。
 

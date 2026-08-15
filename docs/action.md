@@ -200,7 +200,7 @@ command:
 
 ## adb 域形态（command.adb）
 
-`shell`/`script` 之外，`command.adb` 是第三种执行形态，调用内置 **ADBRunner**，按 `operation` 分发到原生 Go 封装的 adb 域服务（包管理 / logcat / 文件传输 / scrcpy）。相比裸 `adb shell`，它提供：设备 serial 自动解析、二进制路径探测、进度/取消、结构化过滤，且无需手写脚本。
+`shell`/`script` 之外，`command.adb` 是第三种执行形态，调用内置 **ADBRunner**，按 `operation` 分发到原生 Go 封装的 adb 域服务（包管理 / logcat / 文件传输 / scrcpy / 输入 / 前台信息）。相比裸 `adb shell`，它提供：设备 serial 自动解析、二进制路径探测、进度/取消、结构化过滤，且无需手写脚本。
 
 ```yaml
 command:
@@ -276,6 +276,12 @@ command:
 | operation | params | 说明 |
 |---|---|---|
 | `input-text` | `TEXT`(text,必填)、`RESTORE_CLIPBOARD`(bool) | 纯 ASCII 走 `input text`（空格转 `%s`）；含中文/emoji/换行自动剪贴板桥（`cmd clipboard set` → `input keyevent 279` 粘贴，需 Android 10+，个别 App 可能不响应粘贴键）；`RESTORE_CLIPBOARD=true` 时粘贴后延迟 ~500ms 恢复原剪贴板（恢复失败仅告警） |
+
+**前台信息（1）**
+
+| operation | params | 说明 |
+|---|---|---|
+| `foreground-info` | `ACTIVITY`(bool,默认 true)、`WINDOWS`(bool,默认 true)、`VIEW_TREE`(bool,默认 true)、`TREE_MAX_DEPTH`(text,空=不限) | 一次输出三段格式化报告：前台 Activity（`topResumedActivity`）、焦点窗口（`dumpsys window displays` 按 display 分组的 `mCurrentFocus`/`mFocusedApp` 等摘要）、View 树（`uiautomator dump` 无障碍树，缩进树形，`TREE_MAX_DEPTH` 超出层折叠为 `… (+N 子节点)`）。段级失败仅 warning 不影响其余段，全失败才非 0；仅支持 Android 10+ 字段格式 |
 
 `scrcpy-start` / `scrcpy-record-start` 的投屏选项（均为可选，整数类空=不传）：
 
