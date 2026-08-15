@@ -1,5 +1,5 @@
 id: adb-clean-reinstall
-title: 干净重装
+title: 推送覆盖应用
 icon: hi:package
 description: "强制停止 → 清除数据 → 卸载 → 定位/备份 APK → 推送到 /system/app → 重启 → 等待连接 → 设备初始化 → 强制停止"
 params:

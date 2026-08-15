@@ -3,30 +3,45 @@ title: 资源打包并验证
 icon: hi:package
 description: "打包语音项目资源 → push 到设备 backup 目录 → chmod 777 验证"
 params:
-  - id: RES_DIR
-    label: 资源文件夹（全路径）
+  - id: PROJECT_DIR
+    label: xdzs-resource 项目目录
     type: path
     required: true
-    default: /Users/v_chenzhaojun/Documents/Project/baidu/asd-edc/xdzs-resource/resource/buick-xd-tinnove/
+    default: /Users/v_chenzhaojun/Documents/Project/baidu/asd-edc/xdzs-resource
+  - id: RES_NAME
+    label: 产品线资源目录名
+    type: select
+    required: true
+    default: buick-xd-tinnove
+    options:
+      - buick-xd-tinnove
 steps:
   - id: device-init
     name: 设备初始化
     action: xdzs-device-init
-  - id: package
+  - id: packag
     name: 打包资源
     shell: |
-      cd /Users/v_chenzhaojun/Documents/Project/baidu/asd-edc/xdzs-resource
-      ./scripts/package_speech_res.sh "${RES_DIR}"
+      RES_DIR="${PROJECT_DIR}/resource/${RES_NAME}"
+      if [ ! -d "$RES_DIR" ]; then
+        echo "资源目录不存在: $RES_DIR" >&2; exit 1
+      fi
+      if [ ! -x "${PROJECT_DIR}/scripts/package_speech_res.sh" ]; then
+        echo "未找到打包脚本: ${PROJECT_DIR}/scripts/package_speech_res.sh" >&2; exit 1
+      fi
+      cd "${PROJECT_DIR}"
+      ./scripts/package_speech_res.sh "$RES_DIR"
+    timeout: 240s
   - id: mkdir-remote
     name: 创建设备目录
     shell: adb shell mkdir -p /resources/sota/speech/backup/
   - id: push
     name: push 资源包
-    shell: |
-      ZIP="${RES_DIR%/}/speech_project_res.zip"
-      if [ ! -f "$ZIP" ]; then echo "未找到打包产物: $ZIP" >&2; exit 1; fi
-      echo "推送: $ZIP"
-      adb push "$ZIP" /resources/sota/speech/backup/
+    action: adb-push
+    params:
+      LOCAL_PATH: ${PROJECT_DIR}/resource/${RES_NAME}/speech_project_res.zip
+      REMOTE_PATH: /resources/sota/speech/backup/
+      ALLOW_PROTECTED: "true"
   - id: chmod
     name: 授权 777
     shell: adb shell chmod -R 777 /resources/sota/speech

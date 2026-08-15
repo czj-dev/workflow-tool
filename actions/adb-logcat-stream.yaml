@@ -28,3 +28,7 @@ command:
 presets:
   - name: 云端响应
     values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: com.baidu.che.codriver, TAG: DVR_InitService DVR_TinnoveIpc}
+  - name: 指令分发
+    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: com.baidu.che.codriver, TAG: DVR_InitService DVR_TinnoveIpc}
+  - name: 对话改写
+    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: "", TAG: DVR_CarControlOpenBot DVR_WtNluBot DVR_MultiRoundRuleRegistrar}
