@@ -34,6 +34,7 @@ import type {
 } from "../../bindings/workflow-tool/internal/api/models.js";
 import type { Fragment } from "../../bindings/workflow-tool/internal/registry/models.js";
 import { useLlmHistory, type LlmHistoryEntry } from "../hooks/useLlmHistory";
+import { foldOutputLine } from "../lib/outputFold";
 import type {
   OutputEventData,
   DoneEventData,
@@ -47,6 +48,20 @@ import type {
 // 故 onOutput 仅压入 ref，由定时器按 MAX_LOGCAT 节流并入 state。
 const MAX_LOGCAT = 4000;
 const MAX_LOGCAT_FLUSH = 8000;
+
+// 从 logcat 动作的运行参数推导面板过滤：LEVEL→minLevel、TAG→tag、INCLUDE→search。
+// 服务端已按这些值过滤（减少 IPC），面板反映当前状态并可在其上进一步收窄；
+// TAG 按空白拆分任一命中（与后端 allow 一致），故多 tag 不会误隐藏。
+function logFilterFromParams(
+  params: Record<string, unknown> | undefined,
+): LogcatFilter {
+  const lvlRaw = String(params?.LEVEL ?? "").trim().toUpperCase();
+  return {
+    minLevel: lvlRaw && "VDIWEF".includes(lvlRaw[0]) ? lvlRaw[0] : "V",
+    tag: String(params?.TAG ?? ""),
+    search: String(params?.INCLUDE ?? ""),
+  };
+}
 
 type Status = "idle" | "running" | "done" | "error";
 interface ExitInfo {
@@ -187,6 +202,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   });
   // logcat 入站缓冲：onOutput 高频回调只往 ref 压，不触发渲染；由下面的定时器批量并入 state。
   const logcatBufferRef = useRef<LogcatEntry[]>([]);
+  // progress 原地刷新标记：上一条是 progress → 覆盖该行而非追加，模拟终端 \r 效果
+  const lastWasProgressRef = useRef(false);
   // 每 ~120ms 把缓冲批量并入 logcatEntries（截断到 MAX_LOGCAT），空缓冲跳过。
   // logcat 启动常先倾倒整个 ring buffer（万级行），逐行 setState 会冻结 UI。
   useEffect(() => {
@@ -334,15 +351,28 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         });
         return;
       }
-      // stdout/stderr：追加到最后一个 running step
-      const prefix = d.stream === "stderr" ? t("output.stderrPrefix") : "";
-      const line = prefix + (d.line || "");
+      // stdout/stderr/progress：优先按后端下发的 step 索引落桶（规避 Wails 事件乱序，
+      // 见 events.ts 的 step 字段注释）；无 step 字段时退回「最后一个 running」。
       setWorkflowSteps((prev) => {
-        const lastRunning = [...prev].reverse().find((s) => s.status === "running");
-        if (!lastRunning) return prev;
-        return prev.map((s) =>
-          s.index === lastRunning.index
-            ? { ...s, lines: [...s.lines, line] }
+        const idx = d.step ? parseInt(d.step, 10) : NaN;
+        let list = prev;
+        let target = Number.isNaN(idx)
+          ? [...prev].reverse().find((s) => s.status === "running")
+          : prev.find((s) => s.index === idx);
+        // 输出先于 step-start 到达时补建桶（step-start 后续会把 status 覆写为 running）
+        if (!target && !Number.isNaN(idx)) {
+          target = { index: idx, status: "running" as const, lines: [] };
+          list = [...prev, target];
+        }
+        if (!target) return prev;
+        const folded = foldOutputLine(
+          { lines: target.lines, lastWasProgress: target.lastWasProgress ?? false },
+          d,
+          { stderrPrefix: t("output.stderrPrefix") },
+        );
+        return list.map((s) =>
+          s.index === target!.index
+            ? { ...s, lines: folded.lines, lastWasProgress: folded.lastWasProgress }
             : s,
         );
       });
@@ -402,8 +432,16 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         }
         return;
       }
-      const prefix = d.stream === "stderr" ? t("output.stderrPrefix") : "";
-      setLines((prev) => [...prev, prefix + (d.line || "")]);
+      // stdout/stderr/progress：走共享的 foldOutputLine（progress 原地刷新语义与 workflow step 一致）。
+      setLines((prev) => {
+        const folded = foldOutputLine(
+          { lines: prev, lastWasProgress: lastWasProgressRef.current },
+          d,
+          { stderrPrefix: t("output.stderrPrefix") },
+        );
+        lastWasProgressRef.current = folded.lastWasProgress;
+        return folded.lines;
+      });
     };
     const onDone = (e: unknown) => {
       const d = (((e as { data?: unknown })?.data) || {}) as DoneEventData;
@@ -469,15 +507,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       } else if (action?.stream === "logcat") {
         logcatBufferRef.current = [];
         setLogcatEntries([]);
-        // 把表单的服务端预过滤参数带到运行时面板：LEVEL→minLevel、TAG→tag、INCLUDE→search。
-        // 服务端已按这些值过滤（减少 IPC），面板反映当前状态并可在其上进一步收窄；
-        // TAG 按空白拆分任一命中（与后端 allow 一致），故多 tag 不会误隐藏。
-        const lvlRaw = String(params.LEVEL ?? "").trim().toUpperCase();
-        setLogFilterState({
-          minLevel: lvlRaw && "VDIWEF".includes(lvlRaw[0]) ? lvlRaw[0] : "V",
-          tag: String(params.TAG ?? ""),
-          search: String(params.INCLUDE ?? ""),
-        });
+        // 把本次运行的服务端预过滤参数带入面板过滤（映射见 logFilterFromParams）。
+        setLogFilterState(logFilterFromParams(params));
         setView("logcat");
       } else {
         setView("output");
@@ -557,6 +588,9 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     } else if (targetView === "logcat") {
       logcatBufferRef.current = [];
       setLogcatEntries([]);
+      // 恢复该次运行实际使用的过滤条件：logFilter 是全局单份，期间跑过其他 logcat
+      // 动作（或后台启动时从未设置）会覆盖/丢失，回到面板时用 lastRunParams 带回。
+      setLogFilterState(logFilterFromParams(lastRunParamsRef.current[id]));
     }
     setView(targetView);
   };

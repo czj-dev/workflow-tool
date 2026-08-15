@@ -4,7 +4,8 @@ import { Edit02Icon } from "@hugeicons/core-free-icons";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Badge } from "@/components/ui/badge";
 import { useActionRunner } from "../hooks/useActionRunner";
-import { useActionUsage, groupLabel, MISC_KEY } from "../hooks/useActionUsage";import { ActionIcon } from "./ActionIcon";
+import { useActionUsage, groupLabel, MISC_KEY } from "../hooks/useActionUsage";import { hasFormFields } from "../lib/params";
+import { ActionIcon } from "./ActionIcon";
 import { TickRuler, StatusRail, ParamSummary, RunningFlow } from "./GridCardParts";
 import type { ActionItem } from "../../bindings/workflow-tool/internal/api/models.js";
 
@@ -12,10 +13,12 @@ import type { ActionItem } from "../../bindings/workflow-tool/internal/api/model
 const EYEBROW =
   "font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80";
 
-// Grid 页：按 id 前缀分组展示所有 action。点卡片 = 默认运行；preset chip 直接运行、chip 内 ✎ 进编辑。
+// Grid 页：按 id 前缀分组展示所有 action。点卡片：运行中→回到其输出视图；
+// 有「必填且无默认值」的参数进表单；否则直接运行（默认值后端回填）；
+// preset chip 直接运行、chip 内 ✎ 进编辑（与侧边栏/工作流网格一致）。
 export function ActionsGridView() {
   const { t } = useTranslation();
-  const { actions, runAction, selectPreset, isRunning } = useActionRunner();
+  const { actions, runAction, selectPreset, isRunning, focusRunning } = useActionRunner();
   const { groupByPrefix, footprintLevel, getScore, recordUsage, topActions } = useActionUsage();
 
   const shellActions = actions.filter((a) => !a.llm);
@@ -70,6 +73,12 @@ export function ActionsGridView() {
                       recordUsage(action.id);
                     }}
                     onEdit={() => selectPreset(action.id, "")}
+                    onFocus={() =>
+                      focusRunning(
+                        action.id,
+                        action.llm ? "llm-chat" : action.stream === "logcat" ? "logcat" : "output",
+                      )
+                    }
                     onPresetRun={(values) => {
                       runAction(action.id, values);
                       recordUsage(action.id);
@@ -95,16 +104,19 @@ interface ActionCardProps {
   score: number;
   onRun: (params: Record<string, string>, background?: boolean) => void;
   onEdit: () => void;
+  onFocus: () => void;
   onPresetRun: (values: Record<string, string>) => void;
   onPresetEdit: (name: string) => void;
 }
 
 function ActionCard({
   action, running, level, score,
-  onRun, onEdit, onPresetRun, onPresetEdit,
+  onRun, onEdit, onFocus, onPresetRun, onPresetEdit,
 }: ActionCardProps) {
   const { t } = useTranslation();
   const hasParams = (action.params?.length ?? 0) > 0;
+  // 是否「值得进表单」：有必填且无默认值的项。否则单击直接运行（与侧边栏/工作流网格一致）。
+  const showForm = hasFormFields(action.params);
   const presetCount = action.presets?.length ?? 0;
   const paramIds = action.params?.map((p) => p.id) ?? [];
 
@@ -115,7 +127,16 @@ function ActionCard({
   };
 
   const handleCardClick = () => {
-    onRun(hasParams ? buildDefaults() : {});
+    if (running) {
+      // 运行中：回到其输出视图（logcat 会带回该次的过滤条件），不重复启动
+      onFocus();
+      return;
+    }
+    if (showForm) {
+      onEdit(); // 进 form（selectPreset("")，用 default 预填）
+    } else {
+      onRun(hasParams ? buildDefaults() : {});
+    }
   };
 
   return (
@@ -237,12 +258,16 @@ function ActionCard({
             )}
             <button
               type="button"
-              aria-label={t("grid.run")}
-              title={t("grid.run")}
-              onClick={(e) => { e.stopPropagation(); onRun(hasParams ? buildDefaults() : {}, true); }}
+              aria-label={showForm ? t("grid.open") : t("grid.run")}
+              title={showForm ? t("grid.open") : t("grid.run")}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (showForm) onEdit();
+                else onRun(hasParams ? buildDefaults() : {}, true);
+              }}
               className="text-primary tracking-[0.14em] hover:opacity-70"
             >
-              ▸ {t("grid.run")}
+              ▸ {showForm ? t("grid.open") : t("grid.run")}
             </button>
           </span>
         )}

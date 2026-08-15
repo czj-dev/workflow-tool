@@ -404,6 +404,34 @@ describe("ActionRunnerProvider", () => {
     expect(result.current.lines).toEqual([]);
   });
 
+  // logcat 过滤条件带入：runAction 前台路径把 LEVEL/TAG/INCLUDE 映射进面板过滤；
+  // focusRunning 回到运行中的 logcat 动作时用 lastRunParams 恢复当初的过滤
+  // （logFilter 是全局单份，期间跑其他 logcat 动作会被覆盖）。
+  it("runAction 把 logcat 参数带入面板过滤；focusRunning 恢复被覆盖的过滤", async () => {
+    mockListActions.mockResolvedValue({
+      actions: [
+        { id: "a1", title: "A", icon: "", description: "", params: [], presets: [], stream: "logcat" },
+        { id: "a2", title: "B", icon: "", description: "", params: [], presets: [], stream: "logcat" },
+      ],
+      errors: [],
+    });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.runAction("a1", { LEVEL: "W", TAG: "Foo Bar", INCLUDE: "zz" });
+    });
+    expect(result.current.view).toBe("logcat");
+    expect(result.current.logFilter).toEqual({ minLevel: "W", tag: "Foo Bar", search: "zz" });
+    // 期间跑另一个 logcat 动作 → 全局过滤被覆盖
+    await act(async () => {
+      await result.current.runAction("a2", { LEVEL: "E" });
+    });
+    expect(result.current.logFilter).toEqual({ minLevel: "E", tag: "", search: "" });
+    // 回到 a1 的面板 → 用 a1 当初的运行参数恢复过滤
+    act(() => result.current.focusRunning("a1", "logcat"));
+    expect(result.current.logFilter).toEqual({ minLevel: "W", tag: "Foo Bar", search: "zz" });
+  });
+
   it("挂载时拉取 workflow 列表", async () => {
     mockListActions.mockResolvedValue({ actions: [], errors: [] });
     mockListWorkflows.mockResolvedValue({
@@ -450,8 +478,30 @@ describe("ActionRunnerProvider", () => {
       _emitForTest("workflow:w1:output", { data: { stream: "step-done", line: "1:1" } });
     });
     expect(result.current.workflowSteps).toEqual([
-      { index: 0, status: "done", exitCode: 0, lines: ["hi", "[stderr] boom"] },
-      { index: 1, status: "error", exitCode: 1, lines: ["second"] },
+      { index: 0, status: "done", exitCode: 0, lines: ["hi", "[stderr] boom"], lastWasProgress: false },
+      { index: 1, status: "error", exitCode: 1, lines: ["second"], lastWasProgress: false },
+    ]);
+  });
+
+  it("progress 带 step 字段时按索引落桶（乱序到达也不串到下一个 step）", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.runWorkflow("w1");
+    });
+    act(() => {
+      _emitForTest("workflow:w1:output", { data: { stream: "step-start", line: "0", step: "0" } });
+      _emitForTest("workflow:w1:output", { data: { stream: "progress", line: "push a: 50%", step: "0" } });
+      // step 0 的 100% 被 Wails 乱序投递，晚于 step-done + 下一个 step-start 才到
+      _emitForTest("workflow:w1:output", { data: { stream: "step-done", line: "0:0", step: "0" } });
+      _emitForTest("workflow:w1:output", { data: { stream: "step-start", line: "1", step: "1" } });
+      _emitForTest("workflow:w1:output", { data: { stream: "progress", line: "push a: 100%", step: "0" } });
+      _emitForTest("workflow:w1:output", { data: { stream: "stdout", line: "chmod ok", step: "1" } });
+    });
+    expect(result.current.workflowSteps).toEqual([
+      { index: 0, status: "done", exitCode: 0, lines: ["push a: 100%"], lastWasProgress: true },
+      { index: 1, status: "running", lines: ["chmod ok"], lastWasProgress: false },
     ]);
   });
 
