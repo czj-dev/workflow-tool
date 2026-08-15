@@ -53,7 +53,7 @@ function wrap() {
   );
 }
 
-const mkWf = (id: string, title: string, extra: Partial<{}> = {}) => ({
+const mkWf = (id: string, title: string, extra: Partial<Record<string, unknown>> = {}) => ({
   id,
   title,
   icon: "hi:workflow",
@@ -91,11 +91,88 @@ describe("WorkflowsGridView", () => {
     expect(localStorage.getItem("workflow-usage")).toContain("demo-run");
   });
 
-  it("点击有参数 workflow 卡片进入表单视图(不直接运行)", async () => {
+  it("点击仅带默认值(无必填)的 workflow 卡片直接运行(不进表单)", async () => {
     const user = userEvent.setup();
     mockListWorkflows.mockResolvedValue({
       workflows: [
-        mkWf("demo-form", "带参", {
+        mkWf("demo-form", "带默认值", {
+          params: [
+            {
+              id: "MSG",
+              label: "消息",
+              type: "text",
+              required: false,
+              default: "hi",
+              options: [],
+            },
+          ],
+        }),
+      ],
+      errors: [],
+    });
+    render(wrap());
+    await user.click(await screen.findByText("带默认值"));
+    // runWorkflow 会在前端回填默认值（MSG: hi）再调服务
+    expect(mockRunWorkflow).toHaveBeenCalledWith("demo-form", { MSG: "hi" });
+    // 精确匹配：避免误匹配 workflow-form
+    expect(screen.getByTestId("view-probe")).toHaveTextContent(/^workflow$/);
+  });
+
+  it("点击必填且带默认值的 workflow 卡片直接运行(回填默认值, 如 adb-debug-activity)", async () => {
+    const user = userEvent.setup();
+    mockListWorkflows.mockResolvedValue({
+      workflows: [
+        mkWf("demo-req-def", "必填带默认", {
+          params: [
+            {
+              id: "PACKAGE",
+              label: "包名",
+              type: "text",
+              required: true,
+              default: "com.example.app",
+              options: [],
+            },
+          ],
+        }),
+      ],
+      errors: [],
+    });
+    render(wrap());
+    await user.click(await screen.findByText("必填带默认"));
+    expect(mockRunWorkflow).toHaveBeenCalledWith("demo-req-def", { PACKAGE: "com.example.app" });
+    expect(screen.getByTestId("view-probe")).toHaveTextContent(/^workflow$/);
+  });
+
+  it("点击必填参数 workflow 卡片进入表单视图(不直接运行)", async () => {
+    const user = userEvent.setup();
+    mockListWorkflows.mockResolvedValue({
+      workflows: [
+        mkWf("demo-req", "必填", {
+          params: [
+            {
+              id: "MSG",
+              label: "消息",
+              type: "text",
+              required: true,
+              default: "",
+              options: [],
+            },
+          ],
+        }),
+      ],
+      errors: [],
+    });
+    render(wrap());
+    await user.click(await screen.findByText("必填"));
+    expect(mockRunWorkflow).not.toHaveBeenCalled();
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("workflow-form");
+  });
+
+  it("点击全可选且无默认值的 workflow 卡片直接运行(不进表单)", async () => {
+    const user = userEvent.setup();
+    mockListWorkflows.mockResolvedValue({
+      workflows: [
+        mkWf("demo-opt", "全可选", {
           params: [
             {
               id: "MSG",
@@ -111,10 +188,8 @@ describe("WorkflowsGridView", () => {
       errors: [],
     });
     render(wrap());
-    await user.click(await screen.findByText("带参"));
-    expect(mockRunWorkflow).not.toHaveBeenCalled();
-    // 覆盖 onEdit → selectWorkflow → setView("workflow-form") 链路
-    expect(screen.getByTestId("view-probe")).toHaveTextContent("workflow-form");
+    await user.click(await screen.findByText("全可选"));
+    expect(mockRunWorkflow).toHaveBeenCalledWith("demo-opt", {});
   });
 
   it("渲染个性图标(emoji 原样显示)", async () => {

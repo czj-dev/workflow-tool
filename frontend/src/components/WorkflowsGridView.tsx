@@ -8,6 +8,7 @@ import {
   groupLabel,
   MISC_KEY,
 } from "../hooks/useActionUsage";
+import { hasFormFields } from "../lib/params";
 import { ActionIcon } from "./ActionIcon";
 import { TickRuler, StatusRail, ParamSummary, RunningFlow } from "./GridCardParts";
 import type { WorkflowItem as WorkflowItemType } from "../../bindings/workflow-tool/internal/api/models.js";
@@ -17,6 +18,7 @@ const EYEBROW =
   "font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80";
 
 // Grid 页:按 id 前缀分组展示所有 workflow。同构 ActionCard 布局，无 preset。
+// 单击:有「必填且无默认值」的 params 进表单，否则直接运行（默认值由后端回填，与侧边栏一致）。
 export function WorkflowsGridView() {
   const { t } = useTranslation();
   const { workflows, runWorkflow, selectWorkflow, runningWorkflowId } =
@@ -104,11 +106,13 @@ function WorkflowCard({
 }: WorkflowCardProps) {
   const { t } = useTranslation();
   const hasParams = (workflow.params?.length ?? 0) > 0;
+  // 是否「值得进表单」：有必填且无默认值的项。否则单击直接运行（与侧边栏一致）。
+  const showForm = hasFormFields(workflow.params);
   const stepCount = workflow.steps?.length ?? 0;
   const paramIds = workflow.params?.map((p) => p.id) ?? [];
 
   const handleCardClick = () => {
-    if (hasParams) {
+    if (showForm) {
       onEdit(); // 进 workflow-form
     } else {
       onRun({});
@@ -186,16 +190,16 @@ function WorkflowCard({
             )}
             <button
               type="button"
-              aria-label={hasParams ? t("grid.open") : t("grid.run")}
-              title={hasParams ? t("grid.open") : t("grid.run")}
+              aria-label={showForm ? t("grid.open") : t("grid.run")}
+              title={showForm ? t("grid.open") : t("grid.run")}
               onClick={(e) => {
                 e.stopPropagation();
-                if (hasParams) onEdit();
+                if (showForm) onEdit();
                 else onRun({}, true);
               }}
               className="text-primary tracking-[0.14em] hover:opacity-70"
             >
-              ▸ {hasParams ? t("grid.open") : t("grid.run")}
+              ▸ {showForm ? t("grid.open") : t("grid.run")}
             </button>
           </span>
         )}

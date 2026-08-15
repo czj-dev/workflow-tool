@@ -9,12 +9,13 @@ import {
 import type { WorkflowItem as WorkflowItemType } from "../../bindings/workflow-tool/internal/api/models.js";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { useActionUsage } from "../hooks/useActionUsage";
+import { hasFormFields } from "../lib/params";
 import { ActionIcon } from "./ActionIcon";
 
 const DOUBLE_CLICK_DELAY = 250; // ms
 
 // 侧边栏单个 workflow 项：
-// 单击 —— 有 params 进配置表单，无 params 直接运行。
+// 单击 —— 有「必填且无默认值」的 params 进配置表单，否则直接运行（默认值由后端回填）。
 // 双击 —— 始终直接运行（用默认参数）。
 // 运行指示用 Live Pulse；完成用 success 色。
 export function WorkflowItem({ workflow }: { workflow: WorkflowItemType }) {
@@ -22,7 +23,8 @@ export function WorkflowItem({ workflow }: { workflow: WorkflowItemType }) {
     useActionRunner();
   const { recordUsage } = useActionUsage("workflow-usage");
   const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const hasParams = (workflow.params?.length ?? 0) > 0;
+  // 是否「值得进表单」：有必填且无默认值的项。否则单击直接运行（不弹空表单）。
+  const showForm = hasFormFields(workflow.params);
 
   const isWorkflowView =
     view === "workflow" || view === "workflow-form" || view === "workflow-edit";
@@ -38,7 +40,7 @@ export function WorkflowItem({ workflow }: { workflow: WorkflowItemType }) {
         focusWorkflow(workflow.id);
         return;
       }
-      if (hasParams) {
+      if (showForm) {
         selectWorkflow(workflow.id); // 进 workflow-form
       } else {
         runWorkflow(workflow.id, {});

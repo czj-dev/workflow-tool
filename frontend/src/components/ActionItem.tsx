@@ -9,13 +9,14 @@ import {
 import type { ActionItem as ActionItemType } from "../../bindings/workflow-tool/internal/api/models.js";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { useActionUsage } from "../hooks/useActionUsage";
+import { hasFormFields } from "../lib/params";
 import { PresetList } from "./PresetList";
 import { ActionIcon } from "./ActionIcon";
 
 const DOUBLE_CLICK_DELAY = 250; // ms
 
 // 侧边栏单个动作项：
-// 单击 —— 有子项则展开/收起；无子项但有参数则进表单；两者都无则直接运行。
+// 单击 —— 有子项则展开/收起；无子项但有「必填且无默认值」的参数则进表单；否则直接运行（默认值由后端回填）。
 // 双击 —— 始终尝试直接运行（用默认参数）。
 // 运行指示用 Live Pulse（呼吸点）替代转圈；完成用 success 色，失败 destructive。
 export function ActionItem({ action }: { action: ActionItemType }) {
@@ -28,7 +29,8 @@ export function ActionItem({ action }: { action: ActionItemType }) {
   const isCurrent = currentId === action.id;
   const active = isCurrent && !selectedPreset;
   const hasPresets = (action.presets?.length ?? 0) > 0;
-  const hasParams = (action.params?.length ?? 0) > 0;
+  // 是否「值得进表单」：有必填且无默认值的项。否则单击直接运行（不弹空表单）。
+  const showForm = hasFormFields(action.params);
   // 该动作是否仍在后台运行（即使 currentId 已切走）
   const actionRunning = isRunning(action.id);
 
@@ -56,7 +58,7 @@ export function ActionItem({ action }: { action: ActionItemType }) {
       }
       if (hasPresets) {
         setExpanded((v) => !v);
-      } else if (hasParams) {
+      } else if (showForm) {
         selectPreset(action.id, "");
       } else {
         runAction(action.id, {});
