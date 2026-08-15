@@ -1,6 +1,13 @@
 package foreground
 
-import "testing"
+import (
+	"context"
+	"os"
+	"testing"
+	"time"
+
+	"workflow-tool/internal/adbcore"
+)
 
 // fixture 取自真机 Android 14 车机（DP8678GRP）实测 dumpsys 输出。
 const activityDumpFixture = `ACTIVITY MANAGER RECENT TASKS (dumpsys activity recents)
@@ -159,5 +166,61 @@ func TestCountDescendants(t *testing.T) {
 	}
 	if got := countDescendants(&tree.Node.Nodes[0].Nodes[0]); got != 0 {
 		t.Fatalf("leaf got %d", got)
+	}
+}
+
+// TestLiveForegroundParse 真机验证（默认 skip）：设 FOREGROUND_LIVE_SERIAL（可选
+// FOREGROUND_LIVE_ADB 覆盖 adb 路径）后运行，直接跑三条真实命令并走完整
+// 解析+排版链路。OpContext 未导出字段无法在域包外构造，故绕过 handler、
+// 直测纯函数链（handler 编排由 exe 手动验证覆盖）。
+func TestLiveForegroundParse(t *testing.T) {
+	serial := os.Getenv("FOREGROUND_LIVE_SERIAL")
+	if serial == "" {
+		t.Skip("set FOREGROUND_LIVE_SERIAL to run live verification")
+	}
+	adbBin := os.Getenv("FOREGROUND_LIVE_ADB")
+	if adbBin == "" {
+		adbBin = `C:\Users\ASUS\AppData\Local\Android\Sdk\platform-tools\adb.exe`
+	}
+	run := func(args ...string) string {
+		t.Helper()
+		full := append([]string{"-s", serial}, args...)
+		res, err := adbcore.RunCommand(context.Background(), adbcore.ExecRequest{
+			Command: adbBin, Args: full, Timeout: 30 * time.Second,
+		})
+		if err != nil {
+			t.Fatalf("%v: %v", args, err)
+		}
+		if res.ExitCode != 0 {
+			t.Fatalf("%v: exit %d: %s", args, res.ExitCode, res.Stderr)
+		}
+		return res.Stdout
+	}
+
+	if a, ok := parseTopActivity(run("shell", "dumpsys", "activity", "activities")); ok {
+		for _, l := range formatActivity(a) {
+			t.Log(l)
+		}
+	} else {
+		t.Error("live: no topResumedActivity parsed")
+	}
+
+	if ws := parseWindowDisplays(run("shell", "dumpsys", "window", "displays")); len(ws) > 0 {
+		for _, l := range formatWindows(ws) {
+			t.Log(l)
+		}
+	} else {
+		t.Error("live: no window displays parsed")
+	}
+
+	run("shell", "uiautomator", "dump", uiDumpPath) // 失败时 run 内部 Fatalf
+	xmlData := run("shell", "cat", uiDumpPath)
+	if tree, err := parseUITree(xmlData); err != nil {
+		t.Errorf("live: parse xml: %v", err)
+	} else {
+		for _, l := range formatTree(tree, 3) {
+			t.Log(l)
+		}
+		_ = formatTree(tree, 0) // 不限深度版同时跑一遍（确认全量渲染不 panic）
 	}
 }
