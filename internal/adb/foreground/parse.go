@@ -4,6 +4,7 @@
 package foreground
 
 import (
+	"encoding/xml"
 	"regexp"
 	"strings"
 )
@@ -98,4 +99,41 @@ func parseWindowDisplays(dump string) []WindowDisplay {
 		}
 	}
 	return out
+}
+
+// UINode 是 uiautomator dump 的一个节点（无障碍树，非字面 View 树——
+// 用于定位可交互控件）。
+type UINode struct {
+	Class      string   `xml:"class,attr"`
+	Text       string   `xml:"text,attr"`
+	ResourceID string   `xml:"resource-id,attr"`
+	Clickable  bool     `xml:"clickable,attr"`
+	Bounds     string   `xml:"bounds,attr"`
+	Nodes      []UINode `xml:"node"`
+}
+
+// UITree 是 uiautomator dump XML 的根。XMLName 强校验根元素是 hierarchy，
+// 非 hierarchy 输出（错误信息）会 Unmarshal 失败。
+type UITree struct {
+	XMLName  xml.Name `xml:"hierarchy"`
+	Rotation string   `xml:"rotation,attr"`
+	Node     UINode   `xml:"node"`
+}
+
+// parseUITree 解析 uiautomator dump 的 XML。
+func parseUITree(data string) (*UITree, error) {
+	var t UITree
+	if err := xml.Unmarshal([]byte(data), &t); err != nil {
+		return nil, err
+	}
+	return &t, nil
+}
+
+// countDescendants 统计节点全部后代数（不含自身），深度截断折叠计数用。
+func countDescendants(n *UINode) int {
+	c := 0
+	for i := range n.Nodes {
+		c += 1 + countDescendants(&n.Nodes[i])
+	}
+	return c
 }

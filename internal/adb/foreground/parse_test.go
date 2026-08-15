@@ -107,3 +107,57 @@ func TestParseWindowDisplaysEmpty(t *testing.T) {
 		t.Fatalf("expected 0, got %+v", ws)
 	}
 }
+
+// fixture 裁剪自真机 uiautomator dump 产物（保留属性结构，删减层数）。
+const uiTreeFixture = `<?xml version='1.0' encoding='UTF-8' standalone='yes' ?>
+<hierarchy rotation="0">
+  <node index="0" text="" resource-id="com.tinnove.aiassistant:id/root_view" class="android.widget.FrameLayout" package="com.tinnove.aiassistant" content-desc="" clickable="false" bounds="[932,180][1984,1228]">
+    <node text="" resource-id="com.tinnove.aiassistant:id/ai_cui_card_container" class="android.widget.FrameLayout" clickable="false" bounds="[932,180][1984,1228]">
+      <node text="登录" resource-id="com.example.app:id/login" class="android.widget.Button" clickable="true" bounds="[100,800][300,880]"/>
+    </node>
+  </node>
+</hierarchy>`
+
+func TestParseUITree(t *testing.T) {
+	tree, err := parseUITree(uiTreeFixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := tree.Node
+	if root.Class != "android.widget.FrameLayout" || root.ResourceID != "com.tinnove.aiassistant:id/root_view" {
+		t.Fatalf("root = %+v", root)
+	}
+	if root.Bounds != "[932,180][1984,1228]" {
+		t.Fatalf("bounds = %q", root.Bounds)
+	}
+	if len(root.Nodes) != 1 || len(root.Nodes[0].Nodes) != 1 {
+		t.Fatalf("unexpected nesting: %+v", root)
+	}
+	btn := root.Nodes[0].Nodes[0]
+	if btn.Text != "登录" || !btn.Clickable || btn.Class != "android.widget.Button" {
+		t.Fatalf("button = %+v", btn)
+	}
+	if tree.Rotation != "0" {
+		t.Fatalf("rotation = %q", tree.Rotation)
+	}
+}
+
+func TestParseUITreeInvalid(t *testing.T) {
+	if _, err := parseUITree("not xml at all"); err == nil {
+		t.Fatal("expected error for invalid xml")
+	}
+	if _, err := parseUITree("<?xml version='1.0'?><other/>"); err == nil {
+		t.Fatal("expected error for missing hierarchy root") // xml: 期望 hierarchy 元素
+	}
+}
+
+func TestCountDescendants(t *testing.T) {
+	tree, _ := parseUITree(uiTreeFixture)
+	// root -> container -> button：root 后代 = 2
+	if got := countDescendants(&tree.Node); got != 2 {
+		t.Fatalf("got %d, want 2", got)
+	}
+	if got := countDescendants(&tree.Node.Nodes[0].Nodes[0]); got != 0 {
+		t.Fatalf("leaf got %d", got)
+	}
+}
