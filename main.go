@@ -17,6 +17,7 @@ import (
 	// adb 域子包各自在 init() 中调用 adb.RegisterOperation 自登记 operation。
 	// 必须在此 blank import，否则未引用的子包不会编译进二进制、init() 不执行、operation 表为空。
 	_ "workflow-tool/internal/adb/file"
+	_ "workflow-tool/internal/adb/input"
 	_ "workflow-tool/internal/adb/logcat"
 	_ "workflow-tool/internal/adb/package"
 	_ "workflow-tool/internal/adb/scrcpy"

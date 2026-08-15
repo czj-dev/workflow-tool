@@ -1,6 +1,11 @@
 package input
 
-import "testing"
+import (
+	"context"
+	"testing"
+
+	"workflow-tool/internal/adb"
+)
 
 func TestPlanInput(t *testing.T) {
 	cases := []struct {
@@ -34,5 +39,16 @@ func TestEscapeForInputText(t *testing.T) {
 	}
 	if got, want := escapeForInputText("nospace"), "nospace"; got != want {
 		t.Errorf("escapeForInputText = %q, want %q", got, want)
+	}
+}
+
+func TestHandleInputTextRequiresText(t *testing.T) {
+	op := &adb.OpContext{Ctx: context.Background(), Params: map[string]any{}}
+	res := handleInputText(op)
+	if res.ExitCode != 2 {
+		t.Errorf("ExitCode = %d, want 2", res.ExitCode)
+	}
+	if res.Err == nil {
+		t.Error("expected non-nil Err for empty TEXT")
 	}
 }
