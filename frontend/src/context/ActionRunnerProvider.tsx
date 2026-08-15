@@ -237,6 +237,9 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   // 当前查看的 id（供持久 done 回调判断是否该更新可见 UI，不触发重渲染）
   const currentIdRef = useRef<string | null>(null);
   currentIdRef.current = currentId;
+  // 视图 ref 镜像：runAction 需读当前视图判断「发射台」路径（form 内点火不切视图），闭包捕获 state 会陈旧
+  const viewRef = useRef<RunnerView>(view);
+  viewRef.current = view;
   // 后台仍在运行的 action id 集合。后端按 id 并发（不同 id 可同时跑），
   // 故运行态必须按 id 记录，不能只靠单一 status——否则切走再回来会丢失「运行中」。
   const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
@@ -500,6 +503,11 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       setStatus("running");
       setExitInfo(null);
       setSelectedPreset(null);
+      // 发射台模式：从本动作的表单视图点火（普通动作）→ 留在 form 视图，
+      // ParamForm 自行切换到「摘要 + 输出」发射态；logcat / LLM 动作照旧切专属视图。
+      const stayInForm =
+        viewRef.current === "form" && currentIdRef.current === id &&
+        !action?.llm && action?.stream !== "logcat";
       if (action?.llm) {
         setLlmText("");
         setThinkingText("");
@@ -510,7 +518,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         // 把本次运行的服务端预过滤参数带入面板过滤（映射见 logFilterFromParams）。
         setLogFilterState(logFilterFromParams(params));
         setView("logcat");
-      } else {
+      } else if (!stayInForm) {
         setView("output");
       }
     }

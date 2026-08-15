@@ -46,12 +46,12 @@ export function ParamFields({ params, values, setValue }: ParamFieldsProps) {
     <>
       {params.map((p) => {
         if (p.type === "bool") {
-          // bool 渲染为「设置开关行」：独立带边框块，左 label 右 Switch，区别于普通输入字段
+          // bool 渲染为「设置开关行」：独立卡片块（与输入卡片同质感），左 label 右 Switch
           return (
             <Field
               key={p.id}
               orientation="horizontal"
-              className="rounded-lg border bg-muted/20 px-3.5 py-2.5"
+              className="rounded-lg border border-border bg-card px-3.5 py-2.5 shadow-[var(--card-sh)]"
             >
               <FieldLabel>{renderLabel(p)}</FieldLabel>
               <Switch
@@ -127,7 +127,7 @@ export function ParamFields({ params, values, setValue }: ParamFieldsProps) {
                 id={p.id}
                 value={values[p.id] ?? p.default ?? ""}
                 onChange={(e) => setValue(p.id, e.target.value)}
-                className="min-h-36 font-mono text-sm"
+                className="min-h-36"
               />
             </Field>
           );

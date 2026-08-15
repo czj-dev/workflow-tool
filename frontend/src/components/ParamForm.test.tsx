@@ -58,7 +58,7 @@ const action = {
     { id: "MODE", label: "模式", type: "select", required: false, default: "fast", options: ["fast", "full"] },
     { id: "DIR", label: "目录", type: "path", required: false, default: "", options: [] },
   ],
-  presets: [],
+  presets: [{ name: "p1", values: { URL: "https://preset.example" } }],
 };
 
 // Harness：actions 加载后自动进表单视图（模拟"点动作"触发 ParamForm 渲染）
@@ -134,5 +134,51 @@ describe("ParamForm", () => {
     expect(saveBtn).not.toBeDisabled();
     await user.click(saveBtn);
     expect(await screen.findByText(/保存为预设/)).toBeInTheDocument();
+  });
+
+  it("就绪读数：未填显示已装配计数，必填满足后显示就绪", async () => {
+    const user = userEvent.setup();
+    render(
+      <ActionRunnerProvider>
+        <Harness />
+      </ActionRunnerProvider>
+    );
+    // URL/DIR 空，OPEN/MODE 有默认值 → 2/4
+    expect(await screen.findByText("已装配 2/4")).toBeInTheDocument();
+    const urlInput = await screen.findByLabelText(/网址/);
+    await user.type(urlInput, "https://x.com");
+    expect(await screen.findByText("就绪")).toBeInTheDocument();
+  });
+
+  it("点预设 chip 把整套值填入表单（不直接运行）", async () => {
+    const user = userEvent.setup();
+    render(
+      <ActionRunnerProvider>
+        <Harness />
+      </ActionRunnerProvider>
+    );
+    await user.click(await screen.findByRole("button", { name: "p1" }));
+    const urlInput = await screen.findByLabelText(/网址/);
+    expect(urlInput).toHaveValue("https://preset.example");
+    expect(mockRunAction).not.toHaveBeenCalled();
+  });
+
+  it("发射台：点运行后收起为参数摘要并原位展开输出，展开编辑可回表单", async () => {
+    const user = userEvent.setup();
+    render(
+      <ActionRunnerProvider>
+        <Harness />
+      </ActionRunnerProvider>
+    );
+    const urlInput = await screen.findByLabelText(/网址/);
+    await user.type(urlInput, "https://x.com");
+    await user.click(screen.getByRole("button", { name: "运行" }));
+    // 发射态：摘要条出现、表单字段收起、停在 form 视图（Harness 不再触发 selectPreset）
+    expect(await screen.findByText("本次装配")).toBeInTheDocument();
+    expect(screen.getByTitle("URL=https://x.com")).toBeInTheDocument();
+    expect(screen.queryByLabelText(/网址/)).not.toBeInTheDocument();
+    // 展开编辑：回到装配表单，值保留
+    await user.click(screen.getByRole("button", { name: "展开编辑" }));
+    expect(await screen.findByLabelText(/网址/)).toHaveValue("https://x.com");
   });
 });

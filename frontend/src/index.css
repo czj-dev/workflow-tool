@@ -96,6 +96,9 @@
     /* 精密控制台 · 面板轨道语义 var（跟随 --foreground 自动切主题） */
     --panel-rail: color-mix(in oklch, var(--foreground) 8%, transparent);
     --panel-tick: color-mix(in oklch, var(--foreground) 22%, transparent);
+    /* 输入卡片浮起阴影：浅色极轻，深色更明显（v3 输入卡片语言） */
+    --card-sh: 0 1px 2px rgb(0 0 0 / 0.05);
+    --card-sh-hover: 0 2px 6px rgb(0 0 0 / 0.08);
 }
 
 /* —— 精密控制台 · 深色(主力)—— */
@@ -134,6 +137,8 @@
     --sidebar-ring: oklch(0.8 0.155 70 / 50%);
     --panel-rail: color-mix(in oklch, var(--foreground) 8%, transparent);
     --panel-tick: color-mix(in oklch, var(--foreground) 22%, transparent);
+    --card-sh: 0 1px 3px rgb(0 0 0 / 0.3);
+    --card-sh-hover: 0 3px 8px rgb(0 0 0 / 0.35);
 }
 
 @layer base {

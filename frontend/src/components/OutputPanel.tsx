@@ -38,12 +38,11 @@ export function OutputPanel() {
   if (view === "llm-chat") return <LlmChatView />;
   if (view === "logcat") return <LogcatView />;
   if (view === "form") {
+    // 发射台视图：装配（表单）/ 发射（摘要+输出）双形态由 ParamForm 自管，含各自滚动
     return (
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
         <OutputToolbar />
-        <div className="min-h-0 flex-1 overflow-auto">
-          <ParamForm />
-        </div>
+        <ParamForm />
       </main>
     );
   }
