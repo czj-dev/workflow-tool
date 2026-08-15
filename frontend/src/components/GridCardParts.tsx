@@ -14,7 +14,29 @@ export function TickRuler({ total, lit }: { total: number; lit: number }) {
 }
 
 // 卡片顶部仪表条：状态点 + 使用足迹 + 访问计数。三件散装信息合成一条可读 rail。
-export function StatusRail({ level, score }: { level: number; score: number }) {
+// compact：约一半尺寸、无计数读数、靠左——键面（130px StreamDeck）等小卡用。
+export function StatusRail({
+  level, score, compact,
+}: { level: number; score: number; compact?: boolean }) {
+  if (compact) {
+    return (
+      <div className="flex h-2 w-full items-center gap-1.5">
+        <span
+          className="size-1 shrink-0 rounded-full bg-foreground/25 transition-colors
+            group-hover:bg-primary group-focus-visible:bg-primary
+            group-data-[running]:bg-primary"
+        />
+        <div className="flex items-center gap-[2px]">
+          {Array.from({ length: FOOTPRINT_SEGMENTS }, (_, i) => (
+            <span
+              key={i}
+              className={`h-[3px] w-1.5 rounded-[1px] ${i < level ? "bg-primary/65" : "bg-foreground/12"}`}
+            />
+          ))}
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="flex h-3 items-center gap-2">
       <span
@@ -57,9 +79,11 @@ export function ParamSummary({ ids }: { ids: string[] }) {
   );
 }
 
-// 运行中卡片顶沿流光：复用 index.css 的 .spine-flow-h
-export function RunningFlow() {
+// 运行中卡片顶沿流光：复用 index.css 的 .spine-flow-h。className 可覆盖圆角（如键面 rounded-t-xl）
+export function RunningFlow({ className = "" }: { className?: string }) {
   return (
-    <span className="spine-flow-h pointer-events-none absolute inset-x-0 top-0 h-0.5 rounded-t-lg" />
+    <span
+      className={`spine-flow-h pointer-events-none absolute inset-x-0 top-0 h-0.5 rounded-t-lg ${className}`}
+    />
   );
 }

@@ -146,10 +146,10 @@ describe("ActionsGridView", () => {
     });
     render(wrap());
     // 用 role 查询：Tooltip 打开后其内容也含 title 文本，getByText 会命中多个
-    await user.click(await screen.findByRole("button", { name: "直跑" }));
+    await user.click(await screen.findByRole("button", { name: /直跑/ }));
     expect(mockRunAction).toHaveBeenCalledTimes(1);
     // 仍在运行（done 未发）→ 再点卡片应回到输出视图，不再发 RunAction
-    await user.click(screen.getByRole("button", { name: "直跑" }));
+    await user.click(screen.getByRole("button", { name: /直跑/ }));
     expect(mockRunAction).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("view-probe")).toHaveTextContent("output");
   });
@@ -184,6 +184,13 @@ describe("ActionsGridView", () => {
     expect(mockRunAction).toHaveBeenCalledWith("demo-pre", { APP: "com.tencent.mm" });
     // background=false → preset 运行会切 output 视图
     expect(screen.getByTestId("view-probe")).toHaveTextContent("output");
+    // 有 preset 键的编辑走背面 ✎/+N，正面不出现「编辑参数」入口
+    expect(screen.queryByRole("button", { name: "编辑参数" })).not.toBeInTheDocument();
+    // 键身原生 tooltip 含预设全名列表（翻面空窗内可预览）
+    expect(screen.getByRole("button", { name: /带预设/ })).toHaveAttribute(
+      "title",
+      expect.stringContaining("微信 / 抖音")
+    );
   });
 
   it("点击 +N 格进表单选其余预设(不运行)", async () => {
@@ -196,6 +203,7 @@ describe("ActionsGridView", () => {
             { name: "乙", values: { K: "2" } },
             { name: "丙", values: { K: "3" } },
             { name: "丁", values: { K: "4" } },
+            { name: "戊", values: { K: "5" } },
           ],
         }),
       ],

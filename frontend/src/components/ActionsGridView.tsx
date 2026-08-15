@@ -2,12 +2,11 @@ import { useTranslation } from "react-i18next";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Edit02Icon } from "@hugeicons/core-free-icons";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useActionRunner } from "../hooks/useActionRunner";
-import { useActionUsage, groupLabel, MISC_KEY, FOOTPRINT_SEGMENTS } from "../hooks/useActionUsage";
+import { useActionUsage, groupLabel, MISC_KEY } from "../hooks/useActionUsage";
 import { hasFormFields } from "../lib/params";
 import { ActionIcon } from "./ActionIcon";
-import { TickRuler, RunningFlow } from "./GridCardParts";
+import { TickRuler, StatusRail, RunningFlow } from "./GridCardParts";
 import type { ActionItem } from "../../bindings/workflow-tool/internal/api/models.js";
 import type { Preset } from "../../bindings/workflow-tool/internal/registry/models.js";
 
@@ -15,13 +14,21 @@ import type { Preset } from "../../bindings/workflow-tool/internal/registry/mode
 const EYEBROW =
   "font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80";
 
-// 使用足迹 → 键面图标底浓度：越常用越亮，仪表留痕在键面直读（Tooltip 里的分段条负责精读）
+// 使用足迹 → 键面图标「背光」强度：底色 + 内发光双档映射，越常用越亮（仪表留痕直读）
 const ICON_TINT = [
-  "bg-primary/10", "bg-primary/16", "bg-primary/22", "bg-primary/30", "bg-primary/40",
+  { bg: "bg-primary/10", glow: "shadow-primary/20" },
+  { bg: "bg-primary/16", glow: "shadow-primary/25" },
+  { bg: "bg-primary/22", glow: "shadow-primary/30" },
+  { bg: "bg-primary/30", glow: "shadow-primary/40" },
+  { bg: "bg-primary/40", glow: "shadow-primary/50" },
 ] as const;
 
-// Grid 页（StreamDeck 形态）：按 id 前缀分组，键面只留识别级信息（图标+短名），
-// 详情进 hover Tooltip；preset 以键底命名分段条常驻，点格直跑。
+// 翻面时长与缓动（正/背面共用，保持两面同步）
+const FLIP = "transition-[transform,opacity] duration-[180ms] ease-[cubic-bezier(0.2,0.7,0.3,1)]";
+
+// Grid 页（StreamDeck 键面翻转形态）：按 id 前缀分组，正面只留识别级信息
+// （图标+短名+preset 暗示点）；有 preset 的键 hover/focus 原地翻面，背面是操作面
+// （首行=默认行为，preset 行全宽直跑，>3 收 +N 进表单）。无 preset 键不翻、点即跑。
 // 点键身：运行中→回到其输出视图；有「必填且无默认值」的参数进表单；否则直接运行。
 export function ActionsGridView() {
   const { t } = useTranslation();
@@ -76,7 +83,7 @@ export function ActionsGridView() {
                 </span>
               </div>
               {/* 固定列宽：尾行单项不被 1fr 拉宽、aspect-square 跟随变形 */}
-              <div className="grid grid-cols-[repeat(auto-fill,104px)] justify-start gap-2">
+              <div className="grid grid-cols-[repeat(auto-fill,130px)] justify-start gap-2.5">
                 {topActions(items, items.length).map((action) => (
                   <ActionCard
                     key={action.id}
@@ -133,7 +140,6 @@ function ActionCard({
   const hasParams = (action.params?.length ?? 0) > 0;
   // 是否「值得进表单」：有必填且无默认值的项。否则单击直接运行（与侧边栏/工作流网格一致）。
   const showForm = hasFormFields(action.params);
-  const paramIds = action.params?.map((p) => p.id) ?? [];
 
   const buildDefaults = (): Record<string, string> => {
     const vals: Record<string, string> = {};
@@ -154,117 +160,140 @@ function ActionCard({
     }
   };
 
+  const presets = action.presets ?? [];
+  const hasPresets = presets.length > 0;
+  // 键面翻转：有 preset 的键 hover/focus 翻到操作面；无 preset 键不翻（点即跑，不打断）
+  const flipFront = hasPresets
+    ? "group-hover:[transform:rotateX(92deg)] group-hover:opacity-0 group-focus-within:[transform:rotateX(92deg)] group-focus-within:opacity-0"
+    : "";
+  const flipBack =
+    "group-hover:[transform:rotateX(0deg)] group-hover:opacity-100 group-hover:pointer-events-auto " +
+    "group-focus-within:[transform:rotateX(0deg)] group-focus-within:opacity-100 group-focus-within:pointer-events-auto";
+
+  // 原生 tooltip：描述 + 预设全名列表（翻面动画的 180ms 空窗内也能预览全部预设）
+  const tip = [
+    action.description,
+    hasPresets ? `${t("form.presetsLabel")}: ${presets.map((p) => p.name).join(" / ")}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
   return (
-    <Tooltip>
-      <TooltipTrigger
-        render={(props) => (
-          <div
-            {...props}
-            role="button"
-            tabIndex={0}
-            onClick={handleCardClick}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                handleCardClick();
-              }
-            }}
-            data-running={running || undefined}
-            className={`
-              group relative flex aspect-square flex-col items-center gap-1 rounded-lg border p-1.5 cursor-pointer
-              bg-card transition-colors duration-150 ease-out
-              hover:border-primary/55 hover:shadow-[inset_0_0_0_1px] hover:shadow-primary/30
-              focus-visible:outline-none focus-visible:border-primary/55
-              focus-visible:shadow-[inset_0_0_0_1px] focus-visible:shadow-primary/30
-              ${running ? "border-primary" : "border-border"}
-            `}
+    <div
+      role="button"
+      tabIndex={0}
+      title={tip || action.title}
+      onClick={handleCardClick}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          handleCardClick();
+        }
+      }}
+      data-running={running || undefined}
+      className={`
+        group relative aspect-square cursor-pointer rounded-xl border
+        bg-gradient-to-b from-card to-background/70
+        shadow-[0_1px_2px_rgb(0_0_0/0.1),0_2px_5px_rgb(0_0_0/0.06)]
+        [perspective:320px] transition-[border-color,box-shadow,translate] duration-150 ease-out
+        after:pointer-events-none after:absolute after:inset-x-2.5 after:top-px after:h-px
+        after:bg-gradient-to-r after:from-transparent after:via-card-foreground/12 after:to-transparent
+        hover:-translate-y-px hover:border-primary/60
+        hover:shadow-[0_5px_14px_rgb(0_0_0/0.2),0_1px_3px_rgb(0_0_0/0.14)]
+        focus-visible:-translate-y-px focus-visible:border-primary/60
+        focus-visible:shadow-[0_5px_14px_rgb(0_0_0/0.2),0_1px_3px_rgb(0_0_0/0.14)]
+        focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary/60
+        active:translate-y-px active:shadow-[0_0_1px_rgb(0_0_0/0.1),inset_0_1px_3px_rgb(0_0_0/0.18)]
+        ${running ? "border-primary" : "border-border"}
+      `}
+    >
+      {running && <RunningFlow className="rounded-t-xl" />}
+
+      {/* ——— 正面：识别面（StatusRail + 图标 + 短名 + preset 暗示点） ——— */}
+      <div
+        className={`absolute inset-0 flex flex-col items-center rounded-[11px]
+          bg-gradient-to-b from-card to-background/70 p-1.5
+          [backface-visibility:hidden] motion-reduce:transform-none ${FLIP} ${flipFront}`}
+      >
+        {/* 顶部仪表 rail（compact）：状态点 + 使用足迹，靠左无计数（与其他 Grid 视图共用组件） */}
+        <StatusRail level={level} score={score} compact />
+
+        {/* 图标区：主识别物，垂直居中；底色+内发光 = 使用足迹背光（越常用越亮） */}
+        <span className="flex flex-1 items-center justify-center">
+          <span
+            className={`flex size-[50px] items-center justify-center rounded-xl text-primary
+              shadow-[inset_0_0_14px] ${ICON_TINT[Math.min(level, ICON_TINT.length - 1)].bg}
+              ${ICON_TINT[Math.min(level, ICON_TINT.length - 1)].glow}`}
           >
-            {running && <RunningFlow />}
+            <ActionIcon name={action.icon} className="size-6" />
+          </span>
+        </span>
 
-            {/* 运行状态点（仅运行中显示，与流光互补） */}
-            {running && (
-              <span className="live-pulse absolute left-1.5 top-1.5 size-1.5 rounded-full bg-primary" />
-            )}
+        {/* 标题：1 行截断，全名挂原生 title */}
+        <span className="w-full text-center font-mono text-xs font-semibold leading-tight -tracking-[0.01em] truncate">
+          {action.title}
+        </span>
 
-            {/* hover 浮现的编辑入口：进 form 看参数/preset */}
-            <button
-              type="button"
-              aria-label={t("grid.editParams")}
-              title={t("grid.editParams")}
-              onClick={(e) => { e.stopPropagation(); onEdit(); }}
-              className="absolute right-1 top-1 z-10 grid size-5 place-items-center rounded text-muted-foreground
-                opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100
-                hover:bg-card hover:text-foreground cursor-pointer"
-            >
-              <HugeiconsIcon icon={Edit02Icon} strokeWidth={2} className="size-3" />
-            </button>
+        {/* preset 暗示点：只说「有几个」，不假装能读字；无 preset 空占位保持整排同构 */}
+        <span className="mt-0.5 flex h-1.5 items-center justify-center gap-1">
+          {hasPresets ? (
+            presets.map((p) => (
+              <i key={p.name} className="size-1 rounded-full bg-primary/40" aria-hidden="true" />
+            ))
+          ) : (
+            <i className="invisible size-1" aria-hidden="true" />
+          )}
+        </span>
 
-            {/* 图标区：主识别物，垂直居中；底浓度 = 使用足迹（越常用越亮） */}
-            <span className="flex flex-1 items-center justify-center">
-              <span
-                className={`flex size-10 items-center justify-center rounded-lg text-primary
-                  ${ICON_TINT[Math.min(level, ICON_TINT.length - 1)]}`}
-              >
-                <ActionIcon name={action.icon} className="size-5" />
-              </span>
-            </span>
-
-            {/* 标题：1 行截断，全名在 Tooltip */}
-            <span className="w-full text-center font-mono text-[11px] font-semibold leading-tight -tracking-[0.01em] truncate">
-              {action.title}
-            </span>
-
-            {/* preset 命名分段条：名字常驻可辨识，点格直跑 */}
-            {(action.presets?.length ?? 0) > 0 && (
-              <PresetSegments
-                presets={action.presets!}
-                onPresetRun={onPresetRun}
-                onPresetEdit={onPresetEdit}
-                onMore={onEdit}
-              />
-            )}
-          </div>
+        {/* 无 preset 键 hover 浮现的编辑入口（有 preset 键的编辑走背面 ✎/+N） */}
+        {!hasPresets && (
+          <button
+            type="button"
+            aria-label={t("grid.editParams")}
+            title={t("grid.editParams")}
+            onClick={(e) => { e.stopPropagation(); onEdit(); }}
+            className="absolute right-1 top-1 z-10 grid size-5 place-items-center rounded text-muted-foreground
+              opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100
+              hover:bg-card hover:text-foreground cursor-pointer"
+          >
+            <HugeiconsIcon icon={Edit02Icon} strokeWidth={2} className="size-3" />
+          </button>
         )}
-      />
-      <TooltipContent side="top">
-        <div className="space-y-1 text-left">
-          <div className="font-mono text-xs font-semibold">{action.title}</div>
-          {action.description && (
-            <div className="max-w-[260px] text-[11px] leading-relaxed text-background/70">
-              {action.description}
-            </div>
-          )}
-          {hasParams && (
-            <div className="font-mono text-[10px] uppercase tracking-[0.1em] text-background/60">
-              {paramIds.join(" · ")}
-            </div>
-          )}
-          <div className="flex items-center gap-2 font-mono text-[10px] text-background/60">
-            <span aria-label={t("grid.footprint")} className="flex items-center gap-[3px]">
-              {Array.from({ length: FOOTPRINT_SEGMENTS }, (_, i) => (
-                <span
-                  key={i}
-                  className={`h-0.5 w-2 rounded-sm ${i < level ? "bg-primary" : "bg-background/25"}`}
-                />
-              ))}
+      </div>
+
+      {/* ——— 背面：操作面（主行 + preset 行 + +N） ——— */}
+      {hasPresets && (
+        <div
+          className={`absolute inset-0 flex flex-col gap-0.5 rounded-[11px]
+            bg-gradient-to-b from-card to-background/70 p-1.5
+            opacity-0 pointer-events-none [backface-visibility:hidden] [transform:rotateX(-92deg)]
+            motion-reduce:transform-none ${FLIP} ${flipBack}`}
+        >
+          {/* 主行：点击冒泡键身 = 默认行为（运行中→回输出；必填→表单；否则直跑） */}
+          <div className="flex h-7 shrink-0 items-center gap-1.5 rounded-t-md border-b border-dashed border-border
+            px-1.5 font-mono text-xs font-semibold hover:bg-primary/10 cursor-pointer">
+            <ActionIcon name={action.icon} className="size-4 shrink-0 text-primary" />
+            <span className="truncate">{action.title}</span>
+            <span className="ml-auto shrink-0 text-[10px] tracking-[0.1em] text-primary">
+              {running ? "↩" : "▸"}
             </span>
-            <span className="tabular-nums">·{Math.round(score)}</span>
-            {(action.presets?.length ?? 0) > 0 && (
-              <span className="tabular-nums">
-                · {t("grid.presetsCount", { count: action.presets!.length })}
-              </span>
-            )}
           </div>
+          <BackPresets
+            presets={presets}
+            onPresetRun={onPresetRun}
+            onPresetEdit={onPresetEdit}
+            onMore={onEdit}
+          />
         </div>
-      </TooltipContent>
-    </Tooltip>
+      )}
+    </div>
   );
 }
 
-// preset 命名分段条：≤3 全显；>3 前 2 + 「+N」格（+N 进 form 选其余）。
-// 整条 stopPropagation，格内各自处理，点格不触发键身默认行为。
-// 每格 hover 浮现微型 ✎：进 form 预填该 preset 值（修改后同名保存即覆盖）。
-function PresetSegments({
+// 背面 preset 行：≤4 全显；>4 前 3 + 「+N」行（+N 进 form 选其余）。键面 130px 可容主行+4 行。
+// 行点击/键盘都 stopPropagation，不触发键身默认行为。
+// 每行 hover 浮现 ✎：进 form 预填该 preset 值（修改后同名保存即覆盖）。
+function BackPresets({
   presets, onPresetRun, onPresetEdit, onMore,
 }: {
   presets: Preset[];
@@ -273,21 +302,13 @@ function PresetSegments({
   onMore: () => void;
 }) {
   const { t } = useTranslation();
-  const shown = presets.length <= 3 ? presets : presets.slice(0, 2);
+  const shown = presets.length <= 4 ? presets : presets.slice(0, 3);
   const rest = presets.length - shown.length;
 
-  const segClass =
-    "group/chip truncate bg-muted/50 px-1 py-0.5 text-center font-mono text-[10px] leading-4 tracking-[0.02em] " +
-    "text-muted-foreground hover:bg-primary/12 hover:text-primary cursor-pointer focus-visible:outline-none " +
-    "focus-visible:bg-primary/12 focus-visible:text-primary";
-
   return (
-    <div
-      className="grid w-full grid-flow-col auto-cols-fr gap-px overflow-hidden rounded-md border border-border/60"
-      onClick={(e) => e.stopPropagation()}
-    >
+    <>
       {shown.map((p) => (
-        <span
+        <div
           key={p.name}
           role="button"
           tabIndex={0}
@@ -302,13 +323,18 @@ function PresetSegments({
               onPresetRun(p.values);
             }
           }}
-          className={segClass}
+          className="group/row flex min-h-0 flex-1 cursor-pointer items-center gap-1.5 rounded-md px-1.5
+            font-mono text-xs font-semibold text-muted-foreground
+            hover:bg-primary/10 hover:text-primary focus-visible:bg-primary/10 focus-visible:text-primary
+            focus-visible:outline-none"
         >
-          {p.name}
+          <i className="size-[5px] shrink-0 rounded-full bg-primary/45" aria-hidden="true" />
+          <span className="truncate">{p.name}</span>
           <span
             role="button"
             tabIndex={0}
             aria-label={t("grid.editPreset")}
+            title={t("grid.editPreset")}
             onClick={(e) => {
               e.stopPropagation();
               onPresetEdit(p.name);
@@ -320,16 +346,16 @@ function PresetSegments({
                 onPresetEdit(p.name);
               }
             }}
-            className="ml-0.5 inline-grid size-3 place-items-center rounded align-[-1px] text-muted-foreground
-              opacity-0 group-hover/chip:opacity-100 group-focus-within/chip:opacity-100 transition-opacity
-              hover:bg-card hover:text-foreground cursor-pointer"
+            className="ml-auto grid size-4 shrink-0 cursor-pointer place-items-center rounded text-muted-foreground
+              opacity-0 transition-opacity group-hover/row:opacity-100 group-focus-within/row:opacity-100
+              hover:text-primary"
           >
-            <HugeiconsIcon icon={Edit02Icon} strokeWidth={2} className="size-2" />
+            <HugeiconsIcon icon={Edit02Icon} strokeWidth={2} className="size-2.5" />
           </span>
-        </span>
+        </div>
       ))}
       {rest > 0 && (
-        <span
+        <div
           role="button"
           tabIndex={0}
           aria-label={t("grid.morePresets", { count: rest })}
@@ -344,11 +370,13 @@ function PresetSegments({
               onMore();
             }
           }}
-          className={`${segClass} text-primary tabular-nums`}
+          className="flex h-5 shrink-0 cursor-pointer items-center justify-center rounded-b-md
+            font-mono text-[11px] tabular-nums tracking-[0.08em] text-primary hover:bg-primary/10
+            focus-visible:bg-primary/10 focus-visible:outline-none"
         >
           +{rest}
-        </span>
+        </div>
       )}
-    </div>
+    </>
   );
 }

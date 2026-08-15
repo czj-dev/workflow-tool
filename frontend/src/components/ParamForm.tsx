@@ -123,7 +123,7 @@ export function ParamForm() {
               {action.description}
             </p>
           )}
-          {/* 预设条：点击把整套值填入表单（停在表单，不直接运行） */}
+          {/* 预设条：单击把整套值填入表单（停在表单）；双击直接运行（与侧边栏预设子项一致） */}
           {action.presets && action.presets.length > 0 && (
             <div className="mt-4 flex flex-wrap items-center gap-1.5">
               <span className="mr-1 font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80">
@@ -136,7 +136,9 @@ export function ParamForm() {
                   role="button"
                   tabIndex={0}
                   aria-pressed={selectedPreset === p.name || undefined}
+                  title={p.name}
                   onClick={() => selectPreset(action.id, p.name)}
+                  onDoubleClick={() => runAction(action.id, p.values)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();

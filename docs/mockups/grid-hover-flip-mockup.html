@@ -1,0 +1,516 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Grid · 键面翻转 Mockup（方案 C）</title>
+<style>
+  /* ——— 主题 token：与 frontend/src/index.css 对齐（dark 默认） ——— */
+  :root[data-theme="dark"] {
+    --background: oklch(0.165 0.008 245);
+    --card: oklch(0.205 0.01 245);
+    --card-foreground: oklch(0.95 0.003 240);
+    --primary: oklch(0.8 0.155 70);
+    --primary-foreground: oklch(0.2 0.04 70);
+    --muted: oklch(0.245 0.012 245);
+    --muted-foreground: oklch(0.62 0.012 240);
+    --border: oklch(1 0 0 / 8%);
+    --card-sh: 0 1px 3px rgb(0 0 0 / 0.3);
+    --card-sh-hover: 0 3px 8px rgb(0 0 0 / 0.35);
+  }
+  :root[data-theme="light"] {
+    --background: oklch(0.985 0.002 240);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.22 0.01 245);
+    --primary: oklch(0.62 0.16 68);
+    --primary-foreground: oklch(0.99 0.02 70);
+    --muted: oklch(0.96 0.004 240);
+    --muted-foreground: oklch(0.48 0.012 240);
+    --border: oklch(0.2 0.01 245 / 12%);
+    --card-sh: 0 1px 2px rgb(0 0 0 / 0.05);
+    --card-sh-hover: 0 2px 6px rgb(0 0 0 / 0.08);
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--background);
+    color: var(--card-foreground);
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    font-size: 14px;
+    min-height: 100vh;
+    transition: background 0.25s ease, color 0.25s ease;
+  }
+  .mono { font-family: "Cascadia Code", Consolas, "SF Mono", monospace; }
+
+  /* ——— 页头 ——— */
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+  }
+  header .left { display: flex; align-items: center; gap: 12px; }
+  header h1 { font-size: 14px; font-weight: 600; }
+  .eyebrow {
+    font-family: Consolas, monospace; font-size: 11px; font-weight: 600;
+    text-transform: uppercase; letter-spacing: 0.16em;
+    color: color-mix(in oklch, var(--muted-foreground) 80%, transparent);
+  }
+  .theme-toggle {
+    background: var(--muted); color: var(--card-foreground);
+    border: 1px solid var(--border); border-radius: 8px;
+    padding: 4px 12px; font-size: 12px; cursor: pointer;
+  }
+  .theme-toggle:hover { border-color: color-mix(in oklch, var(--primary) 55%, transparent); }
+
+  /* ——— 分组头：label ── tick-ruler ── count（沿用现有 GridCardParts 语言） ——— */
+  .group { padding: 16px 16px 0; }
+  .group-head {
+    display: grid; grid-template-columns: auto 1fr auto; align-items: center;
+    gap: 12px; padding-bottom: 10px;
+  }
+  .tick-ruler { display: flex; gap: 3px; align-items: center; }
+  .tick-ruler i { display: block; width: 3px; height: 8px; border-radius: 1px; background: color-mix(in oklch, var(--card-foreground) 14%, transparent); }
+  .tick-ruler i[data-lit] { background: color-mix(in oklch, var(--primary) 75%, transparent); }
+  .group-count {
+    font-family: Consolas, monospace; font-size: 11px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--muted-foreground);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* ——— 键面网格 ——— */
+  .deck {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, 104px);
+    justify-content: start;
+    gap: 8px;
+  }
+
+  /* ——— 键：双面结构 ——— */
+  .key {
+    position: relative;
+    width: 104px; height: 104px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card);
+    box-shadow: var(--card-sh);
+    cursor: pointer;
+    perspective: 320px;          /* 翻转透视：轻微纵深，不做夸张 3D */
+    transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    user-select: none;
+  }
+  .key:hover, .key:focus-within {
+    border-color: color-mix(in oklch, var(--primary) 55%, transparent);
+    box-shadow: var(--card-sh-hover), inset 0 0 0 1px color-mix(in oklch, var(--primary) 30%, transparent);
+    outline: none;
+    z-index: 5;                   /* 翻起时浮在同排键之上 */
+  }
+
+  /* 面：正/背 各占满键，翻转互斥可见 */
+  .face {
+    position: absolute; inset: 0;
+    border-radius: 9px;
+    display: flex; flex-direction: column;
+    backface-visibility: hidden;
+    transition: transform 0.18s cubic-bezier(0.2, 0.7, 0.3, 1), opacity 0.18s ease;
+  }
+  .face.back {
+    transform: rotateX(-92deg);
+    opacity: 0;
+    pointer-events: none;
+    background: var(--card);
+    padding: 5px 5px 4px;
+    gap: 2px;
+  }
+  /* hover / 键盘 focus → 翻面 */
+  .key:hover .face.front, .key:focus-within .face.front {
+    transform: rotateX(92deg);
+    opacity: 0;
+  }
+  .key:hover .face.back, .key:focus-within .face.back {
+    transform: rotateX(0deg);
+    opacity: 1;
+    pointer-events: auto;
+  }
+  /* 无 preset 的键不翻面：hover 只提亮（点击即跑，不打断） */
+  .key:not(.has-presets):hover .face.front,
+  .key:not(.has-presets):focus-within .face.front {
+    transform: none; opacity: 1;
+  }
+  .key:not(.has-presets) .face.back { display: none; }
+
+  /* prefers-reduced-motion：翻面降级为原地淡入淡出 */
+  @media (prefers-reduced-motion: reduce) {
+    .face { transition: opacity 0.12s ease; transform: none !important; }
+  }
+
+  /* ——— 正面（识别面） ——— */
+  .face.front { align-items: center; padding: 6px 6px 7px; gap: 2px; }
+  .k-icon {
+    display: flex; align-items: center; justify-content: center;
+    flex: 1;
+  }
+  .k-icon .box {
+    display: grid; place-items: center;
+    width: 40px; height: 40px; border-radius: 10px;
+    font-size: 21px; line-height: 1;
+    color: var(--primary);
+    /* 足迹浓度：--tint 由使用频率决定（0→0.10 … 4→0.40），越常用越亮 */
+    background: color-mix(in oklch, var(--primary) calc(var(--tint, 12) * 1%), transparent);
+  }
+  .k-label {
+    max-width: 92px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    font-family: Consolas, "Microsoft YaHei", monospace;
+    font-size: 11px; font-weight: 600; letter-spacing: 0.01em;
+  }
+  /* preset 暗示点行：只说「有几个」，不假装能读字。无 preset 时空占位保持同构 */
+  .k-hint {
+    display: flex; gap: 4px; align-items: center; justify-content: center;
+    height: 6px; margin-top: 2px;
+  }
+  .k-hint i {
+    width: 4px; height: 4px; border-radius: 50%;
+    background: color-mix(in oklch, var(--primary) 38%, transparent);
+  }
+  .k-hint.none { visibility: hidden; }
+
+  /* 运行态（正面）：左上脉动点 + 顶沿流光 */
+  .k-dot {
+    position: absolute; top: 7px; left: 7px;
+    width: 6px; height: 6px; border-radius: 50%;
+    display: none;
+    background: var(--primary);
+  }
+  .key.running { border-color: var(--primary); }
+  .key.running .k-dot { display: block; animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+  .key.running::before {
+    content: ""; position: absolute; inset: 0 0 auto 0; height: 2px; border-radius: 10px 10px 0 0;
+    background: linear-gradient(90deg, transparent, var(--primary), transparent);
+    background-size: 45% 100%; background-repeat: no-repeat;
+    animation: flow 1.6s linear infinite;
+    z-index: 2;
+  }
+  @keyframes flow { 0% { background-position: -45% 0; } 100% { background-position: 145% 0; } }
+
+  /* ——— 背面（操作面） ——— */
+  .row {
+    display: flex; align-items: center; gap: 6px;
+    min-height: 0; flex: 1;
+    padding: 0 6px;
+    border-radius: 6px;
+    font-family: Consolas, "Microsoft YaHei", monospace;
+    font-size: 11px; font-weight: 600;
+    overflow: hidden; white-space: nowrap;
+  }
+  .row .txt { overflow: hidden; text-overflow: ellipsis; }
+  /* 主操作行：永远第一——点击 = 默认行为（直跑 / 进表单） */
+  .row.main {
+    color: var(--card-foreground);
+    background: color-mix(in oklch, var(--card-foreground) 4%, transparent);
+    border-bottom: 1px dashed var(--border);
+    border-radius: 6px 6px 0 0;
+    flex: 0 0 26px;
+  }
+  .row.main .go { margin-left: auto; color: var(--primary); font-size: 10px; letter-spacing: 0.1em; }
+  .row.main:hover { background: color-mix(in oklch, var(--primary) 10%, transparent); }
+  /* preset 行：点击直跑，hover 右端浮现 ✎ */
+  .row.preset { color: var(--muted-foreground); }
+  .row.preset::before {
+    content: ""; width: 5px; height: 5px; border-radius: 50%; flex: none;
+    background: color-mix(in oklch, var(--primary) 45%, transparent);
+  }
+  .row.preset:hover, .row.preset:focus-visible {
+    color: var(--primary);
+    background: color-mix(in oklch, var(--primary) 10%, transparent);
+    outline: none;
+  }
+  .row.preset .edit {
+    margin-left: auto; flex: none;
+    display: grid; place-items: center;
+    width: 16px; height: 16px; border-radius: 4px;
+    color: var(--muted-foreground); font-size: 9px;
+    opacity: 0; transition: opacity 0.12s ease;
+  }
+  .row.preset:hover .edit, .row.preset:focus-within .edit { opacity: 1; }
+  .row.preset .edit:hover { color: var(--primary); background: color-mix(in oklch, var(--card-foreground) 8%, transparent); }
+  /* +N 行：收起剩余 preset，点击进表单 */
+  .row.more {
+    flex: 0 0 18px;
+    justify-content: center;
+    color: var(--primary);
+    font-variant-numeric: tabular-nums; font-size: 10.5px;
+    letter-spacing: 0.08em;
+  }
+  .row.more:hover { background: color-mix(in oklch, var(--primary) 10%, transparent); border-radius: 0 0 6px 6px; }
+
+  /* toast：模拟运行反馈 */
+  .toast {
+    position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%) translateY(8px);
+    background: var(--card); border: 1px solid var(--border);
+    border-left: 2px solid var(--primary);
+    border-radius: 8px; box-shadow: var(--card-sh-hover);
+    padding: 8px 16px; font-family: Consolas, monospace; font-size: 12px;
+    opacity: 0; transition: opacity 0.2s ease, transform 0.2s ease; z-index: 70;
+    pointer-events: none;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+  .toast .mono-primary { color: var(--primary); }
+
+  /* 图例（mockup 说明用，非产品 UI） */
+  .legend {
+    margin: 20px 16px 32px; padding: 12px 16px;
+    border: 1px dashed var(--border); border-radius: 10px;
+    font-family: Consolas, monospace; font-size: 11.5px; line-height: 2;
+    color: var(--muted-foreground);
+  }
+  .legend b { color: var(--card-foreground); }
+  .legend .tint-demo { display: inline-flex; gap: 3px; vertical-align: -6px; margin: 0 2px; }
+  .legend .tint-demo i {
+    width: 16px; height: 16px; border-radius: 5px;
+    display: inline-block; color: var(--primary);
+    background: color-mix(in oklch, var(--primary) calc(var(--t) * 1%), transparent);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="left">
+    <span class="eyebrow">Grid</span>
+    <h1>动作</h1>
+    <span class="group-count">14 items · 3 groups</span>
+  </div>
+  <button class="theme-toggle" onclick="toggleTheme()">◐ 深浅切换</button>
+</header>
+
+<!-- 分组 ADB -->
+<section class="group">
+  <div class="group-head">
+    <span class="eyebrow">ADB</span>
+    <span class="tick-ruler"><i data-lit></i><i data-lit></i><i data-lit></i><i data-lit></i><i></i><i></i></span>
+    <span class="group-count">6 slots</span>
+  </div>
+  <div class="deck">
+    <!-- 有 4 个 preset：正面暗示点 ×4，背面 主行+2 preset+ +2 -->
+    <div class="key has-presets" tabindex="0" data-name="安装 APK">
+      <span class="k-dot"></span>
+      <span class="face front">
+        <span class="k-icon"><span class="box" style="--tint: 34">📦</span></span>
+        <span class="k-label">安装</span>
+        <span class="k-hint"><i></i><i></i><i></i><i></i></span>
+      </span>
+      <span class="face back">
+        <span class="row main" onclick="runMain(this)">📦 <span class="txt">安装 APK</span><span class="go">▸</span></span>
+        <span class="row preset" tabindex="0" onclick="runPreset(this,'微信')">微信<span class="edit" onclick="editPreset(event,this)">✎</span></span>
+        <span class="row preset" tabindex="0" onclick="runPreset(this,'抖音')">抖音<span class="edit" onclick="editPreset(event,this)">✎</span></span>
+        <span class="row more" onclick="more(this)">+2</span>
+      </span>
+    </div>
+    <!-- 无 preset：hover 不翻面，点击即跑 -->
+    <div class="key" tabindex="0" data-name="卸载应用">
+      <span class="k-dot"></span>
+      <span class="face front">
+        <span class="k-icon"><span class="box" style="--tint: 10">🗑️</span></span>
+        <span class="k-label">卸载</span>
+        <span class="k-hint none"><i></i></span>
+      </span>
+    </div>
+    <!-- 运行中 + 2 preset -->
+    <div class="key has-presets running" tabindex="0" data-name="清除数据">
+      <span class="k-dot"></span>
+      <span class="face front">
+        <span class="k-icon"><span class="box" style="--tint: 22">🧹</span></span>
+        <span class="k-label">清数据</span>
+        <span class="k-hint"><i></i><i></i></span>
+      </span>
+      <span class="face back">
+        <span class="row main" onclick="runMain(this)">🧹 <span class="txt">清除数据</span><span class="go">↩</span></span>
+        <span class="row preset" tabindex="0" onclick="runPreset(this,'微信')">微信<span class="edit" onclick="editPreset(event,this)">✎</span></span>
+        <span class="row preset" tabindex="0" onclick="runPreset(this,'抖音')">抖音<span class="edit" onclick="editPreset(event,this)">✎</span></span>
+      </span>
+    </div>
+    <div class="key" tabindex="0" data-name="停止应用">
+      <span class="k-dot"></span>
+      <span class="face front">
+        <span class="k-icon"><span class="box" style="--tint: 16">⏹️</span></span>
+        <span class="k-label">停止</span>
+        <span class="k-hint none"><i></i></span>
+      </span>
+    </div>
+    <div class="key" tabindex="0" data-name="应用列表">
+      <span class="k-dot"></span>
+      <span class="face front">
+        <span class="k-icon"><span class="box" style="--tint: 10">📋</span></span>
+        <span class="k-label">列表</span>
+        <span class="k-hint none"><i></i></span>
+      </span>
+    </div>
+    <!-- 1 preset -->
+    <div class="key has-presets" tabindex="0" data-name="应用详情">
+      <span class="k-dot"></span>
+      <span class="face front">
+        <span class="k-icon"><span class="box" style="--tint: 40">🔍</span></span>
+        <span class="k-label">详情</span>
+        <span class="k-hint"><i></i></span>
+      </span>
+      <span class="face back">
+        <span class="row main" onclick="runMain(this)">🔍 <span class="txt">应用详情</span><span class="go">▸</span></span>
+        <span class="row preset" tabindex="0" onclick="runPreset(this,'当前前台')">当前前台<span class="edit" onclick="editPreset(event,this)">✎</span></span>
+      </span>
+    </div>
+  </div>
+</section>
+
+<!-- 分组 设备 -->
+<section class="group">
+  <div class="group-head">
+    <span class="eyebrow">Device</span>
+    <span class="tick-ruler"><i data-lit></i><i></i><i></i><i></i></span>
+    <span class="group-count">4 slots</span>
+  </div>
+  <div class="deck">
+    <div class="key" tabindex="0" data-name="截图">
+      <span class="k-dot"></span>
+      <span class="face front">
+        <span class="k-icon"><span class="box" style="--tint: 10">📸</span></span>
+        <span class="k-label">截图</span>
+        <span class="k-hint none"><i></i></span>
+      </span>
+    </div>
+    <!-- 3 preset：主行 + 3 行刚好铺满 -->
+    <div class="key has-presets" tabindex="0" data-name="录屏">
+      <span class="k-dot"></span>
+      <span class="face front">
+        <span class="k-icon"><span class="box" style="--tint: 28">⏺️</span></span>
+        <span class="k-label">录屏</span>
+        <span class="k-hint"><i></i><i></i><i></i></span>
+      </span>
+      <span class="face back">
+        <span class="row main" onclick="runMain(this)">⏺️ <span class="txt">录屏</span><span class="go">▸</span></span>
+        <span class="row preset" tabindex="0" onclick="runPreset(this,'30秒')">30秒<span class="edit" onclick="editPreset(event,this)">✎</span></span>
+        <span class="row preset" tabindex="0" onclick="runPreset(this,'2分钟')">2分钟<span class="edit" onclick="editPreset(event,this)">✎</span></span>
+        <span class="row preset" tabindex="0" onclick="runPreset(this,'5分钟')">5分钟<span class="edit" onclick="editPreset(event,this)">✎</span></span>
+      </span>
+    </div>
+    <div class="key" tabindex="0" data-name="剪贴板读取">
+      <span class="k-dot"></span>
+      <span class="face front">
+        <span class="k-icon"><span class="box" style="--tint: 10">📎</span></span>
+        <span class="k-label">剪贴板</span>
+        <span class="k-hint none"><i></i></span>
+      </span>
+    </div>
+    <div class="key" tabindex="0" data-name="无线连接">
+      <span class="k-dot"></span>
+      <span class="face front">
+        <span class="k-icon"><span class="box" style="--tint: 16">📶</span></span>
+        <span class="k-label">无线</span>
+        <span class="k-hint none"><i></i></span>
+      </span>
+    </div>
+  </div>
+</section>
+
+<!-- 分组 杂项 -->
+<section class="group">
+  <div class="group-head">
+    <span class="eyebrow">Misc</span>
+    <span class="tick-ruler"><i></i><i></i><i></i><i></i></span>
+    <span class="group-count">4 slots</span>
+  </div>
+  <div class="deck">
+    <div class="key has-presets" tabindex="0" data-name="输入文本">
+      <span class="k-dot"></span>
+      <span class="face front">
+        <span class="k-icon"><span class="box" style="--tint: 22">⌨️</span></span>
+        <span class="k-label">输入</span>
+        <span class="k-hint"><i></i><i></i></span>
+      </span>
+      <span class="face back">
+        <span class="row main" onclick="runMain(this)">⌨️ <span class="txt">输入文本</span><span class="go">▸</span></span>
+        <span class="row preset" tabindex="0" onclick="runPreset(this,'Hello')">Hello<span class="edit" onclick="editPreset(event,this)">✎</span></span>
+        <span class="row preset" tabindex="0" onclick="runPreset(this,'测试')">测试<span class="edit" onclick="editPreset(event,this)">✎</span></span>
+      </span>
+    </div>
+    <div class="key" tabindex="0" data-name="打开 URL">
+      <span class="k-dot"></span>
+      <span class="face front">
+        <span class="k-icon"><span class="box" style="--tint: 10">🔗</span></span>
+        <span class="k-label">URL</span>
+        <span class="k-hint none"><i></i></span>
+      </span>
+    </div>
+    <div class="key" tabindex="0" data-name="返回">
+      <span class="k-dot"></span>
+      <span class="face front">
+        <span class="k-icon"><span class="box" style="--tint: 16">↩️</span></span>
+        <span class="k-label">返回</span>
+        <span class="k-hint none"><i></i></span>
+      </span>
+    </div>
+    <div class="key" tabindex="0" data-name="回到主页">
+      <span class="k-dot"></span>
+      <span class="face front">
+        <span class="k-icon"><span class="box" style="--tint: 10">🏠</span></span>
+        <span class="k-label">主页</span>
+        <span class="k-hint none"><i></i></span>
+      </span>
+    </div>
+  </div>
+</section>
+
+<div class="toast" id="toast"></div>
+
+<!-- 图例（mockup 说明，非产品 UI） -->
+<div class="legend">
+  <b>mockup 交互说明（方案 C：键面翻转）</b><br>
+  · <b>有 preset 的键</b>：hover / Tab 聚焦 → 键面原地向上翻转，背面是操作面：首行 = 默认行为（直跑或进表单），下为 preset 行（全宽、名字完整、点击直跑），&gt;3 收成 <b>+N</b>（进表单）<br>
+  · <b>无 preset 的键</b>：不翻面，hover 只提亮，点击即跑（不打断操作流）<br>
+  · 正面底部 <b>4px 暗示点</b> = preset 数量（只说「有几个」，不假装能读字）；无 preset 空占位保持整排同构<br>
+  · 正面图标盒底色 = 使用足迹浓度
+    <span class="tint-demo"><i style="--t:10">·</i><i style="--t:16">·</i><i style="--t:22">·</i><i style="--t:30">·</i><i style="--t:40">·</i></span>
+    越常用越亮（示例：「详情」40 最亮，「卸载」10 未用过）<br>
+  · <b>运行中</b>：左上脉动点 + 顶沿流光（见「清数据」）；背面主行 go 位变 <b>↩</b> = 回输出视图<br>
+  · Tooltip 取消：详情/参数精读进表单看，键面信息自足；长描述挂原生 title<br>
+  · <b>prefers-reduced-motion</b>：翻面降级为淡入淡出（CSS 已写）
+</div>
+
+<script>
+  function toggleTheme() {
+    const r = document.documentElement;
+    r.dataset.theme = r.dataset.theme === "dark" ? "light" : "dark";
+  }
+
+  let toastTimer;
+  function toast(html) {
+    const el = document.getElementById("toast");
+    el.innerHTML = html;
+    el.classList.add("show");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => el.classList.remove("show"), 1800);
+  }
+
+  function runMain(row) {
+    const key = row.closest(".key");
+    if (key.classList.contains("running")) {
+      toast(`↩ <span class="mono-primary">${key.dataset.name}</span> → 回到输出视图`);
+      return;
+    }
+    toast(`▸ <span class="mono-primary">${key.dataset.name}</span> 默认运行（或进表单）`);
+  }
+  function runPreset(row, name) {
+    const key = row.closest(".key");
+    toast(`▸ <span class="mono-primary">${key.dataset.name}</span> ·「${name}」直跑`);
+  }
+  function editPreset(ev, el) {
+    ev.stopPropagation();
+    toast(`✎ 编辑 preset「${el.parentElement.textContent.trim().replace(/✎$/, "")}」→ 进表单预填`);
+  }
+  function more(row) {
+    const key = row.closest(".key");
+    toast(`<span class="mono-primary">${key.dataset.name}</span> → 进表单选其余 preset`);
+  }
+
+  /* 运行中演示：点「清数据」背面主行可看到 ↩ 反馈（仅演示，无状态机） */
+</script>
+</body>
+</html>

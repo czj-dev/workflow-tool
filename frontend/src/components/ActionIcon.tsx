@@ -80,6 +80,12 @@ export function ActionIcon({
       );
     }
   }
-  // emoji / 未命中文本：原样渲染
-  return <span className={className}>{name}</span>;
+  // emoji / 未命中文本：内容原样渲染，视觉与矢量图标统一——
+  // 字号按 em 放大对齐 size-* 的视觉重量（emoji 字形不跟随 width/height），
+  // 降饱和让全彩退后，与单色线条图标协调（浅深主题通用）
+  return (
+    <span className={cn("text-[1.25em] leading-none saturate-[0.35]", className)}>
+      {name}
+    </span>
+  );
 }

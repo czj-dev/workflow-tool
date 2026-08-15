@@ -163,6 +163,20 @@ describe("ParamForm", () => {
     expect(mockRunAction).not.toHaveBeenCalled();
   });
 
+  it("双击预设 chip 直接运行该预设（与侧边栏预设子项一致）", async () => {
+    const user = userEvent.setup();
+    render(
+      <ActionRunnerProvider>
+        <Harness />
+      </ActionRunnerProvider>
+    );
+    await user.dblClick(await screen.findByRole("button", { name: "p1" }));
+    expect(mockRunAction).toHaveBeenCalledWith(
+      "a1",
+      expect.objectContaining({ URL: "https://preset.example" })
+    );
+  });
+
   it("发射台：点运行后收起为参数摘要并原位展开输出，展开编辑可回表单", async () => {
     const user = userEvent.setup();
     render(
