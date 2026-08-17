@@ -493,10 +493,32 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     const onDone = (e: unknown) => {
       const d = (((e as { data?: unknown })?.data) || {}) as DoneEventData;
       const errSuffix = d.err ? t("output.errSuffix", { err: d.err }) : "";
-      setLines((prev) => [
-        ...prev,
-        t("output.exitLine", { exitCode: d.exitCode, err: errSuffix }),
-      ]);
+      const exitLine = t("output.exitLine", { exitCode: d.exitCode, err: errSuffix });
+      // 退出码行必须接入与 output 行同一条 seq 重排队列——done 事件同样各起独立
+      // goroutine 投递，可能抢跑在还没到达的 output 行前面（见 events.ts 的 seq 备注）。
+      // 无 seq（早退场景）时退化为直接 append，与旧行为一致。
+      if (d.seq != null) {
+        setLines((prev) => {
+          const folded = foldOutputLine(
+            {
+              lines: prev,
+              lastWasProgress: lastWasProgressRef.current,
+              nextSeq: seqStateRef.current.nextSeq,
+              pending: seqStateRef.current.pending,
+            },
+            { stream: "stdout", line: exitLine, seq: d.seq },
+            { stderrPrefix: t("output.stderrPrefix") },
+          );
+          lastWasProgressRef.current = folded.lastWasProgress;
+          seqStateRef.current = {
+            nextSeq: folded.nextSeq ?? 1,
+            pending: folded.pending ?? new Map(),
+          };
+          return folded.lines;
+        });
+      } else {
+        setLines((prev) => [...prev, exitLine]);
+      }
       setStatus(d.exitCode === 0 ? "done" : "error");
       setExitInfo(d);
       // LLM 历史写入：done 时把本轮 prompt/response/thinking 持久化到 localStorage

@@ -53,6 +53,10 @@ export interface DoneEventData {
   err: string;
   duration: string;
   readout?: LlmReadoutData;
+  // action done 事件专有：延续 output 事件的 seq 序号空间（见 api.emitDoneSeq）。
+  // done 事件同样各起独立 goroutine 投递，可能抢跑在还没到达的 output 行前面；
+  // 用它接入 outputFold 的重排队列，确保退出码行落在所有 output 行之后。
+  seq?: number;
 }
 
 // workflow 单个步骤的运行状态（前端根据协议帧维护）

@@ -491,6 +491,7 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 	// Wails 的 Event.Emit 每次调用都各自起一个 goroutine 投递（同 executeWorkflow 的
 	// curStep 备注），事件到达前端的顺序无保证。workflow 靠 step 索引分桶规避；
 	// action 是单一输出桶，用自增 seq 让前端按到达后排序还原真实产出顺序。
+	// seq 由 emitDone 接续使用（退出码行必须排在所有 output 行之后，同一序号空间才能保证）。
 	var seq int64
 	emit := func(stream, line string) {
 		seq++
@@ -533,10 +534,20 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 	if la.Def.Command.LLM.Prompt != "" {
 		readout = llmReadout(res.Outputs, res.Duration)
 	}
-	s.emitDone(id, res.ExitCode, errStr(res.Err), res.Duration, readout)
+	// done 事件延续 output 的 seq 序号空间（seq+1）：done 事件也走独立 goroutine 投递，
+	// 前端若不按序号排它可能抢跑在还没到达的 output 行前面，把退出码行插错位置。
+	s.emitDoneSeq(id, res.ExitCode, errStr(res.Err), res.Duration, readout, seq+1)
 }
 
 func (s *Service) emitDone(id string, exitCode int, errMsg string, d time.Duration, readout map[string]any) {
+	s.emitDoneSeq(id, exitCode, errMsg, d, readout, 0)
+}
+
+// emitDoneSeq 同 emitDone，附带 seq（output 事件序号空间的延续值）。
+// 前端要在应用完所有 seq 小于它的 output 行之后才能落地退出码行，否则 done 事件
+// 抢跑在还没到达的 output 前面会把退出码行插到中间。seq=0（无序号场景，如 execute
+// 早退的工作目录校验失败）表示不参与排序，前端直接应用。
+func (s *Service) emitDoneSeq(id string, exitCode int, errMsg string, d time.Duration, readout map[string]any, seq int64) {
 	payload := map[string]any{
 		"exitCode": exitCode,
 		"err":      errMsg,
@@ -544,6 +555,9 @@ func (s *Service) emitDone(id string, exitCode int, errMsg string, d time.Durati
 	}
 	if readout != nil {
 		payload["readout"] = readout
+	}
+	if seq > 0 {
+		payload["seq"] = seq
 	}
 	s.app.Event.Emit(eventName(id, "done"), payload)
 }
