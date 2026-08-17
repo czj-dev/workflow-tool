@@ -253,7 +253,7 @@ command:
 | `pull-multiple` | `REMOTE_PATH`(必填)、`LOCAL_PATH`(path,必填) | 远程目录 → 本地目录 |
 | `list-files` | `REMOTE_PATH`(默认 `/sdcard/`)、`SHOW_HIDDEN`(bool) | 列目录 |
 | `mkdir` | `REMOTE_PATH`(必填) | 创建远程目录 |
-| `delete` | `REMOTE_PATH`(必填) | 删除远程文件/目录 |
+| `delete` | `REMOTE_PATH`(必填)、`ALLOW_PROTECTED`(可选 bool，默认 false；true 时放行 /data、/system 等系统分区，设备根 "/" 仍拒绝) | 删除远程文件/目录 |
 | `rename` | `REMOTE_PATH`(必填)、`NEW_REMOTE_PATH`(必填) | 重命名/移动 |
 | `directory-size` | `REMOTE_PATH`(必填) | 远程目录占用大小 |
 | `storage-info` | `REMOTE_PATH`(必填) | 挂载点总/已用/可用 |

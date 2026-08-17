@@ -8,6 +8,10 @@ params:
     type: text
     required: true
     default: null
+  - id: ALLOW_PROTECTED
+    label: 允许删除受保护路径（/data、/system 等）
+    type: bool
+    default: "false"
 command:
   adb:
     operation: delete
