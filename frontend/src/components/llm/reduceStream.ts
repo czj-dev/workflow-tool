@@ -263,6 +263,37 @@ export function finalizePanel(state: LlmPanelState, readout: SessionReadout): Ll
   return { segments: settled, readout, streaming: false }
 }
 
+/**
+ * 解析 Go time.Duration.String()（后端 api.emitDone 下发 "duration": d.String()）为毫秒。
+ * 支持 "1h2m3.5s" / "1m23.5s" / "1.5s" / "988ms" / "0s" 等组合；
+ * parseFloat 只能吃 "1.5s"，遇到分钟/毫秒形式（"1m23.5s"→1ms×1000、"988ms"→988000）会错。
+ */
+const GO_DUR_UNIT_MS: Record<string, number> = {
+  h: 3_600_000,
+  m: 60_000,
+  s: 1_000,
+  ms: 1,
+  "µs": 0.001,
+  us: 0.001,
+  ns: 0.000_001,
+}
+const GO_DUR_PART_RE = /\d+(?:\.\d+)?(?:ms|µs|us|ns|h|m|s)/g
+
+export function parseGoDurationMs(s: string): number | undefined {
+  const str = s.trim()
+  if (!str) return undefined
+  const parts = str.match(GO_DUR_PART_RE)
+  // 整串必须被完整切分（防止 "1x2s" 之类脏数据拾到 "2s"）
+  if (!parts || parts.join("") !== str) return undefined
+  let total = 0
+  for (const p of parts) {
+    const unit = p.replace(/^\d+(?:\.\d+)?/, "")
+    const n = Number.parseFloat(p)
+    total += n * (GO_DUR_UNIT_MS[unit] ?? 0)
+  }
+  return total
+}
+
 /** 历史条目 → 面板状态重建：段无计时（durationMs undefined，段头只显示字数），读数取总时长 */
 export interface HistoryPanelSource {
   thinking: string
@@ -287,10 +318,9 @@ export function panelFromHistory(e: HistoryPanelSource): LlmPanelState {
     segments.push({ kind: "tool", startedAt: 0, durationMs: t.durationMs, ...t })
   if (e.response)
     segments.push({ kind: "answer", startedAt: 0, durationMs: undefined, text: e.response })
-  const secs = e.duration ? Number.parseFloat(e.duration) : NaN
   return {
     segments,
-    readout: { durationMs: Number.isFinite(secs) ? secs * 1000 : undefined, isError: e.exitCode !== 0 },
+    readout: { durationMs: parseGoDurationMs(e.duration ?? ""), isError: e.exitCode !== 0 },
     streaming: false,
   }
 }

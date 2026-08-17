@@ -141,6 +141,49 @@ describe("LlmChatView", () => {
     expect(await screen.findByText("历史记录 · 1")).toBeInTheDocument();
   });
 
+  it("点历史条目显示完成态而非生成中（liveIndex 三态契约回归）", async () => {
+    renderChat();
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    act(() => {
+      _emitForTest("action:c1:output", { data: { stream: "llm-thinking", line: "想一想" } });
+      _emitForTest("action:c1:output", {
+        data: {
+          stream: "llm-tool",
+          line: JSON.stringify({ id: "call_1", name: "Read", input: { file_path: "/a/package.json" } }),
+        },
+      });
+      _emitForTest("action:c1:output", {
+        data: { stream: "llm-tool", line: JSON.stringify({ id: "call_1", content: "react 19" }) },
+      });
+      _emitForTest("action:c1:output", { data: { stream: "llm", line: "最终回答" } });
+    });
+    act(() => {
+      _emitForTest("action:c1:done", {
+        data: {
+          exitCode: 0,
+          err: "",
+          duration: "3.5s",
+          readout: { durationMs: 3500, inputTokens: 100, outputTokens: 20, costUsd: 0.01 },
+        },
+      });
+    });
+    // 打开历史抽屉并点选条目 → 只读查看态
+    fireEvent.click(await screen.findByRole("button", { name: /历史\s*1/ }));
+    fireEvent.click(await screen.findByText("请处理卡片"));
+    await act(() => Promise.resolve());
+    // 查看横幅 + 终点读数行（完成 · 总时长；历史条目无 tokens/cost）存在
+    expect(await screen.findByText(/正在查看历史记录/)).toBeInTheDocument();
+    expect(screen.getByText("3.5s")).toBeInTheDocument();
+    // live 态文案不得出现（历史段 durationMs 为 undefined，不能误判为 null=进行中）
+    expect(screen.queryByText("生成中")).not.toBeInTheDocument();
+    expect(screen.queryByText("调用中")).not.toBeInTheDocument();
+    expect(screen.queryByText("思考中")).not.toBeInTheDocument();
+    // 历史回答正文仍在渲染
+    expect(screen.getByText(/最终回答/)).toBeInTheDocument();
+  });
+
   it("必填 param 仅有 default（用户未编辑）时发送按钮可用", async () => {
     render(
       <ActionRunnerProvider>

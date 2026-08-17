@@ -52,7 +52,9 @@ export function LlmOutputPanel({
 }) {
   const { t } = useTranslation()
   const last = state.segments[state.segments.length - 1]
-  const liveIndex = last && last.durationMs == null ? state.segments.length - 1 : -1
+  // 三态契约：null = 进行中，undefined = 历史重建段无计时。必须严格 === null，
+  // 宽松 == null 会把历史段误判为 live，导致查看历史时永远显示“生成中”而非完成态。
+  const liveIndex = last && last.durationMs === null ? state.segments.length - 1 : -1
 
   return (
     <div className="flex flex-col" style={{ gap: `${SEG_GAP}px` }}>
@@ -250,7 +252,7 @@ function ToolSegmentView({ seg, live }: { seg: Extract<LlmSegment, { kind: "tool
   ) : (
     <span className="inline-flex items-center gap-1">
       <HugeiconsIcon icon={Tick02Icon} strokeWidth={2} className="size-3 text-success" />
-      {fmtDur(seg.durationMs ?? 0)}
+      {seg.durationMs != null && fmtDur(seg.durationMs)}
     </span>
   )
 
