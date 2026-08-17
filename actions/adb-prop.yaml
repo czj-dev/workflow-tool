@@ -19,10 +19,12 @@ params:
 presets:
   - name: 打开 Debug 日志
     description: setprop persist.log.tag D
-    values: { MODE: set, PROP: persist.log.tag, VALUE: D }
+    values: {MODE: set, PROP: persist.log.tag, VALUE: D}
   - name: 关闭 Debug 日志
     description: setprop persist.log.tag I
-    values: { MODE: set, PROP: persist.log.tag, VALUE: I }
+    values: {MODE: set, PROP: persist.log.tag, VALUE: I}
+  - name: aiBox
+    values: {MODE: set, PROP: persist.evs.aibox.switch, VALUE: I}
 command:
   shell: |
     S="${ADB_SERIAL}"

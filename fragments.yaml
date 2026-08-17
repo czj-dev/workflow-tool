@@ -5,7 +5,7 @@ fragments:
         - Lanv
         - AIBOX
     - title: AI-BOX Agent
-      content: lnav -c ":filter-in SseAgentBridge" -c ":filter-in SseCarCommandProcessor" -c ":filter-in CarManualStreamAgentVM" -c ":filter-in TinnoveIpc"  -c ":filter-in CarManualStreamAgentScene" -c ":filter-in SseAgentStreamRouter"  -c ":filter-in R4Arbiter” -q
+      content: lnav -c ":filter-in SseAgentBridge" -c ":filter-in SseCarCommandProcessor" -c ":filter-in CarManualStreamAgentVM" -c ":filter-in TinnoveIpc"  -c ":filter-in CarManualStreamAgentScene" -c ":filter-in SseAgentStreamRouter"  -c ":filter-in R4Arbiter" -q
       tags:
         - Lanv
         - AIBOX
@@ -37,3 +37,7 @@ fragments:
       content: name:asr.partial
       tags:
         - Log
+    - title: 常用链路查看
+      content: 'lnav -c ":filter-in initService"  -c  ":filter-in SemanticDispatcher:"  -c ":filter-in playTTsFullParams"    -q '
+      tags:
+        - Lanv

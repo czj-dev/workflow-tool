@@ -31,11 +31,11 @@ command:
   adb:
     operation: logcat-batch
   timeout: 24h
-  capture_output: false          # 日志流持续输出
+  capture_output: false # 日志流持续输出
 presets:
-  - name: 语音
-    description: 语音进程
-    values: {PACKAGE: "", EXCLUDE: "", INCLUDE: "", LEVEL: V, LOGS_DIR: /Users/v_chenzhaojun/Documents/Logs, TAG: ""}
   - name: 全量日志
     description: 整车日志抓取
     values: {PACKAGE: "", EXCLUDE: "", INCLUDE: "", LEVEL: V, LOGS_DIR: /Users/v_chenzhaojun/Documents/Logs, TAG: ""}
+  - name: 语音
+    description: 语音进程日志
+    values: {CLEAR_BUFFER: "true", EXCLUDE: "", INCLUDE: "", LEVEL: V, LOGS_DIR: /Users/v_chenzhaojun/Documents/Logs, PACKAGE: com.baidu.che.codriver, TAG: ""}
