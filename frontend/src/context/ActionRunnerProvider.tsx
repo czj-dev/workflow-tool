@@ -218,6 +218,13 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const logcatBufferRef = useRef<LogcatEntry[]>([]);
   // progress 原地刷新标记：上一条是 progress → 覆盖该行而非追加，模拟终端 \r 效果
   const lastWasProgressRef = useRef(false);
+  // action 输出的 seq 重排态（见 outputFold 备注：Wails Event.Emit 到达顺序无保证，
+  // 需要 nextSeq/pending 跨事件持续，故用 ref 而非随 lines 一起进 state）。
+  // 每次开跑新 action 必须重置，否则残留的 nextSeq 会把新一轮输出全部误判为「还没轮到」。
+  const seqStateRef = useRef({ nextSeq: 1, pending: new Map<number, OutputEventData>() });
+  const resetSeqState = () => {
+    seqStateRef.current = { nextSeq: 1, pending: new Map() };
+  };
   // 每 ~120ms 把缓冲批量并入 logcatEntries（截断到 MAX_LOGCAT），空缓冲跳过。
   // logcat 启动常先倾倒整个 ring buffer（万级行），逐行 setState 会冻结 UI。
   useEffect(() => {
@@ -463,13 +470,23 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         return;
       }
       // stdout/stderr/progress：走共享的 foldOutputLine（progress 原地刷新语义与 workflow step 一致）。
+      // seq 重排态存在 ref 里跨事件持续，lines/lastWasProgress 才进 state 驱动渲染。
       setLines((prev) => {
         const folded = foldOutputLine(
-          { lines: prev, lastWasProgress: lastWasProgressRef.current },
+          {
+            lines: prev,
+            lastWasProgress: lastWasProgressRef.current,
+            nextSeq: seqStateRef.current.nextSeq,
+            pending: seqStateRef.current.pending,
+          },
           d,
           { stderrPrefix: t("output.stderrPrefix") },
         );
         lastWasProgressRef.current = folded.lastWasProgress;
+        seqStateRef.current = {
+          nextSeq: folded.nextSeq ?? 1,
+          pending: folded.pending ?? new Map(),
+        };
         return folded.lines;
       });
     };
@@ -551,6 +568,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     // 用户留在 grid 继续操作；要看输出就点卡片本体走前台路径（单缓冲不恢复是已知限制）。
     if (!background) {
       setLines([]);
+      resetSeqState();
       setCurrentId(id);
       setStatus("running");
       setExitInfo(null);
@@ -644,6 +662,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setExitInfo(null);
     setSelectedPreset(null);
     setLines([]); // 单缓冲已被覆盖，保留会误导
+    resetSeqState();
     if (targetView === "llm-chat") {
       setLlmText("");
       setThinkingText("");
@@ -673,6 +692,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setCurrentId(id);
     setSelectedPreset(null);
     setLines([]);
+    resetSeqState();
     setLlmText("");
     setThinkingText("");
     setLlmPanel(EMPTY_PANEL_STATE);
@@ -884,7 +904,10 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const clearOutput = () => setLines([]);
+  const clearOutput = () => {
+    setLines([]);
+    resetSeqState();
+  };
 
   const clearLogcat = () => {
     logcatBufferRef.current = [];

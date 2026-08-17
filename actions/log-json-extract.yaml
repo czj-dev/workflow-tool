@@ -1,0 +1,32 @@
+id: log-json-extract
+title: 日志 JSON 提取转中文
+icon: hi:test
+description: 粘贴一行日志，自动分离前置文本与 JSON 部分，JSON 递归展开内嵌转义字符串并还原中文（依赖 jq）
+params:
+  - id: LOG_LINE
+    label: 日志行
+    type: textarea
+    required: true
+command:
+  shell: |
+    LINE=$(cat <<'EOF'
+    ${LOG_LINE}
+    EOF
+    )
+    if ! printf '%s' "$LINE" | grep -q '{'; then
+      echo "未在日志行中找到 JSON（缺少 '{'）"
+      exit 1
+    fi
+    PREFIX=$(printf '%s\n' "$LINE" | sed 's/{.*//')
+    JSON=$(printf '%s\n' "$LINE" | sed 's/^[^{]*//')
+
+    echo "===== 前置信息 ====="
+    echo "$PREFIX"
+    echo
+    echo "===== JSON（递归展开内嵌转义字符串，中文已还原）====="
+    printf '%s' "$JSON" | jq '
+      def tryparse:
+        if type == "string" then (fromjson? // .) else . end;
+      walk(tryparse)
+    '
+  timeout: 10s

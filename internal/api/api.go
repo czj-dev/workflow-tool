@@ -488,9 +488,14 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 		s.mu.Unlock()
 	}()
 
+	// Wails 的 Event.Emit 每次调用都各自起一个 goroutine 投递（同 executeWorkflow 的
+	// curStep 备注），事件到达前端的顺序无保证。workflow 靠 step 索引分桶规避；
+	// action 是单一输出桶，用自增 seq 让前端按到达后排序还原真实产出顺序。
+	var seq int64
 	emit := func(stream, line string) {
-		s.app.Event.Emit(eventName(id, "output"), map[string]string{
-			"stream": stream, "line": line,
+		seq++
+		s.app.Event.Emit(eventName(id, "output"), map[string]any{
+			"stream": stream, "line": line, "seq": seq,
 		})
 	}
 

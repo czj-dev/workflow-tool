@@ -16,6 +16,9 @@ export interface OutputEventData {
   // workflow output 事件专有：该行归属的 step 索引（后端下发，见 api.executeWorkflow）。
   // 有它就按索引落桶，规避 Wails 事件乱序把 100% 折进下一个 step。action 事件无此字段。
   step?: string;
+  // action output 事件专有：后端 emit 时的自增序号（见 api.execute）。Wails Event.Emit
+  // 每次都各起一个 goroutine 投递，到达前端的顺序无保证；用 seq 在应用前重排还原真实产出顺序。
+  seq?: number;
 }
 
 // stream="logcat" 的 line 是一段紧凑 JSON，对应后端 logcatPayload。
