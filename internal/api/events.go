@@ -125,6 +125,8 @@ func errStr(err error) string {
 // llmReadout 从 LLM Result.Outputs 挑出终点读数字段（数值化）与会话 id；无可读字段时返回 nil。
 // cost/tokens 来自 stream-json 的 result 事件（runner.recordStructuredFields 写入 Outputs），
 // duration 用后端精确计时；读数行随 done 事件下发（聊天页终点展示）。
+// sessionId 单独也撑起 readout：失败/超时杀进程时 result 事件不会到达（无 cost/tokens），
+// 但 system/init 的 session_id 已写入——此刻恰恰是用户最需要会话 id（查现场/--resume）的时候。
 func llmReadout(outputs map[string]string, d time.Duration) map[string]any {
 	r := map[string]any{"durationMs": d.Milliseconds()}
 	// 会话 id（system/init 事件由 runner.recordStructuredFields 写入）：聊天页历史查看态顶部展示
@@ -140,9 +142,13 @@ func llmReadout(outputs map[string]string, d time.Duration) map[string]any {
 		r["inputTokens"] = in
 		r["outputTokens"] = out
 	}
-	if _, ok := r["costUsd"]; !ok {
-		if _, ok := r["inputTokens"]; !ok {
-			return nil
+	// 仅当既无成本读数也无会话 id 时才视为无可读字段（durationMs 单独不算，
+	// done 事件 payload 本身已带 duration 字符串）。
+	if _, ok := r["sessionId"]; !ok {
+		if _, ok := r["costUsd"]; !ok {
+			if _, ok := r["inputTokens"]; !ok {
+				return nil
+			}
 		}
 	}
 	return r

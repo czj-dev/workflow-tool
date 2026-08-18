@@ -26,6 +26,8 @@ type ADBRunner struct {
 	Dev          deviceResolver
 	Operation    string        // 动作的 command.adb.operation
 	Timeout      time.Duration // 动作超时（透传给每个子命令）
+	// Control 运行期控制通道（透传给 OpContext.Control；logcat-stream 过滤更新用）。可空。
+	Control chan any
 }
 
 // Run 实现 runner.Runner。
@@ -58,7 +60,7 @@ func (r *ADBRunner) Run(ctx context.Context, params map[string]any, emit runner.
 
 	op := &OpContext{
 		Ctx: ctx, Operation: r.Operation, Serial: serial, Params: params,
-		Emit: emit, Timeout: r.Timeout,
+		Emit: emit, Timeout: r.Timeout, Control: r.Control,
 		adbPath: paths.Adb, fastbootPath: paths.Fastboot, scrcpyPath: paths.Scrcpy,
 	}
 

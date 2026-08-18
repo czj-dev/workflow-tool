@@ -145,9 +145,15 @@ func TestLLMReadoutIncludesSessionID(t *testing.T) {
 	if r["durationMs"] != int64(3500) {
 		t.Fatalf("durationMs 不符: %+v", r)
 	}
-	// 无 cost/tokens 时仍应为 nil（sessionId 单独不撑起 readout，保持旧语义）
-	if got := llmReadout(map[string]string{"session_id": "abc"}, 0); got != nil {
-		t.Fatalf("无成本字段应返回 nil，got %+v", got)
+	// 失败/超时场景：result 事件未到达（无 cost/tokens），但 system/init 的 session_id 已写入，
+	// sessionId 必须随 readout 下发（否则历史条目丢会话 id，无法查现场/--resume）。
+	fail := llmReadout(map[string]string{"session_id": "abc"}, 0)
+	if fail == nil || fail["sessionId"] != "abc" {
+		t.Fatalf("失败时 sessionId 应单独撑起 readout，got %+v", fail)
+	}
+	// 完全无可读字段（连 session_id 都没有）才返回 nil
+	if got := llmReadout(map[string]string{}, 0); got != nil {
+		t.Fatalf("完全无可读字段应返回 nil，got %+v", got)
 	}
 }
 

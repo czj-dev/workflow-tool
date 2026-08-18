@@ -41,6 +41,9 @@ type Options struct {
 	// CaptureOverride 覆盖 action 的 capture_output（step 显式设置时）；
 	// nil 表示用 action 定义。
 	CaptureOverride *bool
+	// ADBControl 传递给 adb 形态 runner 的运行期控制通道（logcat-stream 过滤更新，
+	// api 直跑路径注入）；nil = 无（workflow step 路径与普通动作）。非 adb 形态忽略。
+	ADBControl chan any
 }
 
 // Build 按 LoadedAction 的 command 形态构造对应 Runner。
@@ -57,6 +60,7 @@ func Build(la registry.LoadedAction, deps Deps, opts Options) runner.Runner {
 			Timeout:      la.Timeout,
 			Dev:          deps.ADBDevice,
 			ResolvePaths: deps.ADBPaths,
+			Control:      opts.ADBControl,
 		}
 	case la.Def.Command.LLM.Prompt != "":
 		return buildLLM(la, opts)

@@ -12,14 +12,17 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Field, FieldLabel } from "@/components/ui/field";
 
-// 保存为预设弹窗：名称必填 + 描述可选。确定时调 addPreset（当前 formValues），
-// 成功后关闭并清空输入；失败在弹窗内显示错误。
+// 保存为预设弹窗：名称必填 + 描述可选。确定时调 addPreset（values 优先，否则当前
+// formValues），成功后关闭并清空输入；失败在弹窗内显示错误。
+// values：非表单调用方（logcat 甲板）携带的完整参数集。
 export function SavePresetDialog({
   open,
   onClose,
+  values,
 }: {
   open: boolean;
   onClose: () => void;
+  values?: Record<string, string>;
 }) {
   const { t } = useTranslation();
   const { addPreset } = useActionRunner();
@@ -49,7 +52,7 @@ export function SavePresetDialog({
   const onConfirm = async () => {
     if (!canConfirm) return;
     try {
-      await addPreset(name.trim(), desc.trim());
+      await addPreset(name.trim(), desc.trim(), values);
       reset();
       onClose();
     } catch (e) {

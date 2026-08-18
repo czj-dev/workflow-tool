@@ -16,6 +16,7 @@ const {
   mockListWorkflows,
   mockRunWorkflow,
   mockCancelWorkflow,
+  mockUpdateLogcatFilter,
   mockOn,
   listeners,
 } = vi.hoisted(() => {
@@ -39,6 +40,7 @@ const {
       mockListWorkflows: vi.fn(),
       mockRunWorkflow: vi.fn(() => Promise.resolve()),
       mockCancelWorkflow: vi.fn(),
+      mockUpdateLogcatFilter: vi.fn(() => Promise.resolve()),
       mockOn,
       listeners,
     };
@@ -60,6 +62,7 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   ListWorkflows: mockListWorkflows,
   RunWorkflow: mockRunWorkflow,
   CancelWorkflow: mockCancelWorkflow,
+  UpdateLogcatFilter: mockUpdateLogcatFilter,
 }));
 
 vi.mock("@wailsio/runtime", () => ({
@@ -68,6 +71,7 @@ vi.mock("@wailsio/runtime", () => ({
 
 import { ActionRunnerProvider, _emitForTest } from "./ActionRunnerProvider";
 import { useActionRunner } from "../hooks/useActionRunner";
+import type { LogcatEntry } from "../types/events";
 
 const wrapper = ({ children }: { children: ReactNode }) => (
   <ActionRunnerProvider>{children}</ActionRunnerProvider>
@@ -87,6 +91,7 @@ beforeEach(() => {
   mockListWorkflows.mockReset().mockResolvedValue({ workflows: [], errors: [] });
   mockRunWorkflow.mockReset().mockResolvedValue(undefined);
   mockCancelWorkflow.mockReset();
+  mockUpdateLogcatFilter.mockReset().mockResolvedValue(undefined);
   mockOn.mockClear();
 });
 
@@ -404,10 +409,10 @@ describe("ActionRunnerProvider", () => {
     expect(result.current.lines).toEqual([]);
   });
 
-  // logcat 过滤条件带入：runAction 前台路径把 LEVEL/TAG/INCLUDE 映射进面板过滤；
-  // focusRunning 回到运行中的 logcat 动作时用 lastRunParams 恢复当初的过滤
-  // （logFilter 是全局单份，期间跑其他 logcat 动作会被覆盖）。
-  it("runAction 把 logcat 参数带入面板过滤；focusRunning 恢复被覆盖的过滤", async () => {
+  // logcat 规则带入：runAction 前台路径把 LEVEL/TAG/INCLUDE 映射进统一规则（ruleFromParams）；
+  // focusRunning 回到运行中的 logcat 动作时用 lastRunParams 恢复当初的规则
+  // （logcatRule 是全局单份，期间跑其他 logcat 动作会被覆盖），并触发一次后端整体重放。
+  it("runAction 把 logcat 参数映射进面板规则；focusRunning 恢复被覆盖的规则并请求重放", async () => {
     mockListActions.mockResolvedValue({
       actions: [
         { id: "a1", title: "A", icon: "", description: "", params: [], presets: [], stream: "logcat" },
@@ -421,15 +426,117 @@ describe("ActionRunnerProvider", () => {
       await result.current.runAction("a1", { LEVEL: "W", TAG: "Foo Bar", INCLUDE: "zz" });
     });
     expect(result.current.view).toBe("logcat");
-    expect(result.current.logFilter).toEqual({ minLevel: "W", tag: "Foo Bar", search: "zz" });
-    // 期间跑另一个 logcat 动作 → 全局过滤被覆盖
+    expect(result.current.logcatRule).toEqual({
+      minLevel: "W",
+      package: "",
+      tokens: [
+        { key: "tag", op: "contains", negated: false, value: "Foo" },
+        { key: "tag", op: "contains", negated: false, value: "Bar" },
+        { key: "message", op: "contains", negated: false, value: "zz" },
+      ],
+    });
+    // runAction 映射的初始规则不防抖下发（后端已从同一 params 编译）
+    expect(mockUpdateLogcatFilter).not.toHaveBeenCalled();
+    // 期间跑另一个 logcat 动作 → 全局规则被覆盖
     await act(async () => {
       await result.current.runAction("a2", { LEVEL: "E" });
     });
-    expect(result.current.logFilter).toEqual({ minLevel: "E", tag: "", search: "" });
-    // 回到 a1 的面板 → 用 a1 当初的运行参数恢复过滤
+    expect(result.current.logcatRule.minLevel).toBe("E");
+    // 回到 a1 的面板 → 用 a1 当初的运行参数恢复规则，并触发一次后端重放找回单缓冲
     act(() => result.current.focusRunning("a1", "logcat"));
-    expect(result.current.logFilter).toEqual({ minLevel: "W", tag: "Foo Bar", search: "zz" });
+    expect(result.current.logcatRule.minLevel).toBe("W");
+    expect(mockUpdateLogcatFilter).toHaveBeenCalledWith(
+      "a1",
+      expect.objectContaining({ minLevel: "W" }),
+      false,
+    );
+  });
+
+  // 重放帧：head 首帧整体替换 + 读数/直方图/脉冲 seq；后续 chunk 仅追加。
+  it("logcat-replace 首帧整体替换并读取数/直方图，后续 chunk 追加", async () => {
+    mockListActions.mockResolvedValue({
+      actions: [
+        { id: "a1", title: "A", icon: "", description: "", params: [], presets: [], stream: "logcat" },
+      ],
+      errors: [],
+    });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.runAction("a1", {});
+    });
+    const ent = (tag: string): LogcatEntry => ({
+      date: "08-18", time: "09:00:00.000", pid: 1, tid: 1, level: "I", tag, message: "m",
+    });
+    act(() => {
+      _emitForTest("action:a1:output", {
+        data: {
+          stream: "logcat-replace",
+          line: JSON.stringify({
+            head: true,
+            entries: [ent("A"), ent("B")],
+            matched: 2,
+            total: 5,
+            tagHistogram: { B: 1, A: 2 },
+          }),
+        },
+      });
+      _emitForTest("action:a1:output", {
+        data: {
+          stream: "logcat-replace",
+          line: JSON.stringify({ head: false, entries: [ent("C")] }),
+        },
+      });
+    });
+    expect(result.current.logcatEntries.map((e) => e.tag)).toEqual(["A", "B", "C"]);
+    expect(result.current.logcatStats).toEqual({ matched: 2, total: 5 });
+    // 直方图按频次降序、并列字典序（与后端 topTags 同规则）
+    expect(result.current.logcatTagHist).toEqual([["A", 2], ["B", 1]]);
+    expect(result.current.logcatReplaceSeq).toBe(1);
+  });
+
+  // 防抖下发：规则编辑后 300ms 才调 UpdateLogcatFilter，且剥离 draft 标记。
+  it("规则编辑 300ms 防抖下发 UpdateLogcatFilter（draft 剥离，运行中才发）", async () => {
+    vi.useFakeTimers();
+    try {
+      mockListActions.mockResolvedValue({
+        actions: [
+          { id: "a1", title: "A", icon: "", description: "", params: [], presets: [], stream: "logcat" },
+        ],
+        errors: [],
+      });
+      const { result } = renderHook(() => useActionRunner(), { wrapper });
+      await act(() => Promise.resolve());
+      await act(async () => {
+        await result.current.runAction("a1", {});
+      });
+      // 初始规则（params 映射）不触发下发
+      expect(mockUpdateLogcatFilter).not.toHaveBeenCalled();
+      // 用户编辑：末尾草稿 token
+      act(() => {
+        result.current.setLogcatRule({
+          tokens: [{ key: "tag", op: "contains", negated: false, value: "x", draft: true }],
+          minLevel: "D",
+          package: "",
+        });
+      });
+      expect(mockUpdateLogcatFilter).not.toHaveBeenCalled();
+      act(() => {
+        vi.advanceTimersByTime(299);
+      });
+      expect(mockUpdateLogcatFilter).not.toHaveBeenCalled();
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(mockUpdateLogcatFilter).toHaveBeenCalledTimes(1);
+      expect(mockUpdateLogcatFilter).toHaveBeenCalledWith(
+        "a1",
+        { tokens: [{ key: "tag", op: "contains", negated: false, value: "x" }], minLevel: "D", package: "" },
+        false,
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("挂载时拉取 workflow 列表", async () => {

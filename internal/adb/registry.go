@@ -29,6 +29,11 @@ type OpContext struct {
 	Emit      EmitFunc
 	Timeout   time.Duration
 
+	// Control 是可选的运行期控制通道（api 层创建、经 ADBRunner 注入；当前仅
+	// logcat-stream 使用，消息类型 logcat.FilterUpdate）。通道从不关闭：运行结束后
+	// 簿记清除引用、GC 回收，因此发送侧必须非阻塞投递（缓冲见 api.controlChanCap）。
+	Control chan any
+
 	adbPath      string
 	fastbootPath string
 	scrcpyPath   string

@@ -101,6 +101,9 @@ export function ParamForm() {
     params.forEach((p) => {
       values[p.id] = formValues[p.id] ?? p.default ?? "";
     });
+    // FILTER 是保留参数键（不在 yaml params 声明，forEach 不会覆盖到）。选中携带
+    // FILTER 的 logcat 预设后 formValues 里有它，运行时透传给后端 RuleFromParamsExt。
+    if (formValues.FILTER) values.FILTER = formValues.FILTER;
     setEditing(false);
     runAction(action.id, values);
   };

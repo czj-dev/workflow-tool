@@ -1,12 +1,11 @@
-// Package logcat 提供结构化 logcat 抓取 operation：前台流式（logcat-stream）
-// 与批量落盘（logcat-batch）。两者共享 `logcat -v threadtime` 的解析与 LEVEL/TAG/
-// INCLUDE/EXCLUDE 过滤逻辑（移植自 ADBKit logcat_service.go，但改用 Go 端过滤，
-// 并以 adb.OpContext 的 AdbStream + EmitStdout 取代 Wails v2 事件通道）。
+// Package logcat 提供结构化 logcat 抓取 operation：前台流式（logcat-stream，
+// stream.go：统一规则求值 + raw ring 重放）与批量落盘（logcat-batch，本文件）。
+// 两者共享 `logcat -v threadtime` 的解析（filter.go）；batch 仍用旧 buildFilter
+// 入参过滤，stream 走 rule.go 统一规则（spec: 2026-08-18-logcat-filter-chips-design）。
 package logcat
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -19,163 +18,11 @@ import (
 	"workflow-tool/internal/adbcore"
 )
 
-const (
-	opStream = "logcat-stream"
-	opBatch  = "logcat-batch"
-)
+const opBatch = "logcat-batch"
 
 func init() {
-	adb.RegisterOperation(opStream, handleStream)
+	adb.RegisterOperation(OpStream, handleStream) // 实现在 stream.go（raw ring + 运行期规则更新）
 	adb.RegisterOperation(opBatch, handleBatch)
-}
-
-// handleStream 前台流式 logcat：逐行解析 threadtime，按 LEVEL(>=阈值)/TAG(子串)/
-// INCLUDE/EXCLUDE(message 子串) 服务端预过滤，再以 stream="logcat" 结构化 JSON
-// 下发（date/pid/tid/level/tag/message），前端据此着色与运行时再过滤。
-// RunStreaming 遵循 ctx 取消，故取消动作即停止流；ctx 取消/超时视为正常结束 (ExitCode 0)。
-func handleStream(op *adb.OpContext) adb.OpResult {
-	f, ok := buildFilter(op.ParamStr("LEVEL"), op.ParamStr("TAG"), op.ParamStr("INCLUDE"), op.ParamStr("EXCLUDE"))
-	if !ok {
-		opErr := adbcore.NewOperationError(opStream, "invalid LEVEL (expect V/D/I/W/E/F or verbose/warn/error...)", op.ParamStr("LEVEL"), false)
-		op.EmitStderr(opErr.Error())
-		return adb.OpResult{ExitCode: 2, Err: opErr, Stderr: opErr.Error()}
-	}
-
-	// 聚合 emit：逐行只压入缓冲，由 ticker 每 ~100ms 批量序列化为 JSON 数组下发。
-	// logcat 启动常一次性倾倒整个 ring buffer（万级行），若每行一次 op.Emit，
-	// Wails IPC 事件风暴会压垮前端主线程导致未响应；批量化后事件数从万级降到 ~10/s。
-	// 与 adbkit 的 stream pipe + 背压同思路：在产出端节流，而非依赖消费端追赶。
-	const (
-		flushInterval = 100 * time.Millisecond
-		maxBatch      = 500 // 单次 emit 上限，超出留到下次 tick，分摊首次倾倒峰值
-	)
-	var (
-		bufMu sync.Mutex
-		buf   []logcatPayload
-	)
-	flush := func() {
-		bufMu.Lock()
-		if len(buf) == 0 {
-			bufMu.Unlock()
-			return
-		}
-		batch := buf
-		buf = nil
-		bufMu.Unlock()
-		// 超出上限时拆成多个 chunk 顺序 emit，避免单个超大 JSON 阻塞。
-		for len(batch) > 0 {
-			n := len(batch)
-			if n > maxBatch {
-				n = maxBatch
-			}
-			if payload, err := json.Marshal(batch[:n]); err == nil {
-				op.Emit("logcat", string(payload))
-			}
-			batch = batch[n:]
-		}
-	}
-	// ticker 直到 ctx 结束（含 final flush）才退出，保证收尾不丢条目。
-	flushDone := make(chan struct{})
-	go func() {
-		ticker := time.NewTicker(flushInterval)
-		defer func() {
-			ticker.Stop()
-			flush()
-			close(flushDone)
-		}()
-		for {
-			select {
-			case <-ticker.C:
-				flush()
-			case <-op.Ctx.Done():
-				return
-			}
-		}
-	}()
-
-	// 包名过滤（参考 Android Studio Logcat）：PACKAGE → adb shell pidof 解析 pid 集合，
-	// Go 端按 pid 过滤。周期性重新解析（5s）以跟随应用重启/延迟启动；解析前 pid 集合
-	// 为空时按「不匹配任何行」处理，故可在 app 启动前先开 logcat，app 起来后自动跟上。
-	pkg := op.ParamStr("PACKAGE")
-	var (
-		pidMu sync.RWMutex
-		pids  map[int]struct{}
-	)
-	if pkg != "" {
-		pids = make(map[int]struct{})
-		for p := range resolvePids(op, pkg) {
-			pids[p] = struct{}{}
-		}
-		if len(pids) == 0 {
-			op.EmitStderr("warning: no running process found for package " + pkg + "; will retry every 5s")
-		}
-		go func() {
-			ticker := time.NewTicker(5 * time.Second)
-			defer ticker.Stop()
-			for {
-				select {
-				case <-ticker.C:
-					np := resolvePids(op, pkg)
-					pidMu.Lock()
-					pids = np
-					pidMu.Unlock()
-				case <-op.Ctx.Done():
-					return
-				}
-			}
-		}()
-	}
-
-	onLine := func(stream, line string) {
-		e := parseEntry(line)
-		if !f.allow(&e) {
-			return
-		}
-		if pids != nil {
-			pidMu.RLock()
-			_, ok := pids[e.Pid]
-			pidMu.RUnlock()
-			if !ok {
-				return
-			}
-		}
-		bufMu.Lock()
-		buf = append(buf, entryJSON(e))
-		bufMu.Unlock()
-	}
-
-	// -T 1：从最新一行开始流式（last + follow），避免连接瞬间倾倒整个 ring buffer
-	// 的历史日志（常万级行）压垮前端。batch 机制仍保留以应对后续高频突发。
-	req := op.AdbStream(false, onLine, "logcat", "-T", "1", "-v", "threadtime")
-	res, err := adbcore.RunStreaming(op.Ctx, req)
-	// RunStreaming 返回后 ctx 必然已结束（取消/超时/进程退出），等待 ticker 做最终 flush。
-	<-flushDone
-	switch {
-	case err == nil:
-		op.EmitStdout(fmt.Sprintf("logcat stream ended (exit %d)", res.ExitCode))
-		if res.ExitCode != 0 {
-			opErr := adbcore.NewOperationError(opStream, "logcat exited with non-zero status", res.Stderr, false)
-			return adb.OpResult{ExitCode: res.ExitCode, Stderr: res.Stderr, Err: opErr}
-		}
-		return adb.OpResult{ExitCode: 0}
-	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		// 取消/超时是前台流的预期终止方式。
-		op.EmitStdout("logcat stream stopped")
-		return adb.OpResult{ExitCode: 0}
-	default:
-		// 进程错误（启动失败、非零退出等）；res 可能为 nil 或携带退出码/stderr。
-		exitCode := -1
-		stderr := err.Error()
-		if res != nil {
-			exitCode = res.ExitCode
-			if res.Stderr != "" {
-				stderr = res.Stderr
-			}
-		}
-		op.EmitStderr(stderr)
-		opErr := adbcore.NewOperationError(opStream, "logcat stream failed", stderr, false)
-		return adb.OpResult{ExitCode: exitCode, Err: opErr, Stderr: stderr}
-	}
 }
 
 // handleBatch 批量抓取 logcat 到 LOGS_DIR 下文件，命名与 scripts/adb-logcat.* 对齐：

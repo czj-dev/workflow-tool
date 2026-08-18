@@ -27,6 +27,7 @@ import {
   CancelWorkflow,
   GetWorkflowYaml,
   SetWorkflowYaml,
+  UpdateLogcatFilter,
 } from "../../bindings/workflow-tool/internal/api/service.js";
 import type {
   ActionItem,
@@ -42,33 +43,23 @@ import {
   type LlmPanelState,
 } from "../components/llm/reduceStream";
 import { foldOutputLine } from "../lib/outputFold";
+import { ruleFromParams, sortHistogram } from "../lib/logcatRule";
 import type {
   OutputEventData,
   DoneEventData,
   WorkflowStepState,
   LogcatEntry,
-  LogcatFilter,
+  LogcatReplaceFrame,
+  LogcatRule,
 } from "../types/events";
+import { EMPTY_LOGCAT_RULE } from "../types/events";
 
 // logcat 性能参数：state 缓冲上限 / 入站 ref 缓冲上限。
 // logcat 启动常一次性倾倒整个 ring buffer（万级行），逐行 setState 会冻结 UI，
 // 故 onOutput 仅压入 ref，由定时器按 MAX_LOGCAT 节流并入 state。
-const MAX_LOGCAT = 4000;
-const MAX_LOGCAT_FLUSH = 8000;
-
-// 从 logcat 动作的运行参数推导面板过滤：LEVEL→minLevel、TAG→tag、INCLUDE→search。
-// 服务端已按这些值过滤（减少 IPC），面板反映当前状态并可在其上进一步收窄；
-// TAG 按空白拆分任一命中（与后端 allow 一致），故多 tag 不会误隐藏。
-function logFilterFromParams(
-  params: Record<string, unknown> | undefined,
-): LogcatFilter {
-  const lvlRaw = String(params?.LEVEL ?? "").trim().toUpperCase();
-  return {
-    minLevel: lvlRaw && "VDIWEF".includes(lvlRaw[0]) ? lvlRaw[0] : "V",
-    tag: String(params?.TAG ?? ""),
-    search: String(params?.INCLUDE ?? ""),
-  };
-}
+// 缓冲对齐后端 raw ring 容量（10k，spec 决策 6）：重放帧可整体落地不被截断。
+const MAX_LOGCAT = 10000;
+const MAX_LOGCAT_FLUSH = 12000;
 
 type Status = "idle" | "running" | "done" | "error";
 interface ExitInfo {
@@ -116,10 +107,17 @@ export interface RunnerContextValue {
   // LLM 运行历史（按 currentId 分桶，最新在前）+ 清空
   llmHistory: LlmHistoryEntry[];
   clearLlmHistory: () => void;
-  // logcat 视图：结构化条目缓冲（环形 ~5000）+ 运行时过滤
+  // logcat 视图：结构化条目缓冲（环形 ~10000，对齐后端 raw ring）
   logcatEntries: LogcatEntry[];
-  logFilter: LogcatFilter;
-  setLogFilter: (f: Partial<LogcatFilter>) => void;
+  // 统一过滤规则（后端唯一求值器，前端只编辑+下发；启动/切回时由 params 重建）
+  logcatRule: LogcatRule;
+  setLogcatRule: (r: LogcatRule) => void;
+  // 重放帧携带的读数：matched=当前规则命中数，total=后端 ring 留存行数
+  logcatStats: { matched: number; total: number };
+  // 重放帧 tag 直方图（频次降序，补全层/快捷条数据源）
+  logcatTagHist: Array<[string, number]>;
+  // 重放首帧序号（递增）：视图用它的变化触发 240ms 读数脉冲
+  logcatReplaceSeq: number;
   clearLogcat: () => void;
   fragments: Fragment[];
   // workflow 状态
@@ -156,7 +154,12 @@ export interface RunnerContextValue {
   openActionsDir: () => Promise<void>;
   getActionYaml: (id: string) => Promise<string>;
   saveActionYaml: (id: string, text: string) => Promise<void>;
-  addPreset: (name: string, description: string) => Promise<void>;
+  // valuesOverride：非表单路径（如 logcat 甲板）携带的完整参数集，缺省用当前 formValues
+  addPreset: (
+    name: string,
+    description: string,
+    valuesOverride?: Record<string, string>,
+  ) => Promise<void>;
   runWorkflow: (id: string, params?: Record<string, any>, background?: boolean) => Promise<void>;
   cancelWorkflow: () => void;
   selectWorkflow: (id: string) => void;
@@ -207,13 +210,13 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   // done 闭包由 currentId useEffect 捕获，读 actions/formValues 时闭包可能陈旧，用 ref
   const actionsRef = useRef<ActionItem[]>([]);
   actionsRef.current = actions;
-  // logcat 条目缓冲与过滤（按 currentId 单缓冲，runAction 时清空）
+  // logcat 条目缓冲与统一规则（按 currentId 单缓冲，runAction 时清空/重建）
   const [logcatEntries, setLogcatEntries] = useState<LogcatEntry[]>([]);
-  const [logFilter, setLogFilterState] = useState<LogcatFilter>({
-    minLevel: "V",
-    search: "",
-    tag: "",
-  });
+  const [logcatRule, setLogcatRuleState] = useState<LogcatRule>(EMPTY_LOGCAT_RULE);
+  const [logcatStats, setLogcatStats] = useState({ matched: 0, total: 0 });
+  const [logcatTagHist, setLogcatTagHist] = useState<Array<[string, number]>>([]);
+  const [logcatReplaceSeq, setLogcatReplaceSeq] = useState(0);
+  const setLogcatRule = (r: LogcatRule) => setLogcatRuleState(r);
   // logcat 入站缓冲：onOutput 高频回调只往 ref 压，不触发渲染；由下面的定时器批量并入 state。
   const logcatBufferRef = useRef<LogcatEntry[]>([]);
   // progress 原地刷新标记：上一条是 progress → 覆盖该行而非追加，模拟终端 \r 效果
@@ -222,8 +225,14 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   // 需要 nextSeq/pending 跨事件持续，故用 ref 而非随 lines 一起进 state）。
   // 每次开跑新 action 必须重置，否则残留的 nextSeq 会把新一轮输出全部误判为「还没轮到」。
   const seqStateRef = useRef({ nextSeq: 1, pending: new Map<number, OutputEventData>() });
+  // 统一 seq 排序门（logcat/logcat-replace/stdout 共享同一序号空间）：乱序到达先挂
+  // pending，轮到 nextSeq 再按序应用。replace 帧的正确性依赖它——head 帧清空必须
+  // 晚于所有旧增量帧、早于自己的 chunk，而 Wails 事件到达顺序无保证。
+  // 与 seqStateRef 同步重置（见 resetSeqState）。
+  const seqGateRef = useRef({ nextSeq: 1, pending: new Map<number, OutputEventData>() });
   const resetSeqState = () => {
     seqStateRef.current = { nextSeq: 1, pending: new Map() };
+    seqGateRef.current = { nextSeq: 1, pending: new Map() };
   };
   // 每 ~120ms 把缓冲批量并入 logcatEntries（截断到 MAX_LOGCAT），空缓冲跳过。
   // logcat 启动常先倾倒整个 ring buffer（万级行），逐行 setState 会冻结 UI。
@@ -245,6 +254,75 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // ——— logcat 事件落地 ———
+
+  // 增量帧：line 是后端批量下发的 JSON 数组（偶发单对象兼容）；解析失败退化为单条原文。
+  // 只压 ref 不触发渲染，由上面的定时器批量并入 state。
+  const pushLogcatBatch = (line: string) => {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      parsed = [{ date: "", time: "", pid: 0, tid: 0, level: "V", tag: "", message: line }];
+    }
+    const arr = Array.isArray(parsed) ? (parsed as LogcatEntry[]) : [parsed as LogcatEntry];
+    const buf = logcatBufferRef.current;
+    for (const ent of arr) {
+      if (buf.length < MAX_LOGCAT_FLUSH) buf.push(ent);
+    }
+  };
+
+  // 重放帧（规则变更/清空后，后端重筛 raw ring 整体重发，见 LogcatReplaceFrame）。
+  // head=读数+直方图+清空整体替换；后续 chunk 仅追加。经 seqGate 保证与增量帧的相对顺序。
+  const applyLogcatReplace = (line: string) => {
+    let frame: LogcatReplaceFrame;
+    try {
+      frame = JSON.parse(line) as LogcatReplaceFrame;
+    } catch {
+      return;
+    }
+    if (frame.head) {
+      setLogcatStats({ matched: frame.matched ?? 0, total: frame.total ?? 0 });
+      setLogcatTagHist(sortHistogram(frame.tagHistogram ?? {}));
+      setLogcatReplaceSeq((s) => s + 1);
+      // 先丢入站缓冲：其中是旧规则下尚未并业的增量，重放已含其命中部分（ring 全量重筛）。
+      logcatBufferRef.current = [];
+      setLogcatEntries((frame.entries ?? []).slice(-MAX_LOGCAT));
+      return;
+    }
+    setLogcatEntries((prev) => {
+      const next = [...prev, ...(frame.entries ?? [])];
+      return next.length > MAX_LOGCAT ? next.slice(next.length - MAX_LOGCAT) : next;
+    });
+  };
+
+  // 规则编辑 300ms 防抖下发（spec 决策 3）。params 映射（runAction/focusRunning）
+  // 与 openLlmChat 重置在写入 state 的同时登记 synced 引用：effect 发现规则与 synced
+  // 同引用即不下发——初始规则后端已从同一 params 编译，重发只会多一次整体重放
+  // （闪烁+滚动复位）；currentId 切到其他运行中动作时同理不误发。draft 是 UI 专有标记，
+  // 下发前剥离（后端不读此字段，但保持协议干净）。
+  const logcatRuleSyncedRef = useRef<LogcatRule | null>(null);
+  useEffect(() => {
+    const id = currentId;
+    if (!id || !runningIdsRef.current.has(id)) return;
+    if (logcatRuleSyncedRef.current === logcatRule) return;
+    const timer = setTimeout(() => {
+      logcatRuleSyncedRef.current = logcatRule;
+      UpdateLogcatFilter(id, {
+        tokens: logcatRule.tokens.map((tk) => ({
+          key: tk.key,
+          op: tk.op,
+          negated: tk.negated,
+          value: tk.value,
+        })),
+        minLevel: logcatRule.minLevel,
+        package: logcatRule.package,
+      }, false).catch(() => {});
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [logcatRule, currentId]);
+
   const [fragments, setFragments] = useState<Fragment[]>([]);
   // workflow 状态：列表、加载错误、步骤运行状态
   const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
@@ -264,6 +342,9 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   // 后台仍在运行的 action id 集合。后端按 id 并发（不同 id 可同时跑），
   // 故运行态必须按 id 记录，不能只靠单一 status——否则切走再回来会丢失「运行中」。
   const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
+  // ref 镜像：规则防抖 effect 需读最新运行集合判断是否下发（进 deps 会在无关运行态变化时重复重放）
+  const runningIdsRef = useRef<Set<string>>(new Set());
+  runningIdsRef.current = runningIds;
   // 每个 action 的 done 订阅清理函数（持久，不随 currentId 切换销毁）
   const actionDoneUnsubs = useRef<Record<string, () => void>>({});
   // 当前 workflow 订阅的清理函数（同步订阅，见 subscribeWorkflow 注释）
@@ -430,65 +511,71 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
 
     const onOutput = (e: unknown) => {
       const d = (((e as { data?: unknown })?.data) || {}) as OutputEventData;
-      // LLM 三通道共用归约器维护面板工序段；atMs 用到达时刻相对运行起点
-      const llmApply = (ev: ReturnType<typeof parseToolEvent>) => {
-        if (ev)
-          setLlmPanel((prev) =>
-            applyEvent(prev, ev, Math.max(0, Date.now() - llmRunStartRef.current)),
-          );
-      };
-      if (d.stream === "llm") {
-        setLlmText((prev) => prev + (d.line || ""));
-        llmApply({ kind: "text", delta: d.line || "" });
-        return;
-      }
-      if (d.stream === "llm-thinking") {
-        setThinkingText((prev) => prev + (d.line || ""));
-        llmApply({ kind: "thinking", delta: d.line || "" });
-        return;
-      }
-      if (d.stream === "llm-tool") {
-        llmApply(parseToolEvent(d.line || ""));
-        return;
-      }
-      if (d.stream === "logcat") {
-        // line 是后端批量下发的 JSON 数组（偶发单对象兼容）；解析失败退化为单条原文。
-        let parsed: unknown;
-        try {
-          parsed = JSON.parse(d.line || "");
-        } catch {
-          parsed = [{ date: "", time: "", pid: 0, tid: 0, level: "V", tag: "", message: d.line || "" }];
-        }
-        const arr = Array.isArray(parsed)
-          ? (parsed as LogcatEntry[])
-          : [parsed as LogcatEntry];
-        // 仅压入 ref，由上面的 setInterval 批量并入 state，避免逐行渲染风暴。
-        const buf = logcatBufferRef.current;
-        for (const e of arr) {
-          if (buf.length < MAX_LOGCAT_FLUSH) buf.push(e);
-        }
-        return;
-      }
-      // stdout/stderr/progress：走共享的 foldOutputLine（progress 原地刷新语义与 workflow step 一致）。
-      // seq 重排态存在 ref 里跨事件持续，lines/lastWasProgress 才进 state 驱动渲染。
-      setLines((prev) => {
-        const folded = foldOutputLine(
-          {
-            lines: prev,
-            lastWasProgress: lastWasProgressRef.current,
-            nextSeq: seqStateRef.current.nextSeq,
-            pending: seqStateRef.current.pending,
-          },
-          d,
-          { stderrPrefix: t("output.stderrPrefix") },
-        );
-        lastWasProgressRef.current = folded.lastWasProgress;
-        seqStateRef.current = {
-          nextSeq: folded.nextSeq ?? 1,
-          pending: folded.pending ?? new Map(),
+      // 统一 seq 排序门后再分派：replace 帧的正确性依赖严格的到达顺序（见 seqGateRef
+      // 注释）。无 seq（异常场景）直接应用，与旧行为一致。
+      const apply = (d: OutputEventData) => {
+        // LLM 三通道共用归约器维护面板工序段；atMs 用到达时刻相对运行起点
+        const llmApply = (ev: ReturnType<typeof parseToolEvent>) => {
+          if (ev)
+            setLlmPanel((prev) =>
+              applyEvent(prev, ev, Math.max(0, Date.now() - llmRunStartRef.current)),
+            );
         };
-        return folded.lines;
-      });
+        if (d.stream === "llm") {
+          setLlmText((prev) => prev + (d.line || ""));
+          llmApply({ kind: "text", delta: d.line || "" });
+          return;
+        }
+        if (d.stream === "llm-thinking") {
+          setThinkingText((prev) => prev + (d.line || ""));
+          llmApply({ kind: "thinking", delta: d.line || "" });
+          return;
+        }
+        if (d.stream === "llm-tool") {
+          llmApply(parseToolEvent(d.line || ""));
+          return;
+        }
+        if (d.stream === "logcat") {
+          pushLogcatBatch(d.line || "");
+          return;
+        }
+        if (d.stream === "logcat-replace") {
+          applyLogcatReplace(d.line || "");
+          return;
+        }
+        // stdout/stderr/progress：走共享的 foldOutputLine（progress 原地刷新语义与 workflow step 一致）。
+        // seq 重排态存在 ref 里跨事件持续，lines/lastWasProgress 才进 state 驱动渲染。
+        setLines((prev) => {
+          const folded = foldOutputLine(
+            {
+              lines: prev,
+              lastWasProgress: lastWasProgressRef.current,
+              nextSeq: seqStateRef.current.nextSeq,
+              pending: seqStateRef.current.pending,
+            },
+            d,
+            { stderrPrefix: t("output.stderrPrefix") },
+          );
+          lastWasProgressRef.current = folded.lastWasProgress;
+          seqStateRef.current = {
+            nextSeq: folded.nextSeq ?? 1,
+            pending: folded.pending ?? new Map(),
+          };
+          return folded.lines;
+        });
+      };
+      if (d.seq == null) {
+        apply(d);
+        return;
+      }
+      const gate = seqGateRef.current;
+      gate.pending.set(d.seq, d);
+      while (gate.pending.has(gate.nextSeq)) {
+        const ev = gate.pending.get(gate.nextSeq)!;
+        gate.pending.delete(gate.nextSeq);
+        gate.nextSeq++;
+        apply(ev);
+      }
     };
     const onDone = (e: unknown) => {
       const d = (((e as { data?: unknown })?.data) || {}) as DoneEventData;
@@ -611,8 +698,14 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       } else if (action?.stream === "logcat") {
         logcatBufferRef.current = [];
         setLogcatEntries([]);
-        // 把本次运行的服务端预过滤参数带入面板过滤（映射见 logFilterFromParams）。
-        setLogFilterState(logFilterFromParams(params));
+        // 把本次运行的服务端预过滤参数带入面板规则（映射见 ruleFromParams）。
+        // 初始规则后端已从同一 params 编译，登记 synced 后防抖不再重复下发。
+        const rule = ruleFromParams(params);
+        logcatRuleSyncedRef.current = rule;
+        setLogcatRuleState(rule);
+        setLogcatStats({ matched: 0, total: 0 });
+        setLogcatTagHist([]);
+        setLogcatReplaceSeq(0);
         setView("logcat");
       } else if (!stayInForm) {
         setView("output");
@@ -695,9 +788,13 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     } else if (targetView === "logcat") {
       logcatBufferRef.current = [];
       setLogcatEntries([]);
-      // 恢复该次运行实际使用的过滤条件：logFilter 是全局单份，期间跑过其他 logcat
-      // 动作（或后台启动时从未设置）会覆盖/丢失，回到面板时用 lastRunParams 带回。
-      setLogFilterState(logFilterFromParams(lastRunParamsRef.current[id]));
+      // 恢复该次运行实际使用的规则（全局单份，期间可能被其他 logcat 动作覆盖）。
+      // 登记 synced 防止防抖重复下发本次直发。
+      const rule = ruleFromParams(lastRunParamsRef.current[id]);
+      logcatRuleSyncedRef.current = rule;
+      setLogcatRuleState(rule);
+      // 用恢复的规则触发一次后端整体重放：把切走期间丢失的单缓冲条目从 raw ring 找回。
+      UpdateLogcatFilter(id, rule, false).catch(() => {});
     }
     setView(targetView);
   };
@@ -722,6 +819,11 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setLlmPanel(EMPTY_PANEL_STATE);
     logcatBufferRef.current = [];
     setLogcatEntries([]);
+    logcatRuleSyncedRef.current = EMPTY_LOGCAT_RULE;
+    setLogcatRuleState(EMPTY_LOGCAT_RULE);
+    setLogcatStats({ matched: 0, total: 0 });
+    setLogcatTagHist([]);
+    setLogcatReplaceSeq(0);
     setStatus("idle");
     setExitInfo(null);
     setView("llm-chat");
@@ -858,9 +960,20 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   };
 
   // addPreset：把当前 formValues 存为 currentId 动作的 preset（同名覆盖）。
-  const addPreset = async (name: string, description: string) => {
+  // valuesOverride：非表单路径（logcat 甲板）传完整参数集，优先生于 formValues——
+  // 甲板不在 form 视图，formValues 可能是别的动作或陈旧值。
+  const addPreset = async (
+    name: string,
+    description: string,
+    valuesOverride?: Record<string, string>,
+  ) => {
     if (!currentId) return;
-    const res = await AddPreset(currentId, name, description, formValues);
+    const res = await AddPreset(
+      currentId,
+      name,
+      description,
+      valuesOverride ?? formValues,
+    );
     setActions((res && res.actions) || []);
     setErrors((res && res.errors) || []);
   };
@@ -933,13 +1046,18 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     resetSeqState();
   };
 
+  // 清空：本地缓冲/读数即刻归零；运行中则 reset=true 下发——后端同步清 raw ring
+  //（此后只见增量），并回一帧 head 空重放（读数归零的服务端确认）。
   const clearLogcat = () => {
     logcatBufferRef.current = [];
     setLogcatEntries([]);
+    setLogcatStats({ matched: 0, total: 0 });
+    setLogcatTagHist([]);
+    setLogcatReplaceSeq(0);
+    if (currentId && runningIdsRef.current.has(currentId)) {
+      UpdateLogcatFilter(currentId, logcatRule, true).catch(() => {});
+    }
   };
-
-  const setLogFilter = (f: Partial<LogcatFilter>) =>
-    setLogFilterState((prev) => ({ ...prev, ...f }));
 
   const copyOutput = async () => {
     await navigator.clipboard.writeText(linesRef.current.join("\n"));
@@ -964,8 +1082,11 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     llmHistory,
     clearLlmHistory,
     logcatEntries,
-    logFilter,
-    setLogFilter,
+    logcatRule,
+    setLogcatRule,
+    logcatStats,
+    logcatTagHist,
+    logcatReplaceSeq,
     clearLogcat,
     fragments,
     workflows,

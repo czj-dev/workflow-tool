@@ -8,6 +8,7 @@ export interface OutputEventData {
     | "llm-thinking"
     | "llm-tool"
     | "logcat"
+    | "logcat-replace"
     | "step-start"
     | "step-done"
     | "step-skip"
@@ -32,11 +33,38 @@ export interface LogcatEntry {
   message: string;
 }
 
-// 前端 logcat 视图运行时过滤（对已缓冲条目再过滤，不影响服务端预过滤）。
-export interface LogcatFilter {
-  minLevel: string; // V/D/I/W/E/F，默认 V（=不过滤等级）
-  search: string; // message 子串
-  tag: string; // tag 子串
+// ——— 统一过滤规则（与 Go internal/adb/logcat/rule.go 逐字段对齐，json tag 即协议） ———
+// 后端是唯一求值器：前端只编辑/下发规则，不再自带过滤逻辑（spec 2026-08-18）。
+
+export type LogcatKey = "tag" | "message" | "pid" | "tid" | "any";
+export type LogcatOp = "contains" | "exact" | "regex";
+
+export interface LogcatToken {
+  key: LogcatKey;
+  op: LogcatOp;
+  negated: boolean;
+  value: string;
+  // 前端 UI 专有：输入框未固化尾巴（草稿态）。下发后端时携带无害（后端不看此字段）。
+  draft?: boolean;
+}
+
+export interface LogcatRule {
+  tokens: LogcatToken[];
+  minLevel: string; // V/D/I/W/E/F 阈值，下拉唯一入口；空 = V
+  package: string; // 包名；空 = 全量进程（只读 chip，preset 带入 / × 移除）
+}
+
+export const EMPTY_LOGCAT_RULE: LogcatRule = { tokens: [], minLevel: "V", package: "" };
+
+// stream="logcat-replace" 的 line 是一段 JSON（对应后端 replaceFrame）。
+// 规则变更/清空后后端重筛 raw ring 整体重发：head=true 为首帧，收到即清空本地缓冲
+// 整体替换，并读取 matched/total 与 tag 直方图；后续 chunk 只追加 entries。
+export interface LogcatReplaceFrame {
+  head: boolean;
+  entries: LogcatEntry[];
+  matched?: number;
+  total?: number;
+  tagHistogram?: Record<string, number>;
 }
 
 // LLM 会话终点读数（done 事件附带，LLM 动作专有；后端 api.llmReadout 构造）
