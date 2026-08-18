@@ -25,10 +25,12 @@ type ActionItem struct {
 	LLM *LLMInfo `json:"llm,omitempty"`
 }
 
-// LLMInfo 暴露给前端的 LLM 形态元信息：哪个 param 是 system、哪个是 prompt。
+// LLMInfo 暴露给前端的 LLM 形态元信息：哪个 param 是 system、哪个是 prompt、哪个是 resume。
+// ResumeParam 供聊天页查看历史时把条目的 session id 回填到该输入（续接会话）。
 type LLMInfo struct {
 	SystemParam string `json:"systemParam"`
 	PromptParam string `json:"promptParam"`
+	ResumeParam string `json:"resumeParam"`
 }
 
 // ListResult 包装 ListActions 的多返回值，便于前端绑定。
@@ -69,7 +71,7 @@ func llmInfoOf(cmd registry.Command) *LLMInfo {
 	if cmd.LLM.Prompt == "" {
 		return nil
 	}
-	return &LLMInfo{SystemParam: cmd.LLM.System, PromptParam: cmd.LLM.Prompt}
+	return &LLMInfo{SystemParam: cmd.LLM.System, PromptParam: cmd.LLM.Prompt, ResumeParam: cmd.LLM.Resume}
 }
 
 // Reload 重扫 actions 目录重建 registry（编辑保存后调用）。

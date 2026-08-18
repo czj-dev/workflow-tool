@@ -232,10 +232,12 @@ title: A
 params:
   - { id: ROLE, label: 角色, type: textarea }
   - { id: Q, label: 问题, type: textarea, required: true }
+  - { id: SID, label: 会话, type: text }
 command:
   llm:
     system: ROLE
     prompt: Q
+    resume: SID
 `), 0644)
 
 	svc := New(registry.Load(dir, dir), nil, dir, cfgPath, filepath.Join(dir, "fragments.yaml"))
@@ -247,8 +249,8 @@ command:
 	if llm == nil {
 		t.Fatal("LLM 形态动作应带回 LLMInfo，got nil")
 	}
-	if llm.SystemParam != "ROLE" || llm.PromptParam != "Q" {
-		t.Fatalf("LLMInfo = %+v，want system=ROLE prompt=Q", llm)
+	if llm.SystemParam != "ROLE" || llm.PromptParam != "Q" || llm.ResumeParam != "SID" {
+		t.Fatalf("LLMInfo = %+v，want system=ROLE prompt=Q resume=SID", llm)
 	}
 }
 

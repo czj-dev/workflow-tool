@@ -50,9 +50,16 @@ export function LlmChatView() {
   }
 
   if (!action?.llm || !action.params) return null;
-  const { systemParam, promptParam } = action.llm;
+  const { systemParam, promptParam, resumeParam } = action.llm;
   const promptSpec = action.params.find((p) => p.id === promptParam);
   if (!promptSpec) return null;
+
+  // 查看历史即「准备续接该会话」：把条目的 session id 回填到 resume param 输入，
+  // 退出查看（返回当前 / 关闭）时清空。send 不走这里——发送后 resume 值需保留才能真正续接。
+  const showHistory = (e: LlmHistoryEntry | null) => {
+    setViewing(e);
+    if (resumeParam) setFormValue(resumeParam, e?.sessionId ?? "");
+  };
 
   const contextSpecs = action.params.filter(
     (p) => p.id !== promptParam && p.id !== systemParam,
@@ -125,7 +132,7 @@ export function LlmChatView() {
               {t("llmChat.sessionId")} {viewing.sessionId}
             </button>
           )}
-          <Button variant="ghost" size="sm" className="ml-auto h-6" onClick={() => setViewing(null)}>
+          <Button variant="ghost" size="sm" className="ml-auto h-6" onClick={() => showHistory(null)}>
             {t("llmChat.backToCurrent")}
           </Button>
         </div>
@@ -273,9 +280,9 @@ export function LlmChatView() {
         <LlmHistoryDrawer
           entries={llmHistory}
           viewingId={viewing?.id ?? null}
-          onSelect={(e) => { setViewing(e); setHistoryOpen(false); }}
+          onSelect={(e) => { showHistory(e); setHistoryOpen(false); }}
           onClose={() => setHistoryOpen(false)}
-          onClear={() => { clearLlmHistory(); setViewing(null); }}
+          onClear={() => { clearLlmHistory(); showHistory(null); }}
         />
       )}
     </main>

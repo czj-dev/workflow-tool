@@ -13,10 +13,11 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
         params: [
           { id: "ROLE", label: "角色", type: "textarea", required: false, default: "你是助手" },
           { id: "TASK", label: "任务", type: "textarea", required: true, default: "请处理 ${X}" },
+          { id: "SID", label: "会话", type: "text", required: false },
         ],
         presets: [{ name: "打招呼", description: "", values: { TASK: "介绍你自己" } }],
         stream: "",
-        llm: { systemParam: "ROLE", promptParam: "TASK" },
+        llm: { systemParam: "ROLE", promptParam: "TASK", resumeParam: "SID" },
       },
       {
         id: "c2",
@@ -187,9 +188,9 @@ describe("LlmChatView", () => {
     expect(scrollToBottomMock).toHaveBeenCalled();
     // Thread 必须带 min-h-0：基类 h-full（height:100%）在 flex 列里会把末尾读数行/composer 挤出视口
     expect(document.querySelector('[data-slot="thread"]')).toHaveClass("min-h-0");
-    // 查看横幅 + 会话 id（顶部展示，随 readout 附带）+ 终点读数行存在
+    // 查看横幅 + 会话 id（顶部展示 + 回填到 resume chip，故有两处）+ 终点读数行存在
     expect(await screen.findByText(/正在查看历史记录/)).toBeInTheDocument();
-    expect(screen.getByText(/sess-a1b2c3/)).toBeInTheDocument();
+    expect(screen.getAllByText(/sess-a1b2c3/).length).toBeGreaterThan(0);
     expect(screen.getByText("3.5s")).toBeInTheDocument();
     // live 态文案不得出现（历史段 durationMs 为 undefined，不能误判为 null=进行中）
     expect(screen.queryByText("生成中")).not.toBeInTheDocument();
@@ -197,6 +198,12 @@ describe("LlmChatView", () => {
     expect(screen.queryByText("思考中")).not.toBeInTheDocument();
     // 历史回答正文仍在渲染
     expect(screen.getByText(/最终回答/)).toBeInTheDocument();
+    // 查看历史时 session id 回填到 resume param（chip 摘要即该 param 的当前值）
+    expect(screen.getByRole("button", { name: /SID\s*sess-a1b2c3/ })).toBeInTheDocument();
+    // 退出查看（返回当前）清空 resume 值
+    fireEvent.click(screen.getByRole("button", { name: /返回当前/ }));
+    await act(() => Promise.resolve());
+    expect(screen.queryByRole("button", { name: /SID\s*sess-a1b2c3/ })).not.toBeInTheDocument();
   });
 
   it("必填 param 仅有 default（用户未编辑）时发送按钮可用", async () => {
