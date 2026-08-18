@@ -29,6 +29,7 @@ type LLMConfig struct {
 	CLI          string            // CLI 命令名，空则用 defaultLLMCLI
 	SystemPrompt string            // 系统提示词，非空则作为 --append-system-prompt 的独立 argv
 	Prompt       string            // 用户提示词，写入子进程 stdin
+	Resume       string            // 非空则作为 --resume <sessionId> 续接上次会话
 	Cwd          string            // 工作目录（空则继承父进程）
 	Timeout      time.Duration     // 超时
 	Env          map[string]string // 额外环境变量
@@ -107,15 +108,18 @@ func (r *LLMRunner) Run(ctx context.Context, params map[string]any, emit EmitFun
 	}
 }
 
-// buildLLMCommand 拼 argv：<CLI> <固定flags...> [--append-system-prompt <system>]。
+// buildLLMCommand 拼 argv：<CLI> <固定flags...> [--resume <id>] [--append-system-prompt <system>]。
 // 不经 shell，故 system 里的引号/换行/$ 都原样抵达子进程。
 func buildLLMCommand(cfg LLMConfig) *exec.Cmd {
 	cli := cfg.CLI
 	if cli == "" {
 		cli = defaultLLMCLI
 	}
-	args := make([]string, 0, len(llmFixedArgs)+2)
+	args := make([]string, 0, len(llmFixedArgs)+4)
 	args = append(args, llmFixedArgs...)
+	if cfg.Resume != "" {
+		args = append(args, "--resume", cfg.Resume)
+	}
 	if cfg.SystemPrompt != "" {
 		args = append(args, "--append-system-prompt", cfg.SystemPrompt)
 	}

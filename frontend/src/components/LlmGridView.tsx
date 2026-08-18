@@ -12,7 +12,7 @@ const EYEBROW =
 // LLM 卡片专属 grid：只展示 command.llm 形态动作，点卡片进聊天页空态（不直接运行）。
 export function LlmGridView() {
   const { t } = useTranslation();
-  const { actions, openLlmChat, isRunning } = useActionRunner();
+  const { actions, openLlmChat, focusRunning, isRunning } = useActionRunner();
   const { groupByPrefix, footprintLevel, getScore, topActions } = useActionUsage("llm-usage");
 
   const llmActions = actions.filter((a) => a.llm);
@@ -51,16 +51,21 @@ export function LlmGridView() {
                 </span>
               </div>
               <div className="grid grid-cols-[repeat(auto-fill,minmax(248px,1fr))] gap-3">
-                {topActions(items, items.length).map((action) => (
-                  <LlmCard
-                    key={action.id}
-                    action={action}
-                    running={isRunning(action.id)}
-                    level={footprintLevel(action.id)}
-                    score={getScore(action.id)}
-                    onOpen={() => openLlmChat(action.id)}
-                  />
-                ))}
+                {topActions(items, items.length).map((action) => {
+                  const running = isRunning(action.id);
+                  return (
+                    <LlmCard
+                      key={action.id}
+                      action={action}
+                      running={running}
+                      level={footprintLevel(action.id)}
+                      score={getScore(action.id)}
+                      onOpen={() =>
+                        running ? focusRunning(action.id, "llm-chat") : openLlmChat(action.id)
+                      }
+                    />
+                  );
+                })}
               </div>
             </section>
           );

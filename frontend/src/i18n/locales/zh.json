@@ -139,6 +139,8 @@
   "llmChat.historyMax": "最多保留 50 条",
   "llmChat.historyClear": "清空历史",
   "llmChat.viewingHistory": "正在查看历史记录",
+  "llmChat.sessionId": "会话",
+  "llmChat.sessionIdCopy": "点击复制会话 id：{{id}}",
   "llmChat.backToCurrent": "返回当前",
   "llmChat.assistant": "助手",
   "llmChat.you": "你",

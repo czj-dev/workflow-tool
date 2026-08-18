@@ -139,6 +139,8 @@
   "llmChat.historyMax": "Keeps up to 50 entries",
   "llmChat.historyClear": "Clear history",
   "llmChat.viewingHistory": "Viewing history",
+  "llmChat.sessionId": "Session",
+  "llmChat.sessionIdCopy": "Click to copy session id: {{id}}",
   "llmChat.backToCurrent": "Back to current",
   "llmChat.assistant": "Assistant",
   "llmChat.you": "You",

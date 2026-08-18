@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon, Cancel01Icon, Clock01Icon, SentIcon, Tag01Icon } from "@hugeicons/core-free-icons";
@@ -12,6 +12,7 @@ import { ParamFields } from "./ParamFields";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { missingRequired } from "../lib/params";
 import { expandVars } from "../lib/vars";
+import { useStickToBottomContext } from "use-stick-to-bottom";
 import { Thread, ThreadContent, ThreadScrollToBottom } from "@/components/nexus-ui/thread";
 import { LlmOutputPanel } from "@/components/llm/LlmOutputPanel";
 import { panelFromHistory } from "@/components/llm/reduceStream";
@@ -114,6 +115,16 @@ export function LlmChatView() {
         <div className="flex items-center gap-2 border-b border-primary/25 bg-primary/10 px-4 py-1.5 text-xs">
           <HugeiconsIcon icon={Clock01Icon} strokeWidth={1.75} className="size-3.5" />
           <span>{t("llmChat.viewingHistory")} · {new Date(viewing.timestamp).toLocaleString()}</span>
+          {viewing.sessionId && (
+            <button
+              type="button"
+              onClick={() => navigator.clipboard?.writeText(viewing.sessionId!)}
+              title={t("llmChat.sessionIdCopy", { id: viewing.sessionId })}
+              className="max-w-56 truncate rounded font-mono text-[10.5px] tracking-[0.03em] text-muted-foreground hover:text-foreground cursor-pointer"
+            >
+              {t("llmChat.sessionId")} {viewing.sessionId}
+            </button>
+          )}
           <Button variant="ghost" size="sm" className="ml-auto h-6" onClick={() => setViewing(null)}>
             {t("llmChat.backToCurrent")}
           </Button>
@@ -165,7 +176,12 @@ export function LlmChatView() {
         </div>
       </header>
 
-      <Thread className="flex min-w-0 flex-1">
+      {/* min-h-0：Thread 基类带 h-full（height:100%），作为 flex 子项且 min-height:auto 时
+          会被 100% 高度托底而不收缩，把 composer 挤出视口、末尾读数行被裁掉。 */}
+      <Thread className="flex min-h-0 min-w-0 flex-1">
+        {/* 历史查看切换时 ThreadContent 整段替换，stick-to-bottom 的贴底状态可能在替换瞬间
+            失效（滚动位置被钳制），显式滚到底保证「完成 · 时长」读数行可见。 */}
+        <ThreadViewingScroll trigger={viewing?.id ?? null} />
         <ThreadContent className="p-4">
           {!hasConversation ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
@@ -264,6 +280,16 @@ export function LlmChatView() {
       )}
     </main>
   );
+}
+
+// Thread 内挂载的滚动控制点：trigger 变化（进入/切换/退出历史查看）时滚到底。
+// 必须在 <Thread> 内部使用（依赖 useStickToBottomContext）。
+function ThreadViewingScroll({ trigger }: { trigger: string | null }) {
+  const { scrollToBottom } = useStickToBottomContext();
+  useEffect(() => {
+    scrollToBottom();
+  }, [trigger, scrollToBottom]);
+  return null;
 }
 
 interface LlmHistoryDrawerProps {

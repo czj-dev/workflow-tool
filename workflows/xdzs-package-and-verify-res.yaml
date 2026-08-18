@@ -7,7 +7,7 @@ params:
     label: xdzs-resource 项目目录
     type: path
     required: true
-    default: /Users/v_chenzhaojun/Documents/Project/baidu/asd-edc/xdzs-resource
+    default: /Users/v_chenzhaojun/Project/baidu/asd-edc/xdzs-resource
   - id: RES_NAME
     label: 产品线资源目录名
     type: select

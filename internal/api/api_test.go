@@ -131,6 +131,26 @@ func TestRunActionMergesGlobalAndParams(t *testing.T) {
 	}
 }
 
+func TestLLMReadoutIncludesSessionID(t *testing.T) {
+	outputs := map[string]string{
+		"session_id":    "abc-123",
+		"cost_usd":      "0.02",
+		"input_tokens":  "10",
+		"output_tokens": "20",
+	}
+	r := llmReadout(outputs, 3_500_000_000)
+	if r["sessionId"] != "abc-123" {
+		t.Fatalf("sessionId 未透传: %+v", r)
+	}
+	if r["durationMs"] != int64(3500) {
+		t.Fatalf("durationMs 不符: %+v", r)
+	}
+	// 无 cost/tokens 时仍应为 nil（sessionId 单独不撑起 readout，保持旧语义）
+	if got := llmReadout(map[string]string{"session_id": "abc"}, 0); got != nil {
+		t.Fatalf("无成本字段应返回 nil，got %+v", got)
+	}
+}
+
 func TestGetAndSetGlobalConfig(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")

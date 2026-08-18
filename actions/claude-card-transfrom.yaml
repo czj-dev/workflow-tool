@@ -39,8 +39,12 @@ params:
       请根据以下操作要求处理 ${CARD_ID} 卡片
       将卡片流转到 ${STATE}
       ${TRANSFROM_INFO}
+  - id: SESSION_ID
+    label: 续接会话 ID（可选）
+    type: text
 command:
   llm:
     system: ROLE
     prompt: TASK
+    resume: SESSION_ID
   timeout: 5m

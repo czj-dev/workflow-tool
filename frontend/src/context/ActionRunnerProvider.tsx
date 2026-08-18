@@ -557,6 +557,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
           response: llmTextRef.current,
           thinking: thinkingTextRef.current,
           tools,
+          // 会话 id 随历史持久化（历史查看态顶部展示，供 --resume 用）
+          sessionId: d.readout?.sessionId,
           exitCode: d.exitCode,
           duration: d.duration,
         });

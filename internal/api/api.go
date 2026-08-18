@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"runtime"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -113,6 +114,7 @@ func (s *Service) newLLMRunner(la registry.LoadedAction, params map[string]any) 
 		CLI:          cli,
 		SystemPrompt: strOf(params, la.Def.Command.LLM.System),
 		Prompt:       strOf(params, la.Def.Command.LLM.Prompt),
+		Resume:       strings.TrimSpace(strOf(params, la.Def.Command.LLM.Resume)),
 		Cwd:          runner.Expand(la.Cwd, params),
 		Timeout:      la.Timeout,
 		Env:          la.Def.Command.Env,
@@ -562,9 +564,13 @@ func (s *Service) emitDoneSeq(id string, exitCode int, errMsg string, d time.Dur
 	s.app.Event.Emit(eventName(id, "done"), payload)
 }
 
-// llmReadout 从 LLM Result.Outputs 挑出终点读数字段（数值化）；无可读字段时返回 nil。
+// llmReadout 从 LLM Result.Outputs 挑出终点读数字段（数值化）与会话 id；无可读字段时返回 nil。
 func llmReadout(outputs map[string]string, d time.Duration) map[string]any {
 	r := map[string]any{"durationMs": d.Milliseconds()}
+	// 会话 id（system/init 事件由 runner.recordStructuredFields 写入）：聊天页历史查看态顶部展示
+	if sid := outputs["session_id"]; sid != "" {
+		r["sessionId"] = sid
+	}
 	if v, err := strconv.ParseFloat(outputs["cost_usd"], 64); err == nil {
 		r["costUsd"] = v
 	}

@@ -81,6 +81,32 @@ func TestBuildLLMCommand_DefaultCLI(t *testing.T) {
 	}
 }
 
+// TestBuildLLMCommand_ResumeFlag 验证 Resume 非空时插入 --resume <id>，位于固定 flag 之后、
+// --append-system-prompt 之前。
+func TestBuildLLMCommand_ResumeFlag(t *testing.T) {
+	cmd := buildLLMCommand(LLMConfig{CLI: "my-cli", Resume: "sess-abc-123", SystemPrompt: "role"})
+	want := append([]string{"my-cli"}, llmFixedArgs...)
+	want = append(want, "--resume", "sess-abc-123", "--append-system-prompt", "role")
+	if len(cmd.Args) != len(want) {
+		t.Fatalf("argv 长度 = %d want %d：%q", len(cmd.Args), len(want), cmd.Args)
+	}
+	for i := range want {
+		if cmd.Args[i] != want[i] {
+			t.Fatalf("argv[%d] = %q want %q", i, cmd.Args[i], want[i])
+		}
+	}
+}
+
+// TestBuildLLMCommand_NoResumeNoFlag 验证 Resume 为空时不追加 --resume。
+func TestBuildLLMCommand_NoResumeNoFlag(t *testing.T) {
+	cmd := buildLLMCommand(LLMConfig{CLI: "my-cli"})
+	for _, a := range cmd.Args {
+		if a == "--resume" {
+			t.Fatalf("Resume 为空不应出现 --resume：%q", cmd.Args)
+		}
+	}
+}
+
 // TestLLMRunner_SystemArgvAndPromptStdin 端到端验证：system 以单个 argv 抵达子进程，
 // prompt 完整走 stdin——两者都含引号/换行/$，任何一处经 shell 都会被改写或炸开。
 func TestLLMRunner_SystemArgvAndPromptStdin(t *testing.T) {

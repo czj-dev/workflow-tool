@@ -45,6 +45,8 @@ export interface LlmReadoutData {
   costUsd?: number;
   inputTokens?: number;
   outputTokens?: number;
+  // claude 会话 id（stream-json 的 session_id）：历史查看态顶部展示，可用于 --resume
+  sessionId?: string;
 }
 
 // 后端 emit 的 done 事件 payload

@@ -19,3 +19,6 @@ command:
   adb:
     operation: install-package
   timeout: 5m
+presets:
+  - name: 语音
+    values: {ALLOW_DOWNGRADE: "true", ALLOW_TEST: "true", APK_PATH: /Users/v_chenzhaojun/Documents/Project/baidu/asd-edc/xdzs-speech/app-vui/vr-app/build/outputs/apk/debug/DuerOSAutoVr_debug_7.7.0.2026_0817_2020.apk}

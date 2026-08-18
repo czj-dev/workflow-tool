@@ -7,10 +7,14 @@ params:
     label: 问题
     type: textarea
     required: true
+  - id: SESSION_ID
+    label: 续接会话 ID（可选）
+    type: text
 presets:
   - name: 打招呼
     values: { QUESTION: 用一句话介绍你自己 }
 command:
   llm:
     prompt: QUESTION
+    resume: SESSION_ID
   timeout: 5m

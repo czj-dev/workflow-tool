@@ -53,6 +53,16 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   SetWorkflowYaml: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("@wailsio/runtime", () => ({ Events: { On: () => () => ({}) } }));
+// 拦截 useStickToBottomContext：jsdom 无真实布局，用 spy 验证「进入历史查看时显式滚到底」；
+// 布局修复（min-h-0）另以类名断言守护。StickToBottom/Content 保持真实实现。
+const { scrollToBottomMock } = vi.hoisted(() => ({ scrollToBottomMock: vi.fn() }));
+vi.mock("use-stick-to-bottom", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("use-stick-to-bottom")>();
+  return {
+    ...actual,
+    useStickToBottomContext: () => ({ isAtBottom: true, scrollToBottom: scrollToBottomMock }),
+  };
+});
 
 import { ActionRunnerProvider, _emitForTest } from "../context/ActionRunnerProvider";
 import { useActionRunner } from "../hooks/useActionRunner";
@@ -165,16 +175,21 @@ describe("LlmChatView", () => {
           exitCode: 0,
           err: "",
           duration: "3.5s",
-          readout: { durationMs: 3500, inputTokens: 100, outputTokens: 20, costUsd: 0.01 },
+          readout: { durationMs: 3500, inputTokens: 100, outputTokens: 20, costUsd: 0.01, sessionId: "sess-a1b2c3" },
         },
       });
     });
-    // 打开历史抽屉并点选条目 → 只读查看态
+    // 打开历史抽屉并点选条目 → 只读查看态（进入查看时需显式滚到底，读数行才可见）
+    scrollToBottomMock.mockClear();
     fireEvent.click(await screen.findByRole("button", { name: /历史\s*1/ }));
     fireEvent.click(await screen.findByText("请处理卡片"));
     await act(() => Promise.resolve());
-    // 查看横幅 + 终点读数行（完成 · 总时长；历史条目无 tokens/cost）存在
+    expect(scrollToBottomMock).toHaveBeenCalled();
+    // Thread 必须带 min-h-0：基类 h-full（height:100%）在 flex 列里会把末尾读数行/composer 挤出视口
+    expect(document.querySelector('[data-slot="thread"]')).toHaveClass("min-h-0");
+    // 查看横幅 + 会话 id（顶部展示，随 readout 附带）+ 终点读数行存在
     expect(await screen.findByText(/正在查看历史记录/)).toBeInTheDocument();
+    expect(screen.getByText(/sess-a1b2c3/)).toBeInTheDocument();
     expect(screen.getByText("3.5s")).toBeInTheDocument();
     // live 态文案不得出现（历史段 durationMs 为 undefined，不能误判为 null=进行中）
     expect(screen.queryByText("生成中")).not.toBeInTheDocument();

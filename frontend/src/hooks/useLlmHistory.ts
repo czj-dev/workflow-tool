@@ -20,6 +20,8 @@ export interface LlmHistoryEntry {
   thinking: string;
   // 旧条目无此字段（undefined 兜底）
   tools?: LlmHistoryTool[];
+  // claude 会话 id（done 事件 readout 附带）；旧条目无此字段
+  sessionId?: string;
   exitCode: number;
   duration: string;
 }

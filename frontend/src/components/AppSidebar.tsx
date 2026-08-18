@@ -10,6 +10,7 @@ import {
   SidebarMenu,
   SidebarMenuItem,
   SidebarMenuButton,
+  SidebarMenuBadge,
 } from "@/components/ui/sidebar";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -35,7 +36,7 @@ const EYEBROW = "font-mono text-[11px] font-semibold uppercase tracking-[0.16em]
 // 左侧可折叠侧边栏：渲染工作流 + 常用 top 3 动作 + 全部动作入口 + 底部「片段 / 全局配置 / 设置」
 export function AppSidebar() {
   const { t } = useTranslation();
-  const { actions, errors, workflows, workflowErrors, setView, openActionsDir, openLlmChat } =
+  const { actions, errors, workflows, workflowErrors, setView, openActionsDir, openLlmChat, focusRunning, isRunning } =
     useActionRunner();
   const { topActions } = useActionUsage();
   const { topActions: topWorkflows } = useActionUsage("workflow-usage");
@@ -172,10 +173,18 @@ export function AppSidebar() {
                   <SidebarMenuItem key={a.id}>
                     <SidebarMenuButton
                       tooltip={a.description || a.title}
-                      onClick={() => openLlmChat(a.id)}
+                      // 在跑的卡片要切回运行中态（重订阅输出），否则会落进全新空态
+                      onClick={() =>
+                        isRunning(a.id) ? focusRunning(a.id, "llm-chat") : openLlmChat(a.id)
+                      }
                     >
                       <ActionIcon name={a.icon} className="shrink-0" />
                       <span>{a.title}</span>
+                      {isRunning(a.id) && (
+                        <SidebarMenuBadge className="right-2.5">
+                          <span className="size-1.5 shrink-0 rounded-full bg-primary live-pulse" />
+                        </SidebarMenuBadge>
+                      )}
                     </SidebarMenuButton>
                   </SidebarMenuItem>
                 ))}

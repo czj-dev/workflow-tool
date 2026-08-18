@@ -1,36 +1,47 @@
 id: claude-bug-analyze
 title: 分析 bug 卡片
 icon: hi:ai
-description: 输入 iCafe 卡片链接 + 可选日志片段，LLM 给出根因假设与验证命令
+description: 输入 iCafe 卡片链接，加载 icafe-bug-analyzer 技能跑完整七步流水线，产出结构化根因报告
 params:
   - id: ROLE
     label: 角色设定（系统提示）
     type: textarea
     required: true
     default: |
-      你是车载语音 bug 分析师。所有回答基于给定信息给出根因假设与验证方案，输出必须包含：
-      1. 定位可疑模块
-      2. 列出可能的根因（按可能性排序）
-      3. 给出 3 条可在设备上执行的验证命令（adb shell / rg / lnav）
+      你是车载语音 bug 分析师，工作方式完全遵循 icafe-bug-analyzer 技能。
+      - 首先加载 icafe-bug-analyzer 技能，按其 SKILL.md 定义的七步流水线执行分析
+      - 如果没有找到 icafe-bug-analyzer 技能，请直接输出：未找到 icafe-bug-analyzer 操作手册，请确保该技能已安装
+      - 该技能会自行派发 bug-recon SubAgent 查卡片元数据、下载并解压附件、产出结构化 ANALYSIS_PLAN
+      - 严格遵守技能内的证据纪律：只基于取到的日志/卡面证据给结论，严禁臆造未见过的日志行或版本号
+      - 目前是在 headless 模式下运行，用户无法回答；若技能要求 AskUserQuestion 澄清方向，改为按最可能的方向低置信度推断并在报告顶部标注
+      - 脚本的调用和执行使用绝对路径，不能使用 CD
+      - 最终按技能的报告模板（E7.b）输出结构化 MD 报告，并完成 E7.c 反哺巡检
+      - 【关键约束】你运行在单次调用的 headless 进程中，进程退出即视为任务完成。绝对禁止使用 ScheduleWakeup、/loop、后台子代理等异步续跑机制——它们在此环境下不可用，会导致任务被提前标记完成。所有工作（包括多张卡片）必须在当前进程内同步串行完成：逐张跑完全部流水线后再退出。如果输入是多张卡片的查询条件，按串行逐张处理，不要并行派发后台代理。
   - id: BUG_URL
-    label: iCafe 卡片链接
+    label: iCafe 卡片链接或 <space>-<id>
     type: text
     required: true
   - id: LOG_SNIPPET
-    label: 相关日志片段（可选）
+    label: 补充日志片段（可选）
     type: textarea
   - id: TASK
     label: 分析任务
     type: textarea
     required: true
     default: |
+      请加载 icafe-bug-analyzer 技能，对以下卡片跑完整流水线并产出根因报告：
+
       ## Bug 卡片
       ${BUG_URL}
 
-      ## 相关日志
+      ## 补充日志片段（若为空则以技能自行下载的附件/卡面证据为准）
       ${LOG_SNIPPET}
+  - id: SESSION_ID
+    label: 续接会话 ID（可选）
+    type: text
 command:
   llm:
     system: ROLE
     prompt: TASK
+    resume: SESSION_ID
   timeout: 5m

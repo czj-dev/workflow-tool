@@ -74,6 +74,8 @@ type LLMCommand struct {
 	System string `yaml:"system"`
 	// Prompt 必填，param id，值写入子进程 stdin。空表示该动作不是 llm 形态。
 	Prompt string `yaml:"prompt"`
+	// Resume 可选，param id，值非空时通过 --resume <值> 续接指定 session id 的历史会话。
+	Resume string `yaml:"resume"`
 }
 
 // LoadedAction 是已校验、字段已解析的动作。
@@ -188,13 +190,16 @@ func Validate(def *ActionDef) error {
 			return fmt.Errorf("params[%d] (%s) 是 select 必须提供 options", i, p.ID)
 		}
 	}
-	// command.llm 校验：prompt/system 引用的 param 必须存在
+	// command.llm 校验：prompt/system/resume 引用的 param 必须存在
 	if def.Command.LLM.Prompt != "" {
 		if !hasParam(def.Params, def.Command.LLM.Prompt) {
 			return fmt.Errorf("command.llm.prompt 引用的 param %q 不存在于 params 中", def.Command.LLM.Prompt)
 		}
 		if def.Command.LLM.System != "" && !hasParam(def.Params, def.Command.LLM.System) {
 			return fmt.Errorf("command.llm.system 引用的 param %q 不存在于 params 中", def.Command.LLM.System)
+		}
+		if def.Command.LLM.Resume != "" && !hasParam(def.Params, def.Command.LLM.Resume) {
+			return fmt.Errorf("command.llm.resume 引用的 param %q 不存在于 params 中", def.Command.LLM.Resume)
 		}
 	}
 	switch def.Command.Stream {
