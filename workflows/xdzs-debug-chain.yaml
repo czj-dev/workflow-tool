@@ -24,6 +24,9 @@ steps:
       APK_PATH: "${{ steps.find-apk.outputs.apk_path }}"
       ALLOW_TEST: "true"
       ALLOW_DOWNGRADE: "true"
+  - id: wait
+    name: 等待安装落地
+    sleep: 10
   - id: launch
     name: 拉起测试页面
     action: adb-debug-activity
