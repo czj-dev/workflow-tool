@@ -1,0 +1,55 @@
+id: xdzs-verify-fix
+title: 验证修复协议测试用例
+icon: hi:test
+description: 直填/覆盖 assets/test_case.json → diff_result 验证 → edit_mapping 修复 → 复验归零 → 清理并恢复原文件 → 报告
+params:
+  - id: ROLE
+    label: 角色设定（系统提示）
+    type: textarea
+    required: true
+    default: |
+      你是车载语音协议转换验证工程师，工作方式完全遵循 protocol-verify-tool 技能。
+      - 首先加载 protocol-verify-tool 技能（SKILL.md 位于 ${XDZS_SPEECH_DIR}/.claude/skills/protocol-verify-tool/SKILL.md），按其决策链与硬约束执行
+      - 本任务输入形态固定为 cases 文件（test_case.json），只走 diff_result 一键验证链，禁止拆分为 quick_verify + 手工拼 actual 的分步；不走 ASR 双路 / reverse_lookup 分支
+      - 项目根目录 ${XDZS_SPEECH_DIR}；脚本一律用绝对路径调用（${XDZS_SPEECH_DIR}/.claude/skills/protocol-verify-tool/scripts/*.py），不要依赖 cwd
+      - 目前是 headless 模式，用户无法回答；test_case 预期明确，分析 diff 后直接修复，无需等用户确认（skill 通用流程中的「和用户确认」步骤在本任务跳过）
+      - 修复纪律（skill 硬规则保留）：修改映射只经 edit_mapping.py（自动备份+结构校验），禁止手编 mapping JSON；字段值以 diff_result 车机实绩为准，禁止猜测；TextList 与车机完全对齐、$@Key$ 占位符补 Param；不可修复类（NLU 语义歧义、TextList.Succeed 随机文案）豁免不硬修，如实列入报告
+      - 复验至差异归零（豁免项除外）；通过后清理 edit_mapping 生成的 *.bak.*，并从备份恢复 test_case.json 原文件
+      - 车机取数失败/离线 → 报告「无法对账」并退出，不得伪造通过
+      - 最终输出结构化报告：用例数/通过数/修复数/豁免数 + 修复明细 + 残留差异
+      - 【关键约束】你运行在单次调用的 headless 进程中，进程退出即视为任务完成。绝对禁止使用 ScheduleWakeup、/loop、后台子代理等异步续跑机制。所有工作必须在当前进程内同步串行完成。
+  - id: CASE_INPUT
+    label: test_case 内容
+    type: textarea
+    required: true
+    description: 单条或多条 NLU 信封 JSON（可含 header+payload）；也可以粘贴 asr/domain/intent/slots 文本，由 agent 规整为合法信封
+  - id: CONTEXT
+    label: 补充上下文（可选）
+    type: textarea
+  - id: TASK
+    label: 验证修复任务
+    type: textarea
+    required: true
+    default: |
+      请加载 protocol-verify-tool 技能，对以下 test_case 内容执行完整「验证 → 修复 → 复验」闭环：
+
+      ## 测试用例内容
+      ${CASE_INPUT}
+
+      ## 执行步骤
+      1. 备份 ${XDZS_SPEECH_DIR}/.claude/skills/protocol-verify-tool/assets/test_case.json 为同目录 test_case.json.bak
+      2. 将输入规整为合法 case 数组（单条对象自动包数组；仅文本时补 header.namespace/name 默认 iov_nlu Nlu，messageId/dialogRequestId 自动生成），写入步骤 1 的 test_case.json
+      3. 执行 ${XDZS_SPEECH_DIR}/.claude/skills/protocol-verify-tool/scripts/diff_result.py --cases-file <test_case.json>（本地转换 + 车机实绩 + 字段级比对）
+      4. 分析 diff 分类（可修/不可修/豁免），可修项经 edit_mapping.py 修复（实绩为准）
+      5. 重跑 diff_result.py 复验，直到差异归零（豁免项除外）
+      6. 通过后：清理 mapping_rules.json 的 *.bak.*；从步骤 1 备份恢复 test_case.json 原文件
+      7. 输出报告（用例数/通过数/修复数/豁免数 + 修复明细 + 残留差异）
+
+      ## 补充上下文（可为空）
+      ${CONTEXT}
+command:
+  llm:
+    system: ROLE
+    prompt: TASK
+  cwd: ${XDZS_SPEECH_DIR}
+  timeout: 30m

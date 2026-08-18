@@ -18,7 +18,7 @@ fragments:
       tags:
         - Rg
     - title: 查找指定文本
-      content: rg -z -M 200 --max-columns-preview "车里好热啊"
+      content: rg -lz -M 200 --max-columns-preview "AiosGrpcClientImpl"
       tags:
         - Rg
     - title: 全时免唤醒
