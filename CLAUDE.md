@@ -26,7 +26,7 @@ go build -ldflags "-H windowsgui" -o workflow-tool.exe . # 3. -H windowsgui 仅 
 
 测试：
 ```bash
-go test ./internal/runner ./internal/registry ./internal/workflow   # 核心包单测（不依赖 Wails）
+go test ./internal/runner ./internal/registry ./internal/workflow ./internal/actionrun   # 核心包单测（不依赖 Wails）
 go test -race ./...                                      # 带竞态检测
 go test ./internal/runner -run TestExpand                # 单个测试
 cd frontend && npm test                                  # 前端 vitest
@@ -55,16 +55,20 @@ internal/adb/       adb 域框架：ADBRunner（实现 runner.Runner）+ operati
   ├── file/         文件传输 10 operations（push/pull/多文件/list/mkdir/delete/rename/size/storage，进度+重试+取消）
   └── scrcpy/       scrcpy 6 operations（start/record-start/record-stop/clipboard-set/get/screenshot）
 internal/registry/  扫 actions/*.yaml 解析校验 + config.yaml 全局配置 + fragments.yaml 片段
+internal/actionrun/ LoadedAction → Runner 构造（四选一形态分发/env 分层/capture 合并/LLM 拼装；
+                    api 直跑与 workflow action step 两条路径共用，行为保持一致）
 internal/workflow/  扫 workflows/*.yaml 加载校验 + Executor 串行执行 steps
-internal/api/       Wails Service 绑定 + 事件 emit（唯一依赖 Wails 的包）
+internal/api/       Wails Service 绑定 + runRegistry 运行簿记（唯一依赖 Wails 的包），按域拆文件：
+                    api.go(Service 骨架/路径解析) actions.go run.go workflows.go devices.go config.go
+                    dialog.go events.go(action:*/workflow:* 事件契约与 seq/step 顺序协议集中) runregistry.go
 ```
 
 - **runner.Runner** 接口 `Run(ctx, params, emit) Result` 是稳定扩展点。当前实现 `ShellRunner`（按 OS 构造 `exec.Cmd`，Windows 用 PowerShell/pwsh，其他用 `sh -c`，逐行 `emit` stdout/stderr）、`SleepRunner`（workflow sleep step）与 `LLMRunner`（LLM 一等形态，见下）。
-- **adb 域**：`command.adb.operation` 形态由 `adb.ADBRunner`（实现同一 `Runner` 接口）处理。`api.execute` 按 `command.shell`/`script`/`adb.operation`/`llm.prompt` 四选一选型。ADBRunner 解析设备 serial（params `ADB_SERIAL` 或 `device.ResolveActive`）+ 二进制路径（config 覆盖→PATH→常见路径），构造 `OpContext` 后按 `operation` 查路由表分发到域 handler。**各域子包（package/logcat/file/scrcpy/foreground 等）在自己的 `init()` 中调 `adb.RegisterOperation` 自登记，`main.go` blank-import 触发登记；新增 operation 不需改 `internal/adb/runner.go` 共享文件。** 输出走与 shell 动作完全相同的 `action:<id>:output` 通道；文件传输进度发 `stream:"progress"`。
+- **adb 域**：`command.adb.operation` 形态由 `adb.ADBRunner`（实现同一 `Runner` 接口）处理。`actionrun.Build` 按 `command.shell`/`script`/`adb.operation`/`llm.prompt` 四选一构造 Runner（api 直跑与 workflow action step 两条路径共用，capture_output 与 env 分层语义一致；二进制路径解析经注入的 `ResolvePaths`，唯一实现是 api.binPaths）。ADBRunner 解析设备 serial（params `ADB_SERIAL` 或 `device.ResolveActive`）+ 二进制路径（config 覆盖→PATH→常见路径），构造 `OpContext` 后按 `operation` 查路由表分发到域 handler。**各域子包（package/logcat/file/scrcpy/foreground 等）在自己的 `init()` 中调 `adb.RegisterOperation` 自登记，`main.go` blank-import 触发登记；新增 operation 不需改 `internal/adb/runner.go` 共享文件。** 输出走与 shell 动作完全相同的 `action:<id>:output` 通道；文件传输进度发 `stream:"progress"`。
 - **LLM 域**：`command.llm{system, prompt}` 形态由 `runner.LLMRunner` 处理（对标 ADBRunner 的一等形态，不再寄生在 shell/stdin/stream 三个字段上）。`LLMRunner.Run` 直接 `exec.Command` 构造子进程 argv：CLI 名取 `config.yaml` 的 `LLM_CLI`（默认 `ducc`）+ 固定 flags（`-p --output-format=stream-json --verbose --thinking enabled`）+ `system` 对应 param 值作为 `--append-system-prompt` 的**独立 argv**（不经 shell 字符串，多行/引号/`$` 零风险）；`prompt` 对应 param 值写入 `cmd.Stdin`。stdout 按 stream-json 解析（`llm.go` 的 `parseLLMLine`/`recordStructuredFields`），只把 assistant 的 text / thinking 增量 emit 为 `"llm"` / `"llm-thinking"`。
 - **变量替换**在**运行时**由 `runner.Expand` 完成（不在 registry 加载时）。优先级：动作参数 > 全局配置(config.yaml) > 环境变量；未命中保留 `${VAR}` 原样 + warning。`command.llm` 的 system/prompt 值同样走这条链路展开后再传给 LLMRunner。
-- **workflow.Executor** 串行执行 workflow 的 steps（action / inline shell / sleep 三选一），支持 `retry` 和 `continue_on_error`。step 边界 emit `step-start` / `step-done` 事件。执行 action step 时通过回调查 registry 合并 params 构造对应 Runner（Shell/ADB/LLM）。
-- **api.Service** 通过 `SetApp` 在 `main.go` 注入 app 引用（打破循环依赖）。`RunAction` 起 goroutine 执行，输出经事件 `action:<id>:output` 推送、结束发 `action:<id>:done`。同一动作并发运行被拒。
+- **workflow.Executor** 串行执行 workflow 的 steps（action / inline shell / sleep 三选一），支持 `retry` 和 `continue_on_error`。step 边界 emit `step-start` / `step-done` 事件。执行回调是单参数请求 struct（`ActionRequest`/`ShellRequest`，ctx 随请求传递不闭包捕获），api 层据此合并 params 并经 `actionrun.Build` 构造 Runner（Shell/ADB/LLM）。
+- **api.Service** 通过 `SetApp` 在 `main.go` 注入 app 引用（打破循环依赖）。`RunAction` 起 goroutine 执行，输出经事件 `action:<id>:output` 推送、结束发 `action:<id>:done`。同一动作并发运行被拒。事件名/payload/顺序协议（action 按递增 seq 排序还原产出顺序、workflow 按带 step 归属落桶）集中在 `events.go` 的 actionEvents/workflowEvents，改事件协议只动这一个文件。
 - **exe 目录约定**：`main.go` 的 `exeDir()` 用 exe 所在目录扫描同级 `actions/`、`workflows/`、`config.yaml`、`fragments.yaml`；dev 时回退当前工作目录（项目根）。所以运行 exe 必须和这些文件同级。
 
 前端（`frontend/src/`，React 19 + TS + Vite + tailwind4 + base-ui/shadcn）：`ActionRunnerProvider` 是唯一状态中枢，`ListActions` 拉动作、`Events.On` 订阅输出事件、`view` 在 output/form/global/llm-grid/llm-chat/logcat/workflow/fragments 间切（原 `llm` 视图已移除）。`command.llm` 动作走独立「AI 对话」分组 + LlmGridView 列表 + LlmChatView 聊天单页（底部输入框绑 promptParam、历史存 localStorage，按 actionId 分桶、封顶 50 条）；判定依据仍是 `action.llm != null`（`ActionItem.LLM` 由后端按 `command.llm` 是否非空注入）。`useLlmHistory` 是历史 hook；Provider 的 `openLlmChat(id)` 是打开聊天页空态的语义方法，供 AppSidebar/LlmGridView 复用。`DeviceSelector`（挂 `AppSidebar` SidebarHeader）调 `ListDevices`/`SetActiveDevice` 选激活设备，后端是激活 serial 唯一真相、运行 adb 动作时自动注入 `${ADB_SERIAL}`。binding 从 `frontend/bindings/`（`wails3 generate bindings` 产物，ES module）导入。UI 优先复用 `components/ui/` 下的 shadcn 原子（Badge / IconButton 等），避免手写重复样式。
@@ -89,7 +93,7 @@ internal/api/       Wails Service 绑定 + 事件 emit（唯一依赖 Wails 的�
 
 ## 改动注意
 
-- 改 `internal/api/api.go` 的 Service 方法签名/类型后，**必须** `wails3 generate bindings` → `npm run build` → `go build`（或直接 `bash deploy/build.sh`），否则前端调用报 "method ID not found"。
+- 改 `internal/api` 包（任意域文件）的 Service 方法签名/类型后，**必须** `wails3 generate bindings` → `npm run build` → `go build`（或直接 `bash deploy/build.sh`），否则前端调用报 "method ID not found"。
 - 锁定 Wails `v3.0.0-alpha2.119`（CLI 与库同版本），**不要升到 alpha.3**（绑定机制损坏）。
 - 新增前端静态文案只改 `frontend/src/i18n/locales/{zh,en}.json`；动作 `title/description` 与后端 stdout/stderr 不参与 i18n。
 - 前端组件优先复用已装 shadcn 原子（`components/ui/` 下 25 个）；`IconButton` 是项目封装（Button + Tooltip + aria-label），需要图标按钮时优先用它，避免重新手写 `<button>` + tailwind。

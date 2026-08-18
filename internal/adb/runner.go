@@ -18,14 +18,14 @@ type deviceResolver interface {
 }
 
 // ADBRunner 实现 runner.Runner：按 command.adb.operation 分发到域 handler。
-// 共享依赖（Bin/Dev/Overrides）挂在结构上；Operation/Timeout 由调用方按动作设置。
+// 共享依赖（ResolvePaths/Dev）挂在结构上；Operation/Timeout 由调用方按动作设置。
 type ADBRunner struct {
-	Bin       *binary.Service
-	Dev       deviceResolver
-	Operation string        // 动作的 command.adb.operation
-	Timeout   time.Duration // 动作超时（透传给每个子命令）
-	// GetOverrides 返回 config.yaml 里的 ADB_PATH/FASTBOOT_PATH/SCRCPY_PATH（可空）。
-	GetOverrides func() map[string]string
+	// ResolvePaths 返回当前解析好的三个二进制路径（config 覆盖 → PATH → 常见路径）。
+	// 由调用方注入（api.binPaths），路径解析知识只此一份；可空（测试时得零值路径）。
+	ResolvePaths func() binary.Paths
+	Dev          deviceResolver
+	Operation    string        // 动作的 command.adb.operation
+	Timeout      time.Duration // 动作超时（透传给每个子命令）
 }
 
 // Run 实现 runner.Runner。
@@ -50,12 +50,11 @@ func (r *ADBRunner) Run(ctx context.Context, params map[string]any, emit runner.
 	// 故失效时回退 ResolveActive 重新选首个 ready 设备。
 	serial := resolveSerial(ctx, r.Dev, strParam(params, "ADB_SERIAL"))
 
-	// 解析二进制路径（config 覆盖 -> PATH -> 常见路径）。
-	var ov map[string]string
-	if r.GetOverrides != nil {
-		ov = r.GetOverrides()
+	// 解析二进制路径：调用方注入的 ResolvePaths 是唯一实现（config 覆盖 -> PATH -> 常见路径）。
+	var paths binary.Paths
+	if r.ResolvePaths != nil {
+		paths = r.ResolvePaths()
 	}
-	paths := r.Bin.Paths(strMap(ov, "ADB_PATH"), strMap(ov, "FASTBOOT_PATH"), strMap(ov, "SCRCPY_PATH"))
 
 	op := &OpContext{
 		Ctx: ctx, Operation: r.Operation, Serial: serial, Params: params,
@@ -85,13 +84,6 @@ func strParam(params map[string]any, key string) string {
 		return ""
 	}
 	return strings.TrimSpace(fmt.Sprint(v))
-}
-
-func strMap(m map[string]string, key string) string {
-	if m == nil {
-		return ""
-	}
-	return m[key]
 }
 
 // resolveSerial 决定本次 adb 命令的目标 serial。

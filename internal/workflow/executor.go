@@ -10,23 +10,32 @@ import (
 	"workflow-tool/internal/runner"
 )
 
-// ActionRunFunc 执行已有 action。env/captureOutput 由 workflow 决定，注入进 ShellRunner。
-type ActionRunFunc func(
-	actionID string,
-	params map[string]any,
-	env map[string]string,
-	captureOutput *bool,
-	emit runner.EmitFunc,
-) runner.Result
+// ActionRequest 是 executor 对单个 action step 的执行请求。
+type ActionRequest struct {
+	Ctx           context.Context
+	ActionID      string
+	Params        map[string]any    // step.params（已 ${{ }} 替换；剩余 ${VAR} 由回调方用变量源展开）
+	Env           map[string]string // workflow+step env（已展开），覆盖 action 定义同名 env
+	CaptureOutput *bool             // step 显式覆盖 action 的 capture_output；nil=用 action 定义
+	Emit          runner.EmitFunc
+}
+
+// ActionRunFunc 执行已有 action。
+type ActionRunFunc func(ActionRequest) runner.Result
+
+// ShellRequest 是 executor 对单个 inline shell step 的执行请求。
+type ShellRequest struct {
+	Ctx           context.Context
+	Shell         string // 已 ${{ }} 替换
+	Timeout       string // 原始字符串，回调方解析（缺省 60s）
+	Env           map[string]string
+	CaptureOutput *bool
+	Params        map[string]any // 变量源（=StepCtx.Params）
+	Emit          runner.EmitFunc
+}
 
 // ShellRunFunc 执行 inline shell step。
-type ShellRunFunc func(
-	shell, timeout string,
-	env map[string]string,
-	captureOutput *bool,
-	params map[string]any,
-	emit runner.EmitFunc,
-) runner.Result
+type ShellRunFunc func(ShellRequest) runner.Result
 
 // Executor 按顺序执行 workflow 的 steps。
 type Executor struct{}
@@ -136,14 +145,21 @@ func (e *Executor) dispatch(
 			emit("stderr", err.Error())
 			return runner.Result{ExitCode: -1, Err: err}
 		}
-		return actionRun(step.Action, toAnyMap(resolved), stepEnv, step.CaptureOutput, emit)
+		return actionRun(ActionRequest{
+			Ctx: ctx, ActionID: step.Action, Params: toAnyMap(resolved),
+			Env: stepEnv, CaptureOutput: step.CaptureOutput, Emit: emit,
+		})
 	case step.Shell != "":
 		substituted, err := Substitute(step.Shell, stepCtx)
 		if err != nil {
 			emit("stderr", err.Error())
 			return runner.Result{ExitCode: -1, Err: err}
 		}
-		return shellRun(substituted, step.Timeout, stepEnv, step.CaptureOutput, stepCtx.Params, emit)
+		return shellRun(ShellRequest{
+			Ctx: ctx, Shell: substituted, Timeout: step.Timeout,
+			Env: stepEnv, CaptureOutput: step.CaptureOutput,
+			Params: stepCtx.Params, Emit: emit,
+		})
 	default:
 		return runner.Result{ExitCode: -1, Err: fmt.Errorf("step 无有效 kind")}
 	}

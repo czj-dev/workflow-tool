@@ -24,12 +24,12 @@ func TestExecutor_RunsStepsSequentially(t *testing.T) {
 		},
 	}}
 
-	actionRun := func(actionID string, params map[string]any, _ map[string]string, _ *bool, e runner.EmitFunc) runner.Result {
-		e("stdout", "ran:"+actionID)
+	actionRun := func(req ActionRequest) runner.Result {
+		req.Emit("stdout", "ran:"+req.ActionID)
 		return runner.Result{ExitCode: 0}
 	}
-	shellRun := func(shell, timeout string, _ map[string]string, _ *bool, _ map[string]any, e runner.EmitFunc) runner.Result {
-		e("stdout", "sh:"+shell)
+	shellRun := func(req ShellRequest) runner.Result {
+		req.Emit("stdout", "sh:"+req.Shell)
 		return runner.Result{ExitCode: 0}
 	}
 
@@ -67,14 +67,14 @@ func TestExecutor_StopsOnFailure(t *testing.T) {
 	}}
 
 	ran := []string{}
-	actionRun := func(actionID string, _ map[string]any, _ map[string]string, _ *bool, _ runner.EmitFunc) runner.Result {
-		ran = append(ran, actionID)
-		if actionID == "fail-act" {
+	actionRun := func(req ActionRequest) runner.Result {
+		ran = append(ran, req.ActionID)
+		if req.ActionID == "fail-act" {
 			return runner.Result{ExitCode: 1}
 		}
 		return runner.Result{ExitCode: 0}
 	}
-	shellRun := func(shell, timeout string, _ map[string]string, _ *bool, _ map[string]any, e runner.EmitFunc) runner.Result {
+	shellRun := func(ShellRequest) runner.Result {
 		return runner.Result{ExitCode: 0}
 	}
 
@@ -91,12 +91,12 @@ func TestExecutor_StopsOnFailure(t *testing.T) {
 
 func TestExecutor_ShellStep(t *testing.T) {
 	var called string
-	shellRun := func(shell, timeout string, _ map[string]string, _ *bool, _ map[string]any, e runner.EmitFunc) runner.Result {
-		called = shell
-		e("stdout", "sh:"+shell)
+	shellRun := func(req ShellRequest) runner.Result {
+		called = req.Shell
+		req.Emit("stdout", "sh:"+req.Shell)
 		return runner.Result{ExitCode: 0}
 	}
-	actionRun := func(id string, _ map[string]any, _ map[string]string, _ *bool, _ runner.EmitFunc) runner.Result {
+	actionRun := func(ActionRequest) runner.Result {
 		return runner.Result{ExitCode: 0}
 	}
 
@@ -119,14 +119,14 @@ func TestExecutor_ShellStep(t *testing.T) {
 
 func TestExecutor_RetrySucceedsEventually(t *testing.T) {
 	callCount := 0
-	actionRun := func(id string, _ map[string]any, _ map[string]string, _ *bool, _ runner.EmitFunc) runner.Result {
+	actionRun := func(ActionRequest) runner.Result {
 		callCount++
 		if callCount < 3 {
 			return runner.Result{ExitCode: 1}
 		}
 		return runner.Result{ExitCode: 0}
 	}
-	shellRun := func(shell, timeout string, _ map[string]string, _ *bool, _ map[string]any, e runner.EmitFunc) runner.Result {
+	shellRun := func(ShellRequest) runner.Result {
 		return runner.Result{ExitCode: 0}
 	}
 
@@ -149,14 +149,14 @@ func TestExecutor_RetrySucceedsEventually(t *testing.T) {
 
 func TestExecutor_ContinueOnError(t *testing.T) {
 	ran := []string{}
-	actionRun := func(id string, _ map[string]any, _ map[string]string, _ *bool, _ runner.EmitFunc) runner.Result {
-		ran = append(ran, id)
-		if id == "fail" {
+	actionRun := func(req ActionRequest) runner.Result {
+		ran = append(ran, req.ActionID)
+		if req.ActionID == "fail" {
 			return runner.Result{ExitCode: 1}
 		}
 		return runner.Result{ExitCode: 0}
 	}
-	shellRun := func(shell, timeout string, _ map[string]string, _ *bool, _ map[string]any, e runner.EmitFunc) runner.Result {
+	shellRun := func(ShellRequest) runner.Result {
 		return runner.Result{ExitCode: 0}
 	}
 
@@ -189,8 +189,8 @@ func TestExecutor_StepOutputsAccumulate(t *testing.T) {
 		},
 	}}
 	var ranSecond bool
-	shellRun := func(shellCmd, timeout string, env map[string]string, capture *bool, params map[string]any, emit runner.EmitFunc) runner.Result {
-		if shellCmd == "echo 2" {
+	shellRun := func(req ShellRequest) runner.Result {
+		if req.Shell == "echo 2" {
 			ranSecond = true
 		}
 		return runner.Result{
@@ -198,7 +198,7 @@ func TestExecutor_StepOutputsAccumulate(t *testing.T) {
 			Outputs:  map[string]string{"exit_code": "0", "success": "true"},
 		}
 	}
-	actionRun := func(string, map[string]any, map[string]string, *bool, runner.EmitFunc) runner.Result {
+	actionRun := func(ActionRequest) runner.Result {
 		t.Fatal("no action step")
 		return runner.Result{}
 	}
@@ -221,8 +221,8 @@ func TestExecutor_IfFalseSkips(t *testing.T) {
 		},
 	}}
 	var ran []string
-	shellRun := func(shellCmd, timeout string, env map[string]string, capture *bool, params map[string]any, emit runner.EmitFunc) runner.Result {
-		ran = append(ran, shellCmd)
+	shellRun := func(req ShellRequest) runner.Result {
+		ran = append(ran, req.Shell)
 		return runner.Result{ExitCode: 0, Outputs: map[string]string{"exit_code": "0", "success": "true"}}
 	}
 	var skipEvents []string
@@ -232,9 +232,7 @@ func TestExecutor_IfFalseSkips(t *testing.T) {
 		}
 	}
 	res := (&Executor{}).Execute(context.Background(), wf,
-		func(string, map[string]any, map[string]string, *bool, runner.EmitFunc) runner.Result {
-			return runner.Result{}
-		},
+		func(ActionRequest) runner.Result { return runner.Result{} },
 		shellRun, nil, emit)
 	if res.ExitCode != 0 {
 		t.Fatalf("exit = %d, want 0", res.ExitCode)
@@ -258,17 +256,15 @@ func TestExecutor_IndexFallbackID(t *testing.T) {
 		},
 	}}
 	var ran []string
-	shellRun := func(shellCmd, timeout string, env map[string]string, capture *bool, params map[string]any, emit runner.EmitFunc) runner.Result {
-		ran = append(ran, shellCmd)
+	shellRun := func(req ShellRequest) runner.Result {
+		ran = append(ran, req.Shell)
 		return runner.Result{ExitCode: 0, Outputs: map[string]string{"exit_code": "0"}}
 	}
 	res := (&Executor{}).Execute(context.Background(), wf,
-		func(string, map[string]any, map[string]string, *bool, runner.EmitFunc) runner.Result {
-			return runner.Result{}
-		},
+		func(ActionRequest) runner.Result { return runner.Result{} },
 		shellRun, nil, func(string, string) {})
 	if res.ExitCode != 0 {
-		t.Fatalf("exit = %d", res.ExitCode)
+		t.Fatalf("exit = %d, want 0", res.ExitCode)
 	}
 	if len(ran) != 2 {
 		t.Fatalf("ran = %v, want 2 steps", ran)
@@ -284,14 +280,14 @@ func TestExecutor_SubstituteActionParamsExpr(t *testing.T) {
 		},
 	}}
 	var gotActionParams map[string]any
-	actionRun := func(id string, params map[string]any, _ map[string]string, _ *bool, _ runner.EmitFunc) runner.Result {
-		if id == "adb-install" {
-			gotActionParams = params
+	actionRun := func(req ActionRequest) runner.Result {
+		if req.ActionID == "adb-install" {
+			gotActionParams = req.Params
 			return runner.Result{ExitCode: 0}
 		}
 		return runner.Result{ExitCode: 0, Outputs: map[string]string{"apk_path": "/tmp/voice.apk", "exit_code": "0"}}
 	}
-	shellRun := func(shellCmd, timeout string, _ map[string]string, _ *bool, _ map[string]any, _ runner.EmitFunc) runner.Result {
+	shellRun := func(ShellRequest) runner.Result {
 		return runner.Result{ExitCode: 0, Outputs: map[string]string{"apk_path": "/tmp/voice.apk", "exit_code": "0"}}
 	}
 	res := (&Executor{}).Execute(context.Background(), wf, actionRun, shellRun, nil, func(string, string) {})
@@ -312,17 +308,15 @@ func TestExecutor_SubstituteEnvExpr(t *testing.T) {
 		},
 	}}
 	var gotEnv map[string]string
-	shellRun := func(shellCmd, timeout string, env map[string]string, capture *bool, params map[string]any, emit runner.EmitFunc) runner.Result {
-		if shellCmd == "echo $TOKEN" {
-			gotEnv = env
+	shellRun := func(req ShellRequest) runner.Result {
+		if req.Shell == "echo $TOKEN" {
+			gotEnv = req.Env
 			return runner.Result{ExitCode: 0}
 		}
 		return runner.Result{ExitCode: 0, Outputs: map[string]string{"token": "abc123", "exit_code": "0"}}
 	}
 	res := (&Executor{}).Execute(context.Background(), wf,
-		func(string, map[string]any, map[string]string, *bool, runner.EmitFunc) runner.Result {
-			return runner.Result{}
-		},
+		func(ActionRequest) runner.Result { return runner.Result{} },
 		shellRun, nil, func(string, string) {})
 	if res.ExitCode != 0 {
 		t.Fatalf("exit = %d, want 0", res.ExitCode)
@@ -341,19 +335,46 @@ func TestExecutor_SubstituteShellExpr(t *testing.T) {
 		},
 	}}
 	var seen string
-	shellRun := func(shellCmd, timeout string, env map[string]string, capture *bool, params map[string]any, emit runner.EmitFunc) runner.Result {
-		if strings.HasPrefix(shellCmd, "use ") {
-			seen = shellCmd
+	shellRun := func(req ShellRequest) runner.Result {
+		if strings.HasPrefix(req.Shell, "use ") {
+			seen = req.Shell
 			return runner.Result{ExitCode: 0}
 		}
 		return runner.Result{ExitCode: 0, Outputs: map[string]string{"token": "abc123", "exit_code": "0"}}
 	}
 	(&Executor{}).Execute(context.Background(), wf,
-		func(string, map[string]any, map[string]string, *bool, runner.EmitFunc) runner.Result {
-			return runner.Result{}
-		},
+		func(ActionRequest) runner.Result { return runner.Result{} },
 		shellRun, nil, func(string, string) {})
 	if seen != "use abc123" {
 		t.Fatalf("shell substituted = %q, want %q", seen, "use abc123")
+	}
+}
+
+// TestExecutor_PassesContextToCallbacks 校验 ctx 经请求 struct 透传（不再闭包捕获）。
+func TestExecutor_PassesContextToCallbacks(t *testing.T) {
+	type ctxKey struct{}
+	wf := LoadedWorkflow{Def: WorkflowDef{
+		ID: "wf-ctx", Title: "t",
+		Steps: []Step{
+			{Action: "a"},
+			{Shell: "echo hi"},
+		},
+	}}
+	ctx := context.WithValue(context.Background(), ctxKey{}, "v")
+	var gotAction, gotShell string
+	actionRun := func(req ActionRequest) runner.Result {
+		gotAction, _ = req.Ctx.Value(ctxKey{}).(string)
+		return runner.Result{ExitCode: 0}
+	}
+	shellRun := func(req ShellRequest) runner.Result {
+		gotShell, _ = req.Ctx.Value(ctxKey{}).(string)
+		return runner.Result{ExitCode: 0}
+	}
+	res := (&Executor{}).Execute(ctx, wf, actionRun, shellRun, nil, func(string, string) {})
+	if res.ExitCode != 0 {
+		t.Fatalf("exit = %d, want 0", res.ExitCode)
+	}
+	if gotAction != "v" || gotShell != "v" {
+		t.Fatalf("ctx 未透传: action=%q shell=%q", gotAction, gotShell)
 	}
 }
