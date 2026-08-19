@@ -174,11 +174,14 @@ func stepKey(s Step, i int) string {
 }
 
 // resolveEnv 用 baseParams 对 workflow.Env 的值做 ${VAR} 展开。
+// 内置变量在此层不接入（builtins=nil）：这只是 StepContext.Env 的初始化，
+// 真正下发给 Runner 执行的 env 由 api 层的 makeShellRun/buildActionRunParams 用
+// s.builtins 重新展开一次（见 internal/api/workflows.go），此处结果仅供 if 表达式等读取。
 func resolveEnv(rawEnv map[string]string, baseParams map[string]any) map[string]string {
 	if len(rawEnv) == 0 {
 		return map[string]string{}
 	}
-	return runner.ExpandMap(rawEnv, baseParams)
+	return runner.ExpandMap(context.Background(), rawEnv, baseParams, nil)
 }
 
 // mergeEnv 合并 workflow.env 与 step.env（step 覆盖同名）。
