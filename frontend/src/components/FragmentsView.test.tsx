@@ -231,3 +231,103 @@ describe("FragmentsView - 删除", () => {
     expect(mockSetFragments).toHaveBeenCalledWith([]);
   });
 });
+
+describe("FragmentsView - 缺失变量就地填写", () => {
+  it("点击缺失变量 pill 后出现输入框", async () => {
+    mockGetFragments.mockResolvedValue([
+      { title: "x", content: "echo ${NOPE}", tags: [] },
+    ]);
+    const user = userEvent.setup();
+    renderView();
+    await screen.findByText("x");
+    await user.click(screen.getByText("NOPE"));
+    expect(screen.getByRole("textbox", { name: "NOPE" })).toBeInTheDocument();
+  });
+
+  it("输入值后 Enter 提交，pill 显示填入的值", async () => {
+    mockGetFragments.mockResolvedValue([
+      { title: "x", content: "echo ${NOPE}", tags: [] },
+    ]);
+    const user = userEvent.setup();
+    renderView();
+    await screen.findByText("x");
+    await user.click(screen.getByText("NOPE"));
+    const input = screen.getByRole("textbox", { name: "NOPE" });
+    await user.type(input, "/tmp/foo.apk{Enter}");
+    expect(screen.getByText("/tmp/foo.apk")).toBeInTheDocument();
+    expect(screen.queryByText("NOPE")).not.toBeInTheDocument();
+  });
+
+  it("Esc 取消编辑，pill 复原为变量名", async () => {
+    mockGetFragments.mockResolvedValue([
+      { title: "x", content: "echo ${NOPE}", tags: [] },
+    ]);
+    const user = userEvent.setup();
+    renderView();
+    await screen.findByText("x");
+    await user.click(screen.getByText("NOPE"));
+    const input = screen.getByRole("textbox", { name: "NOPE" });
+    await user.type(input, "abc{Escape}");
+    expect(screen.getByText("NOPE")).toBeInTheDocument();
+    expect(screen.queryByText("abc")).not.toBeInTheDocument();
+  });
+
+  it("已定义的琥珀 pill 点击无反应，不出现输入框", async () => {
+    const user = userEvent.setup();
+    renderView();
+    await screen.findByText("看日志");
+    await user.click(screen.getByText("LOGS_DIR"));
+    expect(screen.queryByRole("textbox", { name: "LOGS_DIR" })).not.toBeInTheDocument();
+  });
+
+  it("复制时合并临时填写的值，未填的仍保留 ${VAR}", async () => {
+    mockGetFragments.mockResolvedValue([
+      { title: "x", content: "echo ${NOPE} ${LOGS_DIR}", tags: [] },
+    ]);
+    const user = userEvent.setup();
+    stubClipboard();
+    renderView();
+    await screen.findByText("x");
+    await user.click(screen.getByText("NOPE"));
+    await user.type(screen.getByRole("textbox", { name: "NOPE" }), "/tmp/foo.apk{Enter}");
+
+    await user.click(screen.getByRole("button", { name: "复制" }));
+    expect(mockWriteText).toHaveBeenCalledWith("echo /tmp/foo.apk /tmp/logs");
+  });
+
+  it("填写变量后，缺变量提示行消失", async () => {
+    mockGetFragments.mockResolvedValue([
+      { title: "x", content: "echo ${NOPE}", tags: [] },
+    ]);
+    const user = userEvent.setup();
+    renderView();
+    await screen.findByText("x");
+    expect(await screen.findByText(/缺变量.*NOPE/)).toBeInTheDocument();
+
+    await user.click(screen.getByText("NOPE"));
+    await user.type(screen.getByRole("textbox", { name: "NOPE" }), "val{Enter}");
+    expect(screen.queryByText(/缺变量/)).not.toBeInTheDocument();
+  });
+
+  it("删除片段后，临时填写的变量值被清空", async () => {
+    mockGetFragments.mockResolvedValue([
+      { title: "x", content: "echo ${NOPE}", tags: [] },
+      { title: "y", content: "echo ${ALSO_NOPE}", tags: [] },
+    ]);
+    const user = userEvent.setup();
+    renderView();
+    await screen.findByText("x");
+    await user.click(screen.getByText("NOPE"));
+    await user.type(screen.getByRole("textbox", { name: "NOPE" }), "filled{Enter}");
+    expect(screen.getByText("filled")).toBeInTheDocument();
+
+    // 删除第二条片段（y），触发二次确认删除流程
+    const delBtns = screen.getAllByRole("button", { name: "删除" });
+    await user.click(delBtns[1]);
+    await user.click(screen.getByRole("button", { name: "再次点击确认删除" }));
+
+    // x 仍在，但它的临时值应已被清空（索引语义已变，安全起见整体清空）
+    expect(await screen.findByText("NOPE")).toBeInTheDocument();
+    expect(screen.queryByText("filled")).not.toBeInTheDocument();
+  });
+});

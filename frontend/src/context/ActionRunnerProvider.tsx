@@ -125,6 +125,11 @@ export interface RunnerContextValue {
   logcatReplaceSeq: number;
   clearLogcat: () => void;
   fragments: Fragment[];
+  // 片段抽屉（非模态）：开合态与开关。会话内有效不落盘；⌘/Ctrl+K 热键在 Provider 内接，
+  // 侧栏按钮/抽屉内关闭钮共用同一份状态，切视图不影响开合。
+  fragmentsOpen: boolean;
+  setFragmentsOpen: (v: boolean) => void;
+  toggleFragments: () => void;
   // workflow 状态
   workflows: WorkflowItem[];
   workflowErrors: string[];
@@ -338,6 +343,21 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   }, [logcatRule, currentId]);
 
   const [fragments, setFragments] = useState<Fragment[]>([]);
+  // 片段抽屉开合（会话内，重启默认关，见 RunnerContextValue 注释）
+  const [fragmentsOpen, setFragmentsOpen] = useState(false);
+  const toggleFragments = () => setFragmentsOpen((v) => !v);
+  // ⌘/Ctrl+K 全局开关片段抽屉：window 级监听，任何视图/任意焦点位置（含
+  // CodeMirror、textarea）都生效。项目内无其它全局快捷键，无冲突。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setFragmentsOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   // workflow 状态：列表、加载错误、步骤运行状态
   const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
   const [workflowErrors, setWorkflowErrors] = useState<string[]>([]);
@@ -1126,6 +1146,9 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     logcatReplaceSeq,
     clearLogcat,
     fragments,
+    fragmentsOpen,
+    setFragmentsOpen,
+    toggleFragments,
     workflows,
     workflowErrors,
     workflowSteps,

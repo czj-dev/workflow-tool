@@ -36,7 +36,7 @@ const EYEBROW = "font-mono text-[11px] font-semibold uppercase tracking-[0.16em]
 // 左侧可折叠侧边栏：渲染工作流 + 常用 top 3 动作 + 全部动作入口 + 底部「片段 / 全局配置 / 设置」
 export function AppSidebar() {
   const { t } = useTranslation();
-  const { actions, errors, workflows, workflowErrors, setView, openActionsDir, openLlmChat, focusRunning, isRunning } =
+  const { actions, errors, workflows, workflowErrors, setView, openActionsDir, openLlmChat, focusRunning, isRunning, toggleFragments, fragmentsOpen } =
     useActionRunner();
   const { topActions } = useActionUsage();
   const { topActions: topWorkflows } = useActionUsage("workflow-usage");
@@ -211,10 +211,12 @@ export function AppSidebar() {
           {t("sidebar.config")}
         </SidebarGroupLabel>
         <SidebarMenu>
+          {/* 片段：开关非模态抽屉（不再进全页视图）；开着时按钮高亮 */}
           <SidebarMenuItem>
             <SidebarMenuButton
-              onClick={() => setView("fragments")}
-              tooltip={t("fragments.title")}
+              onClick={toggleFragments}
+              isActive={fragmentsOpen}
+              tooltip={t("sidebar.fragmentsHint")}
             >
               <HugeiconsIcon
                 icon={NoteIcon}

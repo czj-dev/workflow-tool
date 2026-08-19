@@ -1,7 +1,9 @@
 import { useTranslation } from "react-i18next";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Button } from "@/components/ui/button";
 import { useTheme } from "@/components/theme-provider";
+import { useActionRunner } from "../hooks/useActionRunner";
 
 // 等宽大写 eyebrow：和 AppSidebar / GlobalConfigEditor 同构
 const EYEBROW =
@@ -12,6 +14,7 @@ const EYEBROW =
 export function SettingsView() {
   const { t, i18n } = useTranslation();
   const { theme, setTheme } = useTheme();
+  const { setView } = useActionRunner();
   const lang = i18n.language?.startsWith("zh") ? "zh" : "en";
 
   const handleLang = (v: string) => {
@@ -47,6 +50,14 @@ export function SettingsView() {
               <TabsTrigger value="en">English</TabsTrigger>
             </TabsList>
           </Tabs>
+        </section>
+
+        {/* 内容管理：全页片段视图的唯一入口（日常取用走 ⌘/Ctrl+K 抽屉） */}
+        <section className="space-y-2">
+          <label className={EYEBROW}>{t("settings.content")}</label>
+          <Button variant="outline" onClick={() => setView("fragments")}>
+            {t("settings.manageFragments")}
+          </Button>
         </section>
       </div>
     </main>

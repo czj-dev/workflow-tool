@@ -5,12 +5,12 @@ fragments:
         - Lanv
         - AIBOX
     - title: AI-BOX Agent
-      content: lnav -c ":filter-in SseAgentBridge" -c ":filter-in SseCarCommandProcessor" -c ":filter-in CarManualStreamAgentVM" -c ":filter-in TinnoveIpc"  -c ":filter-in CarManualStreamAgentScene" -c ":filter-in SseAgentStreamRouter"  -c ":filter-in R4Arbiter" -q
+      content: lnav -c ":filter-in SseAgentBridge" -c ":filter-in SseCarCommandProcessor" -c ":filter-in CarManualStreamAgentVM" -c ":filter-in TinnoveIpc"  -c ":filter-in CarManualStreamAgentScene" -c ":filter-in SseAgentStreamRouter"  -c ":filter-in R4Arbiter" -q ${PATH}
       tags:
         - Lanv
         - AIBOX
     - title: Rg 过滤 ASR 所在文件
-      content: ' rg -lz "getAsrText: 打开座椅通风"'
+      content: ' rg -lz "getAsrText: ${TEXT}"'
       tags:
         - Rg
     - title: 端状态
@@ -38,6 +38,10 @@ fragments:
       tags:
         - Log
     - title: 常用链路查看
-      content: 'lnav -c ":filter-in initService"  -c  ":filter-in SemanticDispatcher:"  -c ":filter-in playTTsFullParams"    -q '
+      content: lnav -c ":filter-in initService"  -c  ":filter-in SemanticDispatcher:"  -c ":filter-in playTTsFullParams"    -q ${PATH}
       tags:
         - Lanv
+    - title: 梧桐日志预览平台
+      content: https://portal.auto-pai.com/spm-data/#/browse?path=autopai-tlc%2Fplatform%2FC5181%2Flog%2Flog_${LOG_FILE}
+      tags:
+        - Link
