@@ -106,9 +106,22 @@ type Rule struct {
 
 - **非法正则**：chip 固化瞬间前端 JS RegExp 试编译，拒绝固化 + 输入框红字提示；后端收到非法规则防御性拒绝（返回 error），沿用旧规则继续跑。不静默降级为字面量（避免误导排查）。
 
+## 条件组（link 机制，2026-08-19 增补）
+
+组合过滤需表达「Tag + Message 同时满足」以及「组合之间任选其一」。Token 增加 `link` 字段（json `link,omitempty`，TS `link?: "and" | "or"`）作为组间连接符：
+
+- `"or"`：此 token **另起条件组（combo）**；组间 OR：任一组完全命中即通过；
+- `"and"` / 缺省：并入当前组（默认，追加行为与旧版一致）。
+
+组内语义不变：同 key OR、跨 key AND（每组建 per-key 桶）；取反 token 仍是全局排除（link 忽略、不校验）；首个正向 token 的 link 无前组可切、等同并入。**无任何 or-link 的规则 = 单组 = 旧语义，向后兼容**（旧 preset / 手写 FILTER 不受影响）。未知 link 值由 CompileRule 硬失败（不静默降级）。
+
+UI（mockup `?mockup=logcat-link` 定稿）：控制台分段渲染——条件组为主题色虚线框（`border-dashed border-primary/50`），组间主色加粗 ∨（点击 toggle 为 ∧ 并入前组），组内弱 ∧（点击另起一组；同 key 并入时 tooltip 说明「桶内任一命中」）；取反 chip 裸渲染在框外。chip 菜单也提供「∨ 另起一组 / ∧ 并入前组」。序列化仅 `link:"or"` 写出（and/缺省省略，减 yaml 噪音）。
+
+局限（接受）：组内同 key 仍为 OR（`tag:A ∧ tag:B` 需正则表达）；括号任意嵌套仍不做。
+
 ## 不在范围（YAGNI）
 
-- 括号分组；查询历史 / 命名过滤器（用启动 preset 覆盖，可后续强化 preset）；
+- 括号嵌套分组（条件组一层 ∨ 切分已覆盖主场景）；查询历史 / 命名过滤器（用启动 preset 覆盖，可后续强化 preset）；
 - `logcat-batch` 落盘动作不动（仍用旧 filter 入口）；
 - 设备端历史回溯（`-T 1` 语义不变，ring 只含本次启动后的行）；
 - 性能专项优化（10k ring + 防抖重筛已够；后续有需要再做预索引）。

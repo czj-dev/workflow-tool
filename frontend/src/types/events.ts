@@ -44,6 +44,9 @@ export interface LogcatToken {
   op: LogcatOp;
   negated: boolean;
   value: string;
+  // 组间连接符："or" = 此 token 另起一个条件组（组间任一命中即通过）；"and"/缺省 = 并入
+  // 当前组（组内：同 key OR、跨 key AND）。前端 UI 专有编辑态，随 FILTER JSON 落盘。
+  link?: "and" | "or";
   // 前端 UI 专有：输入框未固化尾巴（草稿态）。下发后端时携带无害（后端不看此字段）。
   draft?: boolean;
 }

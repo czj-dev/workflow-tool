@@ -307,11 +307,24 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     });
   };
 
+  // 下发用规则映射：draft 剥离（后端不读此字段，保持协议干净）+ link 归一为 string
+  // （bindings Token.link 必填，"" = and/缺省；取反 token 的 link 后端忽略）。
+  const toApiRule = (r: LogcatRule) => ({
+    tokens: r.tokens.map((tk) => ({
+      key: tk.key,
+      op: tk.op,
+      negated: tk.negated,
+      value: tk.value,
+      link: tk.link ?? "",
+    })),
+    minLevel: r.minLevel,
+    package: r.package,
+  });
+
   // 规则编辑 300ms 防抖下发（spec 决策 3）。params 映射（runAction/focusRunning）
   // 与 openLlmChat 重置在写入 state 的同时登记 synced 引用：effect 发现规则与 synced
   // 同引用即不下发——初始规则后端已从同一 params 编译，重发只会多一次整体重放
-  // （闪烁+滚动复位）；currentId 切到其他运行中动作时同理不误发。draft 是 UI 专有标记，
-  // 下发前剥离（后端不读此字段，但保持协议干净）。
+  // （闪烁+滚动复位）；currentId 切到其他运行中动作时同理不误发。
   const logcatRuleSyncedRef = useRef<LogcatRule | null>(null);
   useEffect(() => {
     const id = currentId;
@@ -319,16 +332,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     if (logcatRuleSyncedRef.current === logcatRule) return;
     const timer = setTimeout(() => {
       logcatRuleSyncedRef.current = logcatRule;
-      UpdateLogcatFilter(id, {
-        tokens: logcatRule.tokens.map((tk) => ({
-          key: tk.key,
-          op: tk.op,
-          negated: tk.negated,
-          value: tk.value,
-        })),
-        minLevel: logcatRule.minLevel,
-        package: logcatRule.package,
-      }, false).catch(() => {});
+      UpdateLogcatFilter(id, toApiRule(logcatRule), false).catch(() => {});
     }, 300);
     return () => clearTimeout(timer);
   }, [logcatRule, currentId]);
@@ -820,7 +824,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       logcatRuleSyncedRef.current = rule;
       setLogcatRuleState(rule);
       // 用恢复的规则触发一次后端整体重放：把切走期间丢失的单缓冲条目从 raw ring 找回。
-      UpdateLogcatFilter(id, rule, false).catch(() => {});
+      UpdateLogcatFilter(id, toApiRule(rule), false).catch(() => {});
     } else {
       setLines([]); // output 视图：单缓冲已被覆盖，保留会误导
       resetSeqState();
@@ -1086,7 +1090,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setLogcatTagHist([]);
     setLogcatReplaceSeq(0);
     if (currentId && runningIdsRef.current.has(currentId)) {
-      UpdateLogcatFilter(currentId, logcatRule, true).catch(() => {});
+      UpdateLogcatFilter(currentId, toApiRule(logcatRule), true).catch(() => {});
     }
   };
 

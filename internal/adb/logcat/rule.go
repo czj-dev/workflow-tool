@@ -14,8 +14,10 @@ import (
 //
 // 语义（与 frontend/src/mockup/mockLogcat.ts 定稿一致）：
 //   - MinLevel 阈值：等级低于阈值即排除（同旧 LEVEL 参数）；
-//   - 取反 token：任一命中即排除（多个取反 = 全部规避）；
-//   - 正向 token：同 key 内 OR，跨 key AND；无正向 token = 通过；
+//   - 取反 token：任一命中即排除（多个取反 = 全部规避；link 对取反无意义、忽略）；
+//   - 正向 token：按 Link="or" 切成条件组（combo），组间任一组完全命中即通过；
+//     组内同 key OR、跨 key AND；无 link = 并入当前组；无正向 token = 通过；
+//     （无任何 or-link 的规则退化为单组 = 旧语义，向后兼容）；
 //   - 大小写：contains 不区分；exact / regex 区分（需要不区分时用户自带 (?i)）；
 //   - pid / tid 仅精确整数匹配。
 
@@ -35,12 +37,21 @@ const (
 	opRegex    = "regex"
 )
 
+// token link 常量：正向 token 与前文的组间关系。空/and = 并入当前组（默认，
+// 追加行为与旧版一致）；or = 另起条件组（组间任一命中即通过）。仅正向 token
+// 生效，取反 token 全局排除与分组无关。
+const (
+	LinkAnd = "and"
+	LinkOr  = "or"
+)
+
 // Token 是一条过滤原子。TS 端 LogcatToken 与此逐字段对齐（json tag 即协议）。
 type Token struct {
 	Key     string `json:"key"`     // tag | message | pid | tid | any
 	Op      string `json:"op"`      // contains | exact | regex
 	Negated bool   `json:"negated"` // 取反（独立排除语义）
 	Value   string `json:"value"`
+	Link    string `json:"link,omitempty"` // ""/and=并入当前组；or=另起条件组（仅正向生效）
 }
 
 // Rule 是一次完整过滤规则。TS 端 LogcatRule 对齐。MinLevel 为下拉唯一入口；
@@ -62,13 +73,19 @@ type cToken struct {
 	num   int            // key=pid/tid 时非 0
 }
 
-// CompiledRule 是编译后的规则：正/负 token 分离，正向 token 按 key 分组
-// （组内 OR，组间 AND），组顺序按 token 首次出现顺序（确定性）。
+// combo 是一个条件组：桶内同 key（OR），桶间跨 key（AND）。
+type combo struct {
+	buckets [][]cToken
+	bucketAt map[string]int // key → buckets 下标
+}
+
+// CompiledRule 是编译后的规则：正/负 token 分离，正向 token 按 Link="or" 切成
+// 条件组（组间 OR：任一组全桶命中即通过），组顺序按 token 首次出现顺序（确定性）。
 type CompiledRule struct {
 	minRank int
 	minSet  bool
 	neg     []cToken
-	groups  [][]cToken // 每组同 key
+	combos  []combo
 }
 
 // normalizeTokenKey 归一 key 别名（msg→message），未知 key 报错（TS/Go 漂移尽早暴露）。
@@ -103,7 +120,6 @@ func CompileRule(r Rule) (*CompiledRule, error) {
 		cr.minRank = levelRank(lvl)
 	}
 
-	groupIdx := map[string]int{} // key → groups 下标
 	for i, t := range r.Tokens {
 		if strings.TrimSpace(t.Value) == "" {
 			continue // 空值 token 视为未输入，跳过
@@ -141,15 +157,29 @@ func CompileRule(r Rule) (*CompiledRule, error) {
 			}
 		}
 		if ct.neg {
+			// link 对取反无意义：忽略不校验（手写 yaml 容错），语义为全局排除。
 			cr.neg = append(cr.neg, ct)
 			continue
 		}
-		gi, ok := groupIdx[key]
-		if !ok {
-			cr.groups = append(cr.groups, []cToken{ct})
-			groupIdx[key] = len(cr.groups) - 1
+		switch t.Link {
+		case "", LinkAnd, LinkOr: // 首个正向 token 的 link（含 or）无前组可切，等同并入
+		default:
+			return nil, fmt.Errorf("token[%d]: unknown link %q (expect and/or)", i, t.Link)
+		}
+		if t.Link == LinkOr && len(cr.combos) > 0 {
+			cr.combos = append(cr.combos, combo{bucketAt: map[string]int{key: 0}, buckets: [][]cToken{{ct}}})
+			continue
+		}
+		if len(cr.combos) == 0 {
+			cr.combos = append(cr.combos, combo{bucketAt: map[string]int{key: 0}, buckets: [][]cToken{{ct}}})
+			continue
+		}
+		last := &cr.combos[len(cr.combos)-1]
+		if gi, ok := last.bucketAt[key]; ok {
+			last.buckets[gi] = append(last.buckets[gi], ct)
 		} else {
-			cr.groups[gi] = append(cr.groups[gi], ct)
+			last.bucketAt[key] = len(last.buckets)
+			last.buckets = append(last.buckets, []cToken{ct})
 		}
 	}
 	return cr, nil
@@ -199,19 +229,26 @@ func (cr *CompiledRule) Allow(e *Entry) bool {
 			return false
 		}
 	}
-	for _, g := range cr.groups {
-		ok := false
-		for i := range g {
-			if g[i].hit(e) {
-				ok = true
+	for _, c := range cr.combos {
+		ok := true
+		for _, b := range c.buckets {
+			hit := false
+			for i := range b {
+				if b[i].hit(e) {
+					hit = true
+				break
+				}
+			}
+			if !hit {
+				ok = false
 				break
 			}
 		}
-		if !ok {
-			return false
+		if ok {
+			return true
 		}
 	}
-	return true
+	return len(cr.combos) == 0
 }
 
 // ParamFilter 是 preset 携带完整规则的保留参数键（甲板「存为预设」写入）：

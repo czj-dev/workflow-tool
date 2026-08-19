@@ -78,7 +78,9 @@ function entryToText(e: LogcatEntry): string {
 }
 
 // 固化 chip：文本即语法，点击开菜单，× 删除。菜单锚定在本 chip 正下方
-// （relative 包裹层 + absolute top-full），不再锚到行首。
+// （relative 包裹层 + absolute top-full），不再锚到行首。菜单项数组驱动（link 项
+// 仅正向非首个 chip 出现），保持 negate/regex/link/delete 顺序。
+type MenuKind = "negate" | "regex" | "link" | "delete";
 function Chip({
   tok,
   menuOpen,
@@ -86,16 +88,16 @@ function Chip({
   onMenuAction,
   onRemove,
   menuTitle,
-  menuLabels,
+  menuItems,
   removeLabel,
 }: {
   tok: LogcatToken;
   menuOpen: boolean;
   onMenu: () => void;
-  onMenuAction: (kind: "negate" | "regex" | "delete") => void;
+  onMenuAction: (kind: MenuKind) => void;
   onRemove: () => void;
   menuTitle: string;
-  menuLabels: { negate: string; regex: string; delete: string };
+  menuItems: Array<{ kind: MenuKind; label: string }>;
   removeLabel: string;
 }) {
   return (
@@ -131,21 +133,48 @@ function Chip({
       </span>
       {menuOpen && (
         <span className="absolute left-0 top-full z-20 mt-1 flex overflow-hidden rounded-md border bg-popover text-xs shadow-md">
-          {(Object.keys(menuLabels) as Array<"negate" | "regex" | "delete">).map(
-            (kind) => (
-              <button
-                key={kind}
-                type="button"
-                className="px-2.5 py-1 hover:bg-primary/10 hover:text-primary"
-                onClick={() => onMenuAction(kind)}
-              >
-                {menuLabels[kind]}
-              </button>
-            ),
-          )}
+          {menuItems.map((it) => (
+            <button
+              key={it.kind}
+              type="button"
+              className={`px-2.5 py-1 hover:bg-primary/10 hover:text-primary ${
+                it.kind === "link" ? "font-semibold text-primary hover:opacity-80" : ""
+              }`}
+              onClick={() => onMenuAction(it.kind)}
+            >
+              {it.label}
+            </button>
+          ))}
         </span>
       )}
     </span>
+  );
+}
+
+// 连接符：语法字形而非按钮壳——组内 ∧ 弱到标点级；组间 ∨ 主色加粗。同 wrapper
+// 包后继 chip/框，换行不落单。sameKey 仅影响 ∧ 的 tooltip（同 key 并入=任一命中）。
+function Connective({
+  kind,
+  title,
+  onToggle,
+}: {
+  kind: "and" | "or";
+  title: string;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      title={title}
+      className={`select-none px-0.5 text-[10px] leading-none underline-offset-2 hover:underline ${
+        kind === "or"
+          ? "font-bold text-primary hover:opacity-80"
+          : "text-muted-foreground/40 hover:text-primary/80"
+      }`}
+    >
+      {kind === "and" ? "∧" : "∨"}
+    </button>
   );
 }
 
@@ -265,8 +294,8 @@ export function LogcatView() {
   const tokenActive = (tok: LogcatToken) =>
     committed.some((c) => tokenText(c) === tokenText(tok));
 
-  // chip 菜单：取反 / 转正则 / 删除
-  const menuAction = (i: number, kind: "negate" | "regex" | "delete") => {
+  // chip 菜单：取反 / 转正则 / ∨∧ 分组 / 删除
+  const menuAction = (i: number, kind: MenuKind) => {
     const tk = committed[i];
     if (!tk) return;
     if (kind === "delete") {
@@ -275,6 +304,8 @@ export function LogcatView() {
       setTokens(
         committed.map((c, j) => (j === i ? { ...c, negated: !c.negated } : c)),
       );
+    } else if (kind === "link") {
+      toggleLink(i);
     } else {
       if (invalidRegex(tk.value)) {
         setRegexErr(t("logcat.regexError", { value: tk.value }));
@@ -283,6 +314,73 @@ export function LogcatView() {
       setTokens(committed.map((c, j) => (j === i ? { ...c, op: "regex" } : c)));
     }
     setMenuIdx(null);
+  };
+
+  // 连接符 toggle：∧⇄∨（改该 token 的 link；求值在后端，前端只编辑规则）
+  const toggleLink = (i: number) => {
+    setTokens(
+      committed.map((c, j) =>
+        j === i ? { ...c, link: c.link === "or" ? "and" : "or" } : c,
+      ),
+    );
+  };
+
+  // 控制台分段渲染：正向 token 按 link=or 切组（虚线框 = 条件组，组间任一命中即
+  // 通过，组内同 key OR、跨 key AND）；取反 chip 全局排除，裸渲染在框外。
+  const segs = useMemo<
+    Array<
+      | { kind: "neg"; i: number }
+      | { kind: "group"; items: Array<{ i: number; sameKey: boolean }> }
+    >
+  >(() => {
+    const segs: Array<
+      | { kind: "neg"; i: number }
+      | { kind: "group"; items: Array<{ i: number; sameKey: boolean }> }
+    > = [];
+    committed.forEach((tok, i) => {
+      if (tok.negated) {
+        segs.push({ kind: "neg", i });
+        return;
+      }
+      if (tok.link === "or" && segs.some((s) => s.kind === "group")) {
+        segs.push({ kind: "group", items: [{ i, sameKey: false }] });
+        return;
+      }
+      for (let k = segs.length - 1; k >= 0; k--) {
+        const s = segs[k];
+        if (s.kind === "group") {
+          const sameKey = s.items.some((p) => committed[p.i].key === tok.key);
+          s.items.push({ i, sameKey });
+          return;
+        }
+      }
+      segs.push({ kind: "group", items: [{ i, sameKey: false }] });
+    });
+    return segs;
+  }, [committed]);
+
+  // chip 菜单项（link 项仅正向且非首个正向 chip）
+  const menuItemsFor = (i: number): Array<{ kind: MenuKind; label: string }> => {
+    const tok = committed[i];
+    const hasPrevPos = committed.some(
+      (c, j) => j < i && !c.negated && c.value,
+    );
+    return [
+      { kind: "negate", label: t("logcat.chipMenu.negate") },
+      { kind: "regex", label: t("logcat.chipMenu.toRegex") },
+      ...(tok && !tok.negated && hasPrevPos
+        ? [
+            {
+              kind: "link" as const,
+              label:
+                tok.link === "or"
+                  ? t("logcat.chipMenu.linkAnd")
+                  : t("logcat.chipMenu.linkOr"),
+            },
+          ]
+        : []),
+      { kind: "delete", label: t("logcat.chipMenu.delete") },
+    ];
   };
 
   // preset 整体替换规则（spec：preset 即完整场景）；⟲ 重置回全量
@@ -448,28 +546,72 @@ export function LogcatView() {
         </Button>
       </div>
 
-      {/* ——— 行 2 · 查询控制台（签名元素）：chips + 草稿输入 + top-4 快捷条 ——— */}
+      {/* ——— 行 2 · 查询控制台（签名元素）：虚线框 = 条件组，chips + 草稿输入 + 快捷条 ——— */}
       <div className="relative flex min-h-9 shrink-0 flex-wrap items-center gap-1.5 border-b bg-secondary/20 px-3 py-1.5 font-mono text-xs">
-        {committed.map((tok, i) => (
-          <Chip
-            key={`${tokenText(tok)}#${i}`}
-            tok={tok}
-            menuOpen={menuIdx === i}
-            menuTitle={t("logcat.chipMenuTitle")}
-            menuLabels={{
-              negate: t("logcat.chipMenu.negate"),
-              regex: t("logcat.chipMenu.toRegex"),
-              delete: t("logcat.chipMenu.delete"),
-            }}
-            removeLabel={t("logcat.chipMenu.delete")}
-            onMenu={() => setMenuIdx(menuIdx === i ? null : i)}
-            onMenuAction={(kind) => menuAction(i, kind)}
-            onRemove={() => {
-              setTokens(committed.filter((_, j) => j !== i));
-              setMenuIdx(null);
-            }}
-          />
-        ))}
+        {segs.map((seg, si) => {
+          if (seg.kind === "neg") {
+            const { i } = seg;
+            return (
+              <Chip
+                key={`neg#${i}`}
+                tok={committed[i]}
+                menuOpen={menuIdx === i}
+                menuTitle={t("logcat.chipMenuTitle")}
+                menuItems={menuItemsFor(i)}
+                removeLabel={t("logcat.chipMenu.delete")}
+                onMenu={() => setMenuIdx(menuIdx === i ? null : i)}
+                onMenuAction={(kind) => menuAction(i, kind)}
+                onRemove={() => {
+                  setTokens(committed.filter((_, j) => j !== i));
+                  setMenuIdx(null);
+                }}
+              />
+            );
+          }
+          const hasPrevGroup = segs.slice(0, si).some((s) => s.kind === "group");
+          return (
+            <span key={`grp#${seg.items[0].i}`} className="inline-flex items-center gap-1.5">
+              {hasPrevGroup && (
+                <Connective
+                  kind="or"
+                  title={t("logcat.linkOrTitle")}
+                  onToggle={() => toggleLink(seg.items[0].i)}
+                />
+              )}
+              {/* 条件组：主题色虚线框（组间 ∨ 任一命中即通过，组内 ∧ 同时满足） */}
+              <span className="inline-flex flex-wrap items-center gap-1 rounded-lg border border-dashed border-primary/50 bg-primary/[0.04] px-1 py-1">
+                {seg.items.map(({ i, sameKey }, k) => (
+                  <span key={i} className="inline-flex items-center gap-1">
+                    {k > 0 && (
+                      <Connective
+                        kind="and"
+                        title={t(
+                          sameKey
+                            ? "logcat.linkAndSameKeyTitle"
+                            : "logcat.linkAndTitle",
+                        )}
+                        onToggle={() => toggleLink(i)}
+                      />
+                    )}
+                    <Chip
+                      tok={committed[i]}
+                      menuOpen={menuIdx === i}
+                      menuTitle={t("logcat.chipMenuTitle")}
+                      menuItems={menuItemsFor(i)}
+                      removeLabel={t("logcat.chipMenu.delete")}
+                      onMenu={() => setMenuIdx(menuIdx === i ? null : i)}
+                      onMenuAction={(kind) => menuAction(i, kind)}
+                      onRemove={() => {
+                        setTokens(committed.filter((_, j) => j !== i));
+                        setMenuIdx(null);
+                      }}
+                    />
+                  </span>
+                ))}
+              </span>
+            </span>
+          );
+        })}
         <span className="flex min-w-40 flex-1 items-center">
           <input
             value={input}

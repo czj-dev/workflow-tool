@@ -231,6 +231,39 @@ describe("ruleToParams", () => {
     };
     expect(ruleFromParams(ruleToParams(rule))).toEqual(rule);
   });
+
+  it("link 往返：or 保留、and/缺省省略（FILTER JSON 减噪音）", () => {
+    const rule: LogcatRule = {
+      tokens: [
+        { key: "tag", op: "contains", negated: false, value: "SystemUI" },
+        { key: "message", op: "contains", negated: false, value: "nav" },
+        { key: "tag", op: "contains", negated: false, value: "AudioFlinger", link: "or" },
+        { key: "message", op: "contains", negated: false, value: "track", link: "and" },
+      ],
+      minLevel: "V",
+      package: "",
+    };
+    const values = ruleToParams(rule);
+    const parsed = JSON.parse(values.FILTER!);
+    expect(parsed.tokens[2]).toEqual({
+      key: "tag",
+      op: "contains",
+      negated: false,
+      value: "AudioFlinger",
+      link: "or",
+    });
+    expect(parsed.tokens[3].link).toBeUndefined(); // and 显式写同缺省，省略
+    expect(ruleFromParams(values)).toEqual({
+      tokens: [
+        { key: "tag", op: "contains", negated: false, value: "SystemUI" },
+        { key: "message", op: "contains", negated: false, value: "nav" },
+        { key: "tag", op: "contains", negated: false, value: "AudioFlinger", link: "or" },
+        { key: "message", op: "contains", negated: false, value: "track" },
+      ],
+      minLevel: "V",
+      package: "",
+    }); // and 归一为缺省、draft 剥离后等价
+  });
 });
 
 describe("sortHistogram", () => {

@@ -190,6 +190,67 @@ func TestAllowNilRule(t *testing.T) {
 	}
 }
 
+func TestCompileRuleLinkCombos(t *testing.T) {
+	// (tag:A ∧ msg:x) ∨ (tag:B ∧ msg:y)：组间任一全命中即通过
+	r := Rule{Tokens: []Token{
+		{Key: "tag", Op: "contains", Value: "A"},
+		{Key: "message", Op: "contains", Value: "x"},
+		{Key: "tag", Op: "contains", Value: "B", Link: "or"},
+		{Key: "message", Op: "contains", Value: "y"},
+	}}
+	if !allow(t, r, mkEntry("I", "A", "x", 1, 1)) {
+		t.Fatal("第一组全命中 → 应通过")
+	}
+	if !allow(t, r, mkEntry("I", "B", "y", 1, 1)) {
+		t.Fatal("第二组全命中 → 应通过")
+	}
+	if allow(t, r, mkEntry("I", "A", "y", 1, 1)) {
+		t.Fatal("跨组各半命中 → 应排除（组内跨 key AND）")
+	}
+	if allow(t, r, mkEntry("I", "A", "z", 1, 1)) {
+		t.Fatal("两组均不全命中 → 应排除")
+	}
+
+	// 无 link = 单组 = 旧语义（向后兼容）：A∨B 任一 + msg:x 同时满足
+	rSame := Rule{Tokens: []Token{
+		{Key: "tag", Op: "contains", Value: "A"},
+		{Key: "tag", Op: "contains", Value: "B"},
+		{Key: "message", Op: "contains", Value: "x"},
+	}}
+	if !allow(t, rSame, mkEntry("I", "B", "x", 1, 1)) {
+		t.Fatal("同 key 任一 + message 命中 → 应通过（旧语义）")
+	}
+
+	// 首 token link=or 无前组可切，等同并入；and 显式写同默认
+	if !allow(t, Rule{Tokens: []Token{{Key: "tag", Op: "contains", Value: "A", Link: "or"}}},
+		mkEntry("I", "A", "m", 1, 1)) {
+		t.Fatal("首个 token link=or 应被忽略（无前组）")
+	}
+	if !allow(t, Rule{Tokens: []Token{
+		{Key: "tag", Op: "contains", Value: "A"},
+		{Key: "message", Op: "contains", Value: "m", Link: "and"},
+	}}, mkEntry("I", "A", "m", 1, 1)) {
+		t.Fatal("link=and 显式写同默认（同组 AND）")
+	}
+
+	// 取反 token 携 link：忽略不校验，仍全局排除
+	if allow(t, Rule{Tokens: []Token{
+		{Key: "tag", Op: "contains", Value: "A"},
+		{Key: "message", Op: "contains", Value: "x"},
+		{Key: "tag", Op: "contains", Negated: true, Value: "A", Link: "or"},
+	}}, mkEntry("I", "A", "x", 1, 1)) {
+		t.Fatal("取反命中应全局排除，link 不改变语义")
+	}
+
+	// 未知 link 硬失败（手改 yaml 尽早暴露）
+	if _, err := CompileRule(Rule{Tokens: []Token{
+		{Key: "tag", Op: "contains", Value: "A"},
+		{Key: "message", Op: "contains", Value: "m", Link: "xor"},
+	}}); err == nil {
+		t.Fatal("未知 link 应返回 error")
+	}
+}
+
 func TestRuleFromParams(t *testing.T) {
 	r := RuleFromParams("warn", "DVR_A DVR_B", "query", "garbage", "com.baidu.che.codriver")
 	want := Rule{
@@ -218,8 +279,8 @@ func TestRuleFromParams(t *testing.T) {
 }
 
 func TestRuleFromParamsExt(t *testing.T) {
-	// FILTER JSON 优先：legacy 键全被忽略（哪怕冲突），chip 语言（regex/取反/pid）完整保留
-	filter := `{"tokens":[{"key":"tag","op":"regex","value":"^DVR_"},{"key":"pid","op":"exact","value":"4321"},{"key":"message","op":"contains","negated":true,"value":"chatty"}],"minLevel":"I","package":"com.example"}`
+	// FILTER JSON 优先：legacy 键全被忽略（哪怕冲突），chip 语言（regex/取反/pid/link）完整保留
+	filter := `{"tokens":[{"key":"tag","op":"regex","value":"^DVR_"},{"key":"pid","op":"exact","value":"4321"},{"key":"message","op":"contains","negated":true,"value":"chatty"},{"key":"tag","op":"contains","value":"Audio","link":"or"}],"minLevel":"I","package":"com.example"}`
 	r := RuleFromParamsExt("V", "Foo", "", "", "ignored-pkg", filter)
 	want := Rule{
 		MinLevel: "I",
@@ -227,8 +288,9 @@ func TestRuleFromParamsExt(t *testing.T) {
 		Tokens: []Token{
 			{Key: "tag", Op: "regex", Value: "^DVR_"},
 			{Key: "pid", Op: "exact", Value: "4321"},
-			{Key: "message", Op: "contains", Negated: true, Value: "chatty"},
-		},
+		{Key: "message", Op: "contains", Negated: true, Value: "chatty"},
+		{Key: "tag", Op: "contains", Value: "Audio", Link: "or"},
+	},
 	}
 	if !reflect.DeepEqual(r, want) {
 		t.Fatalf("FILTER 优先映射不符:\n got %+v\nwant %+v", r, want)

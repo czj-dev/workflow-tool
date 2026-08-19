@@ -531,7 +531,7 @@ describe("ActionRunnerProvider", () => {
       expect(mockUpdateLogcatFilter).toHaveBeenCalledTimes(1);
       expect(mockUpdateLogcatFilter).toHaveBeenCalledWith(
         "a1",
-        { tokens: [{ key: "tag", op: "contains", negated: false, value: "x" }], minLevel: "D", package: "" },
+        { tokens: [{ key: "tag", op: "contains", negated: false, value: "x", link: "" }], minLevel: "D", package: "" },
         false,
       );
     } finally {
