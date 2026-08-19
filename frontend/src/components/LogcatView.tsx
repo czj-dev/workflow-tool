@@ -77,49 +77,74 @@ function entryToText(e: LogcatEntry): string {
   return `${e.date} ${e.time} ${e.pid} ${e.tid} ${e.level} ${e.tag}: ${e.message}`;
 }
 
-// 固化 chip：文本即语法，点击开菜单，× 删除
+// 固化 chip：文本即语法，点击开菜单，× 删除。菜单锚定在本 chip 正下方
+// （relative 包裹层 + absolute top-full），不再锚到行首。
 function Chip({
   tok,
+  menuOpen,
   onMenu,
+  onMenuAction,
   onRemove,
   menuTitle,
+  menuLabels,
   removeLabel,
 }: {
   tok: LogcatToken;
+  menuOpen: boolean;
   onMenu: () => void;
+  onMenuAction: (kind: "negate" | "regex" | "delete") => void;
   onRemove: () => void;
   menuTitle: string;
+  menuLabels: { negate: string; regex: string; delete: string };
   removeLabel: string;
 }) {
   return (
-    <span
-      className={`inline-flex max-w-64 items-center gap-0.5 rounded border bg-secondary/60 px-1.5 py-0.5 ${
-        tok.draft ? "border-dashed border-border opacity-80" : "border-border"
-      }`}
-    >
-      <button
-        type="button"
-        className="font-mono hover:opacity-80"
-        onClick={onMenu}
-        title={menuTitle}
+    <span className="relative inline-flex">
+      <span
+        className={`inline-flex max-w-64 items-center gap-0.5 rounded border bg-secondary/60 px-1.5 py-0.5 ${
+          tok.draft ? "border-dashed border-border opacity-80" : "border-border"
+        }`}
       >
-        {tok.negated && <span className="text-destructive">−</span>}
-        {tok.key !== "any" && (
-          <span className="text-muted-foreground">{tok.key}</span>
-        )}
-        <span className={opText(tok)}>
-          {tok.op === "exact" ? "=:" : tok.op === "regex" ? "~:" : ":"}
+        <button
+          type="button"
+          className="font-mono hover:opacity-80"
+          onClick={onMenu}
+          title={menuTitle}
+        >
+          {tok.negated && <span className="text-destructive">−</span>}
+          {tok.key !== "any" && (
+            <span className="text-muted-foreground">{tok.key}</span>
+          )}
+          <span className={opText(tok)}>
+            {tok.op === "exact" ? "=:" : tok.op === "regex" ? "~:" : ":"}
+          </span>
+          <span className="max-w-40 truncate text-foreground">{tok.value}</span>
+        </button>
+        <button
+          type="button"
+          aria-label={removeLabel}
+          className="ml-0.5 text-muted-foreground/60 hover:text-destructive"
+          onClick={onRemove}
+        >
+          ×
+        </button>
+      </span>
+      {menuOpen && (
+        <span className="absolute left-0 top-full z-20 mt-1 flex overflow-hidden rounded-md border bg-popover text-xs shadow-md">
+          {(Object.keys(menuLabels) as Array<"negate" | "regex" | "delete">).map(
+            (kind) => (
+              <button
+                key={kind}
+                type="button"
+                className="px-2.5 py-1 hover:bg-primary/10 hover:text-primary"
+                onClick={() => onMenuAction(kind)}
+              >
+                {menuLabels[kind]}
+              </button>
+            ),
+          )}
         </span>
-        <span className="max-w-40 truncate text-foreground">{tok.value}</span>
-      </button>
-      <button
-        type="button"
-        aria-label={removeLabel}
-        className="ml-0.5 text-muted-foreground/60 hover:text-destructive"
-        onClick={onRemove}
-      >
-        ×
-      </button>
+      )}
     </span>
   );
 }
@@ -429,35 +454,22 @@ export function LogcatView() {
           <Chip
             key={`${tokenText(tok)}#${i}`}
             tok={tok}
+            menuOpen={menuIdx === i}
             menuTitle={t("logcat.chipMenuTitle")}
+            menuLabels={{
+              negate: t("logcat.chipMenu.negate"),
+              regex: t("logcat.chipMenu.toRegex"),
+              delete: t("logcat.chipMenu.delete"),
+            }}
             removeLabel={t("logcat.chipMenu.delete")}
             onMenu={() => setMenuIdx(menuIdx === i ? null : i)}
+            onMenuAction={(kind) => menuAction(i, kind)}
             onRemove={() => {
               setTokens(committed.filter((_, j) => j !== i));
               setMenuIdx(null);
             }}
           />
         ))}
-        {menuIdx !== null && committed[menuIdx] && (
-          <span className="absolute left-3 top-full z-20 mt-1 flex overflow-hidden rounded-md border bg-popover text-xs shadow-md">
-            {(
-              [
-                ["negate", t("logcat.chipMenu.negate")],
-                ["regex", t("logcat.chipMenu.toRegex")],
-                ["delete", t("logcat.chipMenu.delete")],
-              ] as Array<["negate" | "regex" | "delete", string]>
-            ).map(([kind, label]) => (
-              <button
-                key={kind}
-                type="button"
-                className="px-2.5 py-1 hover:bg-primary/10 hover:text-primary"
-                onClick={() => menuAction(menuIdx, kind)}
-              >
-                {label}
-              </button>
-            ))}
-          </span>
-        )}
         <span className="flex min-w-40 flex-1 items-center">
           <input
             value={input}
