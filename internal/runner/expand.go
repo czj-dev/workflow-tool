@@ -1,37 +1,43 @@
 package runner
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"os"
 	"strings"
+
+	"workflow-tool/internal/builtinvars"
 )
 
-// Expand 把 s 里的 ${VAR} 按 vars 取值，未命中再查环境变量；
-// 都没有则保留原样 ${VAR} 并记一条 warning。
-// vars 的值支持任意类型（按 fmt.Sprint 转字符串）。
+// Expand 把 s 里的 ${VAR} 按优先级替换：vars（params/merged） → builtins（内置变量）
+// → 环境变量；都未命中则保留 ${VAR} 原样并记一条 warning。
+// vars 的值支持任意类型（按 fmt.Sprint 转字符串）。builtins 为 nil 时跳过该层查找。
 //
 // 所有 Runner 实现都应通过它用 params 做变量替换（Phase 3 通用契约）。
-func Expand(s string, vars map[string]any) string {
+func Expand(ctx context.Context, s string, vars map[string]any, builtins *builtinvars.Registry) string {
 	return os.Expand(s, func(name string) string {
 		if v, ok := vars[name]; ok {
 			return fmt.Sprint(v)
 		}
+		if v, ok := builtins.Resolve(ctx, name); ok {
+			return v
+		}
 		if v, ok := os.LookupEnv(name); ok {
 			return v
 		}
-		log.Printf("warning: 未定义的变量 ${%s}（params 与 env 都无），保留原样", name)
+		log.Printf("warning: 未定义的变量 ${%s}（params/内置变量/env 都无），保留原样", name)
 		return "${" + name + "}"
 	})
 }
 
 // ExpandMap 对 map 的每个 value 做 Expand（用于 env 块）。
-func ExpandMap(m map[string]string, vars map[string]any) map[string]string {
+func ExpandMap(ctx context.Context, m map[string]string, vars map[string]any, builtins *builtinvars.Registry) map[string]string {
 	out := make(map[string]string, len(m))
 	for k, v := range m {
 		// 仅当含 ${} 时才替换，避免无谓日志
 		if strings.Contains(v, "${") {
-			out[k] = Expand(v, vars)
+			out[k] = Expand(ctx, v, vars, builtins)
 		} else {
 			out[k] = v
 		}
@@ -45,14 +51,14 @@ func ExpandMap(m map[string]string, vars map[string]any) map[string]string {
 //
 // 这是 ${VAR} 展开的唯一入口：workflow 的 action step params 常含 ${PACKAGE} 这类引用，
 // Substitute 只处理 ${{ }} 表达式，剩余 ${VAR} 在此统一了结。
-func ExpandParams(params map[string]any) map[string]any {
+func ExpandParams(ctx context.Context, params map[string]any, builtins *builtinvars.Registry) map[string]any {
 	if len(params) == 0 {
 		return params
 	}
 	out := make(map[string]any, len(params))
 	for k, v := range params {
 		if s, ok := v.(string); ok {
-			out[k] = Expand(s, params)
+			out[k] = Expand(ctx, s, params, builtins)
 		} else {
 			out[k] = v
 		}
