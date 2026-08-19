@@ -95,15 +95,26 @@ presets:                       # 可选，预设参数组合
 
 1. **动作参数**（params 表单填入的值）
 2. **全局配置**（`config.yaml` 中的键值对）
-3. **环境变量**
+3. **内置变量**（见下表，无需声明即可直接使用）
+4. **环境变量**
 
-三者都未定义则保留 `${VAR}` 原样 + 控制台 warning。
+四者都未定义则保留 `${VAR}` 原样 + 控制台 warning。
+
+### 内置变量
+
+| 变量 | 值 | 用途示例 |
+|---|---|---|
+| `CURRENT_DATE` | 当天日期，`yyyyMMdd`（如 `20260819`） | `${OUTPUT_DIR}screenshot-${CURRENT_DATE}.png` |
+| `CURRENT_TIME` | 当前毫秒时间戳（如 `1755590400000`） | `${OUTPUT_DIR}${CURRENT_TIME}.png`，避免同名文件覆盖 |
+| `ADB_SERIAL` | 当前激活设备 serial（UI 设备选择器选中的设备） | shell/script 动作里 `adb -s "${ADB_SERIAL}" shell ...` |
+
+`ADB_SERIAL` 若在 `config.yaml` 里显式配置，或动作参数里已有同名值，则内置变量不生效（参数/配置优先级更高，见上）——这是给需要固定某台设备的场景保留的覆盖能力。`command.adb.operation` 形态本身有独立的在线校验与自动重连回退逻辑（详见下方"adb 域形态"），内置变量表里的 `ADB_SERIAL` 主要解决 `command.shell`/`script` 形态里引用 `${ADB_SERIAL}` 时同样能取到当前激活设备。
 
 ### workflow 中的变量优先级扩展
 
 当 action 被 workflow 引用时，变量优先级变为：
 
-params（step.params）> step.env > workflow.env > config.yaml > 系统环境变量
+params（step.params）> step.env > workflow.env > config.yaml > 内置变量 > 系统环境变量
 
 `stream: logcat` action 之外，`command.llm` action 在 workflow 中运行时，即使 `capture_output: false`，仍会提取结构化 outputs（text/thinking/session_id/cost_usd/total_tokens），因为这些来自 stream-json 语义解析而非原始 stdout 转储。
 
