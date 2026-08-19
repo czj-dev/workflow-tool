@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"workflow-tool/internal/builtinvars"
 )
 
 // llmFixedArgs 是所有 LLM 调用共用的固定 flag：
@@ -26,13 +28,14 @@ const defaultLLMCLI = "ducc"
 // LLMConfig 是一次 LLM 调用的执行配置。System/Prompt 都是**终值文本**（已由 api 层
 // 按 command.llm.system/prompt 指向的 param id 取出并 Expand），Runner 不再做变量替换。
 type LLMConfig struct {
-	CLI          string            // CLI 命令名，空则用 defaultLLMCLI
-	SystemPrompt string            // 系统提示词，非空则作为 --append-system-prompt 的独立 argv
-	Prompt       string            // 用户提示词，写入子进程 stdin
-	Resume       string            // 非空则作为 --resume <sessionId> 续接上次会话
-	Cwd          string            // 工作目录（空则继承父进程）
-	Timeout      time.Duration     // 超时
-	Env          map[string]string // 额外环境变量
+	CLI          string                // CLI 命令名，空则用 defaultLLMCLI
+	SystemPrompt string                // 系统提示词，非空则作为 --append-system-prompt 的独立 argv
+	Prompt       string                // 用户提示词，写入子进程 stdin
+	Resume       string                // 非空则作为 --resume <sessionId> 续接上次会话
+	Cwd          string                // 工作目录（空则继承父进程）
+	Timeout      time.Duration         // 超时
+	Env          map[string]string     // 额外环境变量
+	Builtins     *builtinvars.Registry // 内置变量注册表，nil 时跳过该层查找（Cwd 已在构造时展开，此字段仅保持结构一致）
 }
 
 // LLMRunner 是 LLM 的一等执行形态（对标 ADBRunner）：自己构 argv 调 CLI，
