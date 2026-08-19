@@ -25,7 +25,7 @@ export function LlmChatView() {
   const {
     actions, currentId, formValues, setFormValue,
     runAction, cancel, setView, status, exitInfo, llmText, thinkingText, llmPanel,
-    llmHistory, clearLlmHistory,
+    sentPrompt, sentAt, llmHistory, clearLlmHistory,
   } = useActionRunner();
   const action = actions.find((a) => a.id === currentId);
   const running = status === "running";
@@ -33,20 +33,16 @@ export function LlmChatView() {
   // 历史抽屉 + 只读查看态
   const [historyOpen, setHistoryOpen] = useState(false);
   const [viewing, setViewing] = useState<LlmHistoryEntry | null>(null);
-  // prompt 快照：send 时冻结，避免流式中编辑 textarea 导致 user 气泡漂移
-  const [sentPrompt, setSentPrompt] = useState("");
-  // 发送时刻：指令工单的时间读数（历史查看态用 entry.timestamp）
-  const [sentAt, setSentAt] = useState<number | null>(null);
+  // sentPrompt/sentAt 现由 Provider 持有（随 runAction 写入，focusRunning 同 id 切回时保留，
+  // 见 ActionRunnerProvider 注释）——组件本地只保留 viewing（历史查看态与本组件生命周期绑定即可）。
 
-  // 切换卡片（currentId 变化）时重置查看态，避免 viewing/sentPrompt 跨卡片残留。
+  // 切换卡片（currentId 变化）时重置查看态，避免 viewing 跨卡片残留。
   // 用 render-time setState 模式（参见 ActionYamlEditor、React 官方「You Might Not Need an Effect」）：
   // 比 useEffect 早一帧生效，且不触发级联渲染（react-hooks/set-state-in-effect）。
   const [prevId, setPrevId] = useState(currentId);
   if (currentId !== prevId) {
     setPrevId(currentId);
     setViewing(null);
-    setSentPrompt("");
-    setSentAt(null);
   }
 
   if (!action?.llm || !action.params) return null;
@@ -93,12 +89,8 @@ export function LlmChatView() {
     action.params!.forEach((p) => {
       params[p.id] = formValues[p.id] ?? p.default ?? "";
     });
-    // 展示用 prompt 要和后端 ExpandParams 一致地替换 ${VAR}——否则气泡里出现原始模板
-    // （如 "处理 ${CARD_ID} 卡片"）。expandVars 与 runner.Expand 行为对齐：未命中保留原样。
-    setSentPrompt(expandVars(params[promptParam] ?? "", params));
-    // 事件处理器内取当前时刻（非 render 路径），purity 规则误报，局部豁免
-    // eslint-disable-next-line react-hooks/purity
-    setSentAt(Date.now());
+    // prompt 快照与发送时刻由 runAction 在 Provider 内冻结（含 ${VAR} 展开，
+    // 与后端 ExpandParams 对齐），组件不再自行维护——否则切走再切回会丢失气泡回显。
     setViewing(null);
     runAction(action.id, params);
   };

@@ -43,6 +43,7 @@ import {
   type LlmPanelState,
 } from "../components/llm/reduceStream";
 import { foldOutputLine } from "../lib/outputFold";
+import { expandVars } from "../lib/vars";
 import { ruleFromParams, sortHistogram } from "../lib/logcatRule";
 import type {
   OutputEventData,
@@ -102,6 +103,10 @@ export interface RunnerContextValue {
   view: RunnerView;
   llmText: string;
   thinkingText: string;
+  // 本轮发送的 prompt 快照（已展开 ${VAR}）与发送时刻：聊天页气泡回显用。
+  // 放在 Provider 而非 LlmChatView 本地 state，才能在切走/切回（组件卸载重挂载）后保留。
+  sentPrompt: string;
+  sentAt: number | null;
   // LLM 输出面板归约态（思考/工具/回答工序段 + 终点读数）；llmText/thinkingText 保留供历史与轻量判断
   llmPanel: LlmPanelState;
   // LLM 运行历史（按 currentId 分桶，最新在前）+ 清空
@@ -194,6 +199,11 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [view, setView] = useState<RunnerView>("output");
   const [llmText, setLlmText] = useState<string>("");
   const [thinkingText, setThinkingText] = useState<string>("");
+  // 本轮发送快照（prompt 展开后文本 + 发送时刻）：随 runAction 写入，
+  // focusRunning 切回运行中动作时随 llmText/llmPanel 一并保留，不再随组件卸载丢失
+  // （原先是 LlmChatView 本地 state，外部点进运行中卡片时组件重挂载即丢失气泡回显）。
+  const [sentPrompt, setSentPrompt] = useState<string>("");
+  const [sentAt, setSentAt] = useState<number | null>(null);
   // ref 镜像：done 回调闭包捕获旧 state，改用 ref 拿最新 llm 文本用于历史写入
   const llmTextRef = useRef("");
   llmTextRef.current = llmText;
@@ -694,6 +704,11 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         setThinkingText("");
         setLlmPanel(EMPTY_PANEL_STATE);
         llmRunStartRef.current = Date.now();
+        // 冻结本轮 prompt 快照（展开 ${VAR} 后与后端 ExpandParams 一致）+ 发送时刻，
+        // 供聊天页气泡回显；切走再切回（focusRunning）时随面板状态一并保留。
+        const promptParam = action.llm.promptParam;
+        setSentPrompt(expandVars((params[promptParam] as string) ?? "", params as Record<string, string>));
+        setSentAt(Date.now());
         setView("llm-chat");
       } else if (action?.stream === "logcat") {
         logcatBufferRef.current = [];
@@ -774,18 +789,29 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     id: string,
     targetView: "output" | "llm-chat" | "logcat",
   ) => {
+    // 切回的是否就是当前 id：是则单缓冲仍是本动作的活数据（llm 面板/文本、行缓冲），
+    // 从 grid/sidebar 点进来只是换视图，事件一直在往里写，必须原样保留；
+    // 否则（切自另一个后台运行动作）单缓冲已被覆盖，本就无法恢复（已知单缓冲限制），才清空。
+    const sameId = currentIdRef.current === id;
     setCurrentId(id);
     setStatus("running");
     setExitInfo(null);
     setSelectedPreset(null);
-    setLines([]); // 单缓冲已被覆盖，保留会误导
-    resetSeqState();
     if (targetView === "llm-chat") {
-      setLlmText("");
-      setThinkingText("");
-      setLlmPanel(EMPTY_PANEL_STATE);
-      llmRunStartRef.current = Date.now();
+      // LLM 面板/文本/prompt 快照：同 id 保留（会话信息回填），跨 id 才重置。
+      if (!sameId) {
+        setLines([]);
+        resetSeqState();
+        setLlmText("");
+        setThinkingText("");
+        setLlmPanel(EMPTY_PANEL_STATE);
+        setSentPrompt("");
+        setSentAt(null);
+        llmRunStartRef.current = Date.now();
+      }
     } else if (targetView === "logcat") {
+      setLines([]); // 单缓冲已被覆盖，保留会误导
+      resetSeqState();
       logcatBufferRef.current = [];
       setLogcatEntries([]);
       // 恢复该次运行实际使用的规则（全局单份，期间可能被其他 logcat 动作覆盖）。
@@ -795,6 +821,9 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       setLogcatRuleState(rule);
       // 用恢复的规则触发一次后端整体重放：把切走期间丢失的单缓冲条目从 raw ring 找回。
       UpdateLogcatFilter(id, rule, false).catch(() => {});
+    } else {
+      setLines([]); // output 视图：单缓冲已被覆盖，保留会误导
+      resetSeqState();
     }
     setView(targetView);
   };
@@ -817,6 +846,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setLlmText("");
     setThinkingText("");
     setLlmPanel(EMPTY_PANEL_STATE);
+    setSentPrompt("");
+    setSentAt(null);
     logcatBufferRef.current = [];
     setLogcatEntries([]);
     logcatRuleSyncedRef.current = EMPTY_LOGCAT_RULE;
@@ -1078,6 +1109,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     view,
     llmText,
     thinkingText,
+    sentPrompt,
+    sentAt,
     llmPanel,
     llmHistory,
     clearLlmHistory,
