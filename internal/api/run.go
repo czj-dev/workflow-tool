@@ -94,14 +94,14 @@ func (s *Service) UpdateLogcatFilter(id string, rule logcat.Rule, reset bool) er
 // ctrl 为 logcat-stream 的运行期控制通道（其余动作为 nil）。
 func (s *Service) execute(ctx context.Context, id string, la registry.LoadedAction, params map[string]any, ctrl chan any) {
 	// 统一在进入 runner 前对 params 做 ${VAR} 展开：runner 拿到的是终值，不再各自展开。
-	params = runner.ExpandParams(params)
+	params = runner.ExpandParams(ctx, params, s.builtins)
 	defer s.running.end(id)
 
 	ev := newActionEvents(s.app, id)
 
 	// 运行时替换 cwd（用终值 params），替换后检查存在性；
 	// 早退发生在任何 output 之前，done 不带 seq（前端直接应用）。
-	cwd := runner.Expand(la.Cwd, params)
+	cwd := runner.Expand(ctx, la.Cwd, params, s.builtins)
 	if cwd != "" {
 		if _, err := os.Stat(cwd); err != nil {
 			ev.DoneUnordered(-1, fmt.Sprintf("工作目录不存在: %s", cwd), 0)
@@ -109,7 +109,7 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 		}
 	}
 
-	r := actionrun.Build(la, s.runDeps, actionrun.Options{Params: params, ADBControl: ctrl})
+	r := actionrun.Build(ctx, la, s.runDeps, actionrun.Options{Params: params, ADBControl: ctrl})
 	res := r.Run(ctx, params, ev.EmitFunc())
 
 	// LLM 形态提取终点读数（cost/tokens/session_id），随 done 事件下发。

@@ -165,9 +165,9 @@ func (s *Service) makeActionRun(merged map[string]any) workflow.ActionRunFunc {
 			return runner.Result{ExitCode: -1, Err: fmt.Errorf("未知动作 %q", req.ActionID)}
 		}
 		// ${VAR} 展开必须在合并前完成（详见 buildActionRunParams 注释）。
-		runParams, expandedEnv := buildActionRunParams(merged, req.Env, req.Params)
+		runParams, expandedEnv := s.buildActionRunParams(req.Ctx, merged, req.Env, req.Params)
 		// 与直跑路径共用同一构造逻辑：形态分发/env 分层/capture 合并都在 actionrun.Build 里。
-		r := actionrun.Build(la, s.runDeps, actionrun.Options{
+		r := actionrun.Build(req.Ctx, la, s.runDeps, actionrun.Options{
 			Params:          runParams,
 			ExtraEnv:        expandedEnv,
 			CaptureOverride: req.CaptureOutput,
@@ -182,13 +182,13 @@ func (s *Service) makeShellRun(merged map[string]any) workflow.ShellRunFunc {
 		// env 的 ${VAR} 用 merged 展开（executor 只做了 ${{ }} 替换，剩余在此了结）
 		expandedEnv := make(map[string]string, len(req.Env))
 		for k, v := range req.Env {
-			expandedEnv[k] = runner.Expand(v, merged)
+			expandedEnv[k] = runner.Expand(req.Ctx, v, merged, s.builtins)
 		}
 		// params 同样展开成终值（runner 拿到即终值的统一约定）
 		runParams := make(map[string]any, len(req.Params))
 		for k, v := range req.Params {
 			if sv, ok := v.(string); ok {
-				runParams[k] = runner.Expand(sv, merged)
+				runParams[k] = runner.Expand(req.Ctx, sv, merged, s.builtins)
 			} else {
 				runParams[k] = v
 			}
@@ -198,6 +198,7 @@ func (s *Service) makeShellRun(merged map[string]any) workflow.ShellRunFunc {
 			Timeout:       parseShellTimeout(req.Timeout),
 			Env:           expandedEnv,
 			CaptureOutput: req.CaptureOutput,
+			Builtins:      s.builtins,
 		}}
 		return r.Run(req.Ctx, runParams, req.Emit)
 	}
@@ -219,7 +220,7 @@ func parseShellTimeout(s string) time.Duration {
 // 展开变量源必须是 merged 而非合并结果——否则 step.params 里 { PACKAGE: "${PACKAGE}" }
 // 这类自引用会展开成自身原值，拿不到 merged 里的真实包名
 // （复现：adb-clean-reinstall 第一步 force-stop 收到空包名）。
-func buildActionRunParams(merged map[string]any, env map[string]string, stepParams map[string]any) (map[string]any, map[string]string) {
+func (s *Service) buildActionRunParams(ctx context.Context, merged map[string]any, env map[string]string, stepParams map[string]any) (map[string]any, map[string]string) {
 	// 1. 合并 merged + stepParams（step 覆盖），字符串值用 merged 展开 ${VAR}
 	runParams := make(map[string]any, len(merged)+len(stepParams))
 	for k, v := range merged {
@@ -227,16 +228,16 @@ func buildActionRunParams(merged map[string]any, env map[string]string, stepPara
 	}
 	for k, v := range stepParams {
 		if sv, ok := v.(string); ok {
-			runParams[k] = runner.Expand(sv, merged)
+			runParams[k] = runner.Expand(ctx, sv, merged, s.builtins)
 		} else {
 			runParams[k] = v
 		}
 	}
 
-	// 2. env 的 ${VAR} 同样用 merged 展开（如 ADB_SERIAL 注入）
+	// 2. env 的 ${VAR} 同样用 merged 展开（如 ADB_SERIAL 内置变量兜底）
 	expandedEnv := make(map[string]string, len(env))
 	for k, v := range env {
-		expandedEnv[k] = runner.Expand(v, merged)
+		expandedEnv[k] = runner.Expand(ctx, v, merged, s.builtins)
 	}
 
 	return runParams, expandedEnv

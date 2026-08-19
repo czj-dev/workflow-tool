@@ -12,6 +12,7 @@ import (
 	"workflow-tool/internal/actionrun"
 	"workflow-tool/internal/adb/binary"
 	"workflow-tool/internal/adb/device"
+	"workflow-tool/internal/builtinvars"
 	"workflow-tool/internal/registry"
 	"workflow-tool/internal/workflow"
 )
@@ -32,9 +33,10 @@ type Service struct {
 	wfMu      sync.Mutex   // 保护 wfReg 的遍历读（GetVarReferenceCounts）
 	wfRunning *runRegistry // workflow 运行簿记
 
-	bin     *binary.Service // adb/fastboot/scrcpy 路径探测
-	dev     *device.Service // 设备列表 + 激活 serial
-	runDeps actionrun.Deps  // actionrun.Build 的共享依赖（两条执行路径共用）
+	bin      *binary.Service       // adb/fastboot/scrcpy 路径探测
+	dev      *device.Service       // 设备列表 + 激活 serial
+	builtins *builtinvars.Registry // 内置变量注册表（CURRENT_DATE/CURRENT_TIME/ADB_SERIAL）
+	runDeps  actionrun.Deps        // actionrun.Build 的共享依赖（两条执行路径共用）
 }
 
 // New 创建 service。cfgPath 是全局配置 config.yaml 路径，fragPath 是 fragments.yaml 路径。
@@ -64,7 +66,8 @@ func New(reg *registry.Registry, wfReg *workflow.WorkflowRegistry, baseDir, cfgP
 	}
 	svc.bin = binary.NewService()
 	svc.dev = device.NewService(svc.binPaths)
-	svc.runDeps = actionrun.Deps{BaseDir: baseDir, ADBPaths: svc.binPaths, ADBDevice: svc.dev}
+	svc.builtins = builtinvars.New(svc.dev)
+	svc.runDeps = actionrun.Deps{BaseDir: baseDir, ADBPaths: svc.binPaths, ADBDevice: svc.dev, Builtins: svc.builtins}
 	return svc
 }
 
