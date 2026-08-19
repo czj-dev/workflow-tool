@@ -12,6 +12,7 @@ import (
 
 	"workflow-tool/internal/adb"
 	"workflow-tool/internal/adb/binary"
+	"workflow-tool/internal/builtinvars"
 	"workflow-tool/internal/registry"
 	"workflow-tool/internal/runner"
 )
@@ -25,9 +26,10 @@ type DeviceResolver interface {
 
 // Deps 是跨动作共享的执行依赖，由 api.Service 构造一次、全程复用。
 type Deps struct {
-	BaseDir   string              // exe 目录，解析相对 script 路径
-	ADBPaths  func() binary.Paths // 二进制路径解析（config 覆盖 → PATH → 常见路径），唯一实现是 api.binPaths
-	ADBDevice DeviceResolver      // 设备解析（serial 校验与回退）
+	BaseDir   string                 // exe 目录，解析相对 script 路径
+	ADBPaths  func() binary.Paths    // 二进制路径解析（config 覆盖 → PATH → 常见路径），唯一实现是 api.binPaths
+	ADBDevice DeviceResolver         // 设备解析（serial 校验与回退）
+	Builtins  *builtinvars.Registry  // 内置变量注册表（CURRENT_DATE/CURRENT_TIME/ADB_SERIAL）
 }
 
 // Options 是一次构造的可变输入：直接运行与 workflow step 运行的差异全部在这里。
@@ -48,7 +50,7 @@ type Options struct {
 
 // Build 按 LoadedAction 的 command 形态构造对应 Runner。
 // registry.Validate 已保证四选一互斥，default 分支即 shell/script 形态。
-func Build(la registry.LoadedAction, deps Deps, opts Options) runner.Runner {
+func Build(ctx context.Context, la registry.LoadedAction, deps Deps, opts Options) runner.Runner {
 	capture := la.Def.Command.CaptureOutput
 	if opts.CaptureOverride != nil {
 		capture = opts.CaptureOverride
@@ -61,9 +63,10 @@ func Build(la registry.LoadedAction, deps Deps, opts Options) runner.Runner {
 			Dev:          deps.ADBDevice,
 			ResolvePaths: deps.ADBPaths,
 			Control:      opts.ADBControl,
+			Builtins:     deps.Builtins,
 		}
 	case la.Def.Command.LLM.Prompt != "":
-		return buildLLM(la, opts)
+		return buildLLM(ctx, la, opts, deps.Builtins)
 	default:
 		return &runner.ShellRunner{Cfg: runner.ShellConfig{
 			Shell:         la.Def.Command.Shell,
@@ -73,13 +76,14 @@ func Build(la registry.LoadedAction, deps Deps, opts Options) runner.Runner {
 			Env:           mergeEnv(la.Def.Command.Env, opts.ExtraEnv),
 			BaseDir:       deps.BaseDir,
 			CaptureOutput: capture,
+			Builtins:      deps.Builtins,
 		}}
 	}
 }
 
 // buildLLM 按 command.llm 声明的 param id 从 params 取终值构造 LLMRunner。
 // CLI 名空时由 LLMRunner 内部取默认（ducc）。
-func buildLLM(la registry.LoadedAction, opts Options) runner.Runner {
+func buildLLM(ctx context.Context, la registry.LoadedAction, opts Options, builtins *builtinvars.Registry) runner.Runner {
 	cmd := la.Def.Command.LLM
 	return &runner.LLMRunner{Cfg: runner.LLMConfig{
 		CLI:          strOf(opts.Params, "LLM_CLI"),
@@ -87,9 +91,10 @@ func buildLLM(la registry.LoadedAction, opts Options) runner.Runner {
 		Prompt:       strOf(opts.Params, cmd.Prompt),
 		Resume:       strings.TrimSpace(strOf(opts.Params, cmd.Resume)),
 		// LLMRunner 不做 ${VAR} 替换，Cwd 在这里展开成终值（与 Shell 形态传 raw 不同）。
-		Cwd:     runner.Expand(la.Cwd, opts.Params),
-		Timeout: la.Timeout,
-		Env:     mergeEnv(la.Def.Command.Env, opts.ExtraEnv),
+		Cwd:      runner.Expand(ctx, la.Cwd, opts.Params, builtins),
+		Timeout:  la.Timeout,
+		Env:      mergeEnv(la.Def.Command.Env, opts.ExtraEnv),
+		Builtins: builtins,
 	}}
 }
 

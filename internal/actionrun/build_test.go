@@ -1,10 +1,12 @@
 package actionrun
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	"workflow-tool/internal/adb"
+	"workflow-tool/internal/builtinvars"
 	"workflow-tool/internal/registry"
 	"workflow-tool/internal/runner"
 )
@@ -19,7 +21,7 @@ func TestBuildShellForm(t *testing.T) {
 		},
 		Cwd: "/tmp",
 	}
-	r := Build(la, Deps{BaseDir: "/base"}, Options{})
+	r := Build(context.Background(), la, Deps{BaseDir: "/base"}, Options{})
 	sr, ok := r.(*runner.ShellRunner)
 	if !ok {
 		t.Fatalf("want ShellRunner, got %T", r)
@@ -32,7 +34,7 @@ func TestBuildShellForm(t *testing.T) {
 	}
 
 	// env 分层：注入 env 覆盖 action 定义同名键
-	sr2 := Build(la, Deps{}, Options{ExtraEnv: map[string]string{"A": "2", "B": "3"}}).(*runner.ShellRunner)
+	sr2 := Build(context.Background(), la, Deps{}, Options{ExtraEnv: map[string]string{"A": "2", "B": "3"}}).(*runner.ShellRunner)
 	if sr2.Cfg.Env["A"] != "2" || sr2.Cfg.Env["B"] != "3" {
 		t.Fatalf("env merge mismatch: %v", sr2.Cfg.Env)
 	}
@@ -40,15 +42,22 @@ func TestBuildShellForm(t *testing.T) {
 	// capture_output: false（action 定义）→ 直跑也生效（回归测试：原 api.execute 漏传）
 	f := false
 	la.Def.Command.CaptureOutput = &f
-	sr3 := Build(la, Deps{}, Options{}).(*runner.ShellRunner)
+	sr3 := Build(context.Background(), la, Deps{}, Options{}).(*runner.ShellRunner)
 	if sr3.Cfg.CaptureOutput == nil || *sr3.Cfg.CaptureOutput {
 		t.Fatalf("action 定义 capture_output:false 未生效")
 	}
 	// step 显式覆盖 > action 定义
 	tr := true
-	sr4 := Build(la, Deps{}, Options{CaptureOverride: &tr}).(*runner.ShellRunner)
+	sr4 := Build(context.Background(), la, Deps{}, Options{CaptureOverride: &tr}).(*runner.ShellRunner)
 	if sr4.Cfg.CaptureOutput == nil || !*sr4.Cfg.CaptureOutput {
 		t.Fatalf("step capture 覆盖未生效")
+	}
+
+	// Deps.Builtins 应透传到 ShellRunner.Cfg.Builtins
+	builtins := builtinvars.New(nil)
+	sr5 := Build(context.Background(), la, Deps{Builtins: builtins}, Options{}).(*runner.ShellRunner)
+	if sr5.Cfg.Builtins != builtins {
+		t.Fatal("Deps.Builtins 未透传到 ShellConfig.Builtins")
 	}
 }
 
@@ -61,7 +70,7 @@ func TestBuildADBForm(t *testing.T) {
 		},
 		Timeout: 5 * time.Second,
 	}
-	r := Build(la, Deps{}, Options{})
+	r := Build(context.Background(), la, Deps{}, Options{})
 	ar, ok := r.(*adb.ADBRunner)
 	if !ok {
 		t.Fatalf("want ADBRunner, got %T", r)
@@ -83,7 +92,7 @@ func TestBuildLLMForm(t *testing.T) {
 	params := map[string]any{
 		"ROLE": "you are", "TASK": "do", "SID": " s1 ", "X": "work", "LLM_CLI": "claude",
 	}
-	r := Build(la, Deps{}, Options{Params: params})
+	r := Build(context.Background(), la, Deps{}, Options{Params: params})
 	lr, ok := r.(*runner.LLMRunner)
 	if !ok {
 		t.Fatalf("want LLMRunner, got %T", r)
@@ -101,7 +110,7 @@ func TestBuildLLMForm(t *testing.T) {
 		t.Fatalf("cwd 未展开: %q", lr.Cfg.Cwd)
 	}
 	// env 分层对 LLM 形态同样生效
-	sr := Build(la, Deps{}, Options{Params: params, ExtraEnv: map[string]string{"K": "v"}})
+	sr := Build(context.Background(), la, Deps{}, Options{Params: params, ExtraEnv: map[string]string{"K": "v"}})
 	if got := sr.(*runner.LLMRunner).Cfg.Env["K"]; got != "v" {
 		t.Fatalf("LLM env 注入缺失: %v", got)
 	}
