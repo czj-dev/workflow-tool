@@ -280,7 +280,7 @@ command:
 | `scrcpy-record-stop` | 无 | 停止当前设备的录制，校验输出文件非空 |
 | `clipboard-set` | `TEXT`(text,必填) | 设置设备剪贴板 |
 | `clipboard-get` | 无 | 读取设备剪贴板，结果经 stdout |
-| `screenshot` | `OUTPUT_PATH`(path,必填) | `exec-out screencap -p` 存到本地 |
+| `screenshot` | `OUTPUT_PATH`(path,必填)、`DISPLAY_ID`(text,可选) | `exec-out screencap -p` 存到本地；`DISPLAY_ID` 非空时加 `-d <id>` 指定截屏 display（多屏设备用），自动剥离 screencap 混入 PNG 前的多屏警告噪声 |
 
 **输入（1）**
 

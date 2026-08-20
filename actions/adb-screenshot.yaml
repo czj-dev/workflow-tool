@@ -7,7 +7,11 @@ params:
     label: 保存路径（含文件名 .png）
     type: path
     required: true
-    default: ${OUTPUT_DIR}
+    default: ${OUTPUT_DIR}/${CURRENT_TIME}.png
+  - id: DISPLAY_ID
+    label: Display ID（多屏设备指定，留空用默认屏）
+    type: text
+    required: false
 command:
   adb:
     operation: screenshot
