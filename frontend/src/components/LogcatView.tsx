@@ -4,10 +4,13 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import {
   ArrowLeft01Icon,
   ArrowDown01Icon,
+  ArrowTurnBackwardIcon,
   Cancel01Icon,
+  CheckmarkCircle02Icon,
+  Copy02Icon,
+  Delete02Icon,
   FloppyDiskIcon,
 } from "@hugeicons/core-free-icons";
-import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import {
   Select,
@@ -441,10 +444,12 @@ export function LogcatView() {
           {statusNode}
         </div>
         {running && (
-          <Button variant="destructive" size="sm" onClick={cancel}>
-            <HugeiconsIcon icon={Cancel01Icon} strokeWidth={1.75} className="size-4" />
-            {t("main.stop")}
-          </Button>
+          <IconButton
+            icon={Cancel01Icon}
+            label={t("main.stop")}
+            variant="destructive"
+            onClick={cancel}
+          />
         )}
       </header>
 
@@ -499,28 +504,21 @@ export function LogcatView() {
               {p.name}
             </button>
           ))}
-          <button
-            type="button"
+          {/* 重置：ArrowTurnBackward 回退曲线，与「再跑」的水平双向箭头拉开 */}
+          <IconButton
+            icon={ArrowTurnBackwardIcon}
+            label={t("logcat.reset")}
+            variant="outline"
+            className="ml-1"
             onClick={resetRule}
-            title={t("logcat.reset")}
-            className="ml-1 h-8 rounded-md px-2 font-mono text-xs text-muted-foreground hover:bg-primary/10 hover:text-primary"
-          >
-            ⟲ {t("logcat.reset")}
-          </button>
-          {/* 存为预设：甲板当前规则（含 regex/pid/取反）落盘为 preset */}
-          <button
-            type="button"
+          />
+          {/* 存为预设：甲板当前规则（含 regex/pid/取反）落盘为 preset；软盘=「落盘持久化」家族词 */}
+          <IconButton
+            icon={FloppyDiskIcon}
+            label={t("logcat.savePreset")}
+            variant="outline"
             onClick={() => setSaveOpen(true)}
-            title={t("logcat.savePreset")}
-            className="h-8 rounded-md px-2 font-mono text-xs text-muted-foreground hover:bg-primary/10 hover:text-primary"
-          >
-            <HugeiconsIcon
-              icon={FloppyDiskIcon}
-              strokeWidth={1.75}
-              className="mr-1 inline size-3.5"
-            />
-            {t("logcat.savePreset")}
-          </button>
+          />
         </span>
         {/* matched/total 读数：重放帧更新时脉冲一下；0 命中转 destructive */}
         {hasStats ? (
@@ -538,12 +536,20 @@ export function LogcatView() {
             {logcatEntries.length}
           </span>
         )}
-        <Button variant="outline" size="sm" onClick={onCopy}>
-          {copied ? t("main.copied") : t("main.copy")}
-        </Button>
-        <Button variant="outline" size="sm" onClick={clearLogcat}>
-          {t("main.clear")}
-        </Button>
+        <IconButton
+          icon={copied ? CheckmarkCircle02Icon : Copy02Icon}
+          label={copied ? t("main.copied") : t("main.copy")}
+          variant="outline"
+          className={copied ? "text-success" : undefined}
+          onClick={onCopy}
+        />
+        <IconButton
+          icon={Delete02Icon}
+          label={t("main.clear")}
+          variant="outline"
+          className="hover:text-destructive"
+          onClick={clearLogcat}
+        />
       </div>
 
       {/* ——— 行 2 · 查询控制台（签名元素）：虚线框 = 条件组，chips + 草稿输入 + 快捷条 ——— */}

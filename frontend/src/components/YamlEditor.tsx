@@ -56,7 +56,12 @@ import {
 } from "@/components/ui/dialog";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { IconButton } from "./IconButton";
-import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
+import {
+  ArrowLeft01Icon,
+  ArrowTurnBackwardIcon,
+  FloppyDiskIcon,
+  Loading03Icon,
+} from "@hugeicons/core-free-icons";
 import { useResolvedTheme } from "./theme-provider";
 import {
   useYamlEditorState,
@@ -320,26 +325,24 @@ export function YamlEditor({
             variant="secondary"
             onClick={() => guard(onExit)}
           />
-          <Button
+          {/* 重置：回退曲线（与 Logcat ⟲ 同词），丢弃未保存改动回磁盘版本 */}
+          <IconButton
+            icon={ArrowTurnBackwardIcon}
+            label={t("edit.reset")}
             variant="outline"
-            size="sm"
             disabled={!state.dirty || state.saving || state.loading}
             onClick={() => void state.reset()}
-          >
-            {t("edit.reset")}
-          </Button>
-          <span className="relative">
-            <Button
-              size="sm"
-              disabled={!state.dirty || state.saving || state.loading}
-              onClick={() => void state.save()}
-            >
-              {state.saving ? t("edit.saving") : t("edit.save")}
-            </Button>
-            {state.dirty && !state.saving && (
-              <span className="live-pulse pointer-events-none absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-primary" />
-            )}
-          </span>
+          />
+          {/* 保存：软盘；saving 换 loading 圈自旋，dirty 时右上角脉冲点 */}
+          <IconButton
+            icon={state.saving ? Loading03Icon : FloppyDiskIcon}
+            iconClassName={state.saving ? "animate-spin" : undefined}
+            label={state.saving ? t("edit.saving") : t("edit.save")}
+            variant="default"
+            dot={state.dirty && !state.saving}
+            disabled={!state.dirty || state.saving || state.loading}
+            onClick={() => void state.save()}
+          />
         </div>
       </header>
 

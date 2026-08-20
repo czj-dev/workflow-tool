@@ -136,8 +136,8 @@ describe("LlmChatView", () => {
     await act(() => Promise.resolve());
     await act(() => Promise.resolve());
     await act(() => Promise.resolve());
-    // 历史按钮常驻，初始无计数
-    const historyBtn = await screen.findByRole("button", { name: /历史/ });
+    // 历史按钮常驻，初始无计数（badge 不渲染、aria-label 不带 N）
+    const historyBtn = await screen.findByRole("button", { name: "历史" });
     expect(historyBtn.textContent).not.toMatch(/\d/);
     act(() => {
       _emitForTest("action:c1:output", { data: { stream: "llm", line: "done-text" } });
@@ -145,10 +145,10 @@ describe("LlmChatView", () => {
     act(() => {
       _emitForTest("action:c1:done", { data: { exitCode: 0, err: "", duration: "1.2s" } });
     });
-    // done 写入 1 条历史 → 按钮出现计数
-    expect(await screen.findByRole("button", { name: /历史\s*1/ })).toBeInTheDocument();
+    // done 写入 1 条历史 → badge 出现、aria-label 变「历史 · 1」
+    expect(await screen.findByRole("button", { name: "历史 · 1" })).toBeInTheDocument();
     // 打开抽屉能看到该条目的 prompt
-    fireEvent.click(screen.getByRole("button", { name: /历史\s*1/ }));
+    fireEvent.click(screen.getByRole("button", { name: "历史 · 1" }));
     expect(await screen.findByText("历史记录 · 1")).toBeInTheDocument();
   });
 
@@ -182,7 +182,7 @@ describe("LlmChatView", () => {
     });
     // 打开历史抽屉并点选条目 → 只读查看态（进入查看时需显式滚到底，读数行才可见）
     scrollToBottomMock.mockClear();
-    fireEvent.click(await screen.findByRole("button", { name: /历史\s*1/ }));
+    fireEvent.click(await screen.findByRole("button", { name: "历史 · 1" }));
     fireEvent.click(await screen.findByText("请处理卡片"));
     await act(() => Promise.resolve());
     expect(scrollToBottomMock).toHaveBeenCalled();

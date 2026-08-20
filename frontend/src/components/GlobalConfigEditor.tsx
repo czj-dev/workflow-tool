@@ -72,18 +72,14 @@ export function GlobalConfigEditor() {
         </div>
         <div className="flex items-center gap-1">
           <IconButton icon={Add01Icon} label={t("global.add")} variant="outline" onClick={add} />
-          <span className="relative">
-            <IconButton
-              icon={FloppyDiskIcon}
-              label={t("global.save")}
-              variant={dirty ? "default" : "outline"}
-              disabled={!dirty}
-              onClick={save}
-            />
-            {dirty && (
-              <span className="live-pulse pointer-events-none absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-primary" />
-            )}
-          </span>
+          <IconButton
+            icon={FloppyDiskIcon}
+            label={t("global.save")}
+            variant={dirty ? "default" : "outline"}
+            dot={dirty}
+            disabled={!dirty}
+            onClick={save}
+          />
         </div>
       </header>
 

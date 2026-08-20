@@ -4,6 +4,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { ArrowLeft01Icon, Cancel01Icon, Clock01Icon, SentIcon, Tag01Icon } from "@hugeicons/core-free-icons";
 import { Popover } from "radix-ui";
 import { Button } from "@/components/ui/button";
+import { ButtonGroup } from "@/components/ui/button-group";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { Kbd } from "@/components/ui/kbd";
 import { IconButton } from "./IconButton";
@@ -158,21 +159,28 @@ export function LlmChatView() {
             </span>
           ) : null}
         </div>
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setHistoryOpen((v) => !v)}>
-            <HugeiconsIcon icon={Clock01Icon} strokeWidth={1.75} className="size-4" />
-            {t("llmChat.history")}
-            {llmHistory.length > 0 && (
-              <span className="ml-1 font-mono text-[11px] tabular-nums">{llmHistory.length}</span>
-            )}
-          </Button>
+        <ButtonGroup>
+          {/* 历史计数：右上角 badge + label 并入「历史 · N」（aria-label 同步可读） */}
+          <IconButton
+            icon={Clock01Icon}
+            label={
+              llmHistory.length > 0
+                ? `${t("llmChat.history")} · ${llmHistory.length}`
+                : t("llmChat.history")
+            }
+            variant="outline"
+            badge={llmHistory.length}
+            onClick={() => setHistoryOpen((v) => !v)}
+          />
           {running && (
-            <Button variant="destructive" size="sm" onClick={cancel}>
-              <HugeiconsIcon icon={Cancel01Icon} strokeWidth={1.75} className="size-4" />
-              {t("llmChat.stop")}
-            </Button>
+            <IconButton
+              icon={Cancel01Icon}
+              label={t("llmChat.stop")}
+              variant="destructive"
+              onClick={cancel}
+            />
           )}
-        </div>
+        </ButtonGroup>
       </header>
 
       {/* min-h-0：Thread 基类带 h-full（height:100%），作为 flex 子项且 min-height:auto 时

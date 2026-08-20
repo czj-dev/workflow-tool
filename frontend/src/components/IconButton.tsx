@@ -11,6 +11,12 @@ interface IconButtonProps {
   variant?: ComponentProps<typeof Button>["variant"];
   size?: ComponentProps<typeof Button>["size"];
   className?: string;
+  /** 透传给内部 HugeiconsIcon（如 saving 态的 animate-spin） */
+  iconClassName?: string;
+  /** 右上角数字角标（如 LLM 历史 N 条）；0/undefined 不渲染。需可读时由调用方并入 label（如「历史 · 3」） */
+  badge?: number;
+  /** 右上角 live-pulse 脉冲点（dirty/待保存提示） */
+  dot?: boolean;
   disabled?: boolean;
   onClick?: (e?: React.MouseEvent) => void;
 }
@@ -18,12 +24,16 @@ interface IconButtonProps {
 // 统一的图标按钮：视觉无文字，hover 显 tooltip。label 同时作 aria-label，
 // 让屏幕阅读器与 testing-library（getByRole name）都能识别。base-ui Tooltip
 // 顶层 TooltipProvider 已在 App 注入。
+// badge/dot 绝对定位在按钮右上角（按钮恒 relative），pointer-events-none 不挡点击。
 export function IconButton({
   icon,
   label,
   variant = "ghost",
   size = "icon-sm",
   className,
+  iconClassName,
+  badge,
+  dot,
   disabled,
   onClick,
 }: IconButtonProps) {
@@ -37,9 +47,17 @@ export function IconButton({
             aria-label={label}
             disabled={disabled}
             onClick={onClick}
-            className={cn(className)}
+            className={cn("relative", className)}
           >
-            <HugeiconsIcon icon={icon} strokeWidth={1.75} />
+            <HugeiconsIcon icon={icon} strokeWidth={1.75} className={iconClassName} />
+            {badge !== undefined && badge > 0 && (
+              <span className="pointer-events-none absolute -right-1.5 -top-1.5 grid min-w-4 place-items-center rounded-full bg-primary px-0.5 font-mono text-[9px] leading-3.5 text-primary-foreground tabular-nums">
+                {badge}
+              </span>
+            )}
+            {dot && (
+              <span className="live-pulse pointer-events-none absolute -right-0.5 -top-0.5 size-1.5 rounded-full bg-primary" />
+            )}
           </Button>
         }
       />

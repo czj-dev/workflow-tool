@@ -7,18 +7,21 @@ import {
   CollapsibleTrigger,
   CollapsibleContent,
 } from "@/components/ui/collapsible";
-import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { HugeiconsIcon } from "@hugeicons/react";
 import { cn } from "@/lib/utils";
 import { useActionRunner } from "../hooks/useActionRunner";
 import type { WorkflowStepState } from "../types/events";
 import { ActionIcon } from "./ActionIcon";
 import { IconButton } from "./IconButton";
 import { OutputLines } from "./OutputLines";
-import { ArrowLeft01Icon, ArrowReloadHorizontalIcon, PreferenceHorizontalIcon } from "@hugeicons/core-free-icons";
+import {
+  ArrowLeft01Icon,
+  ArrowReloadHorizontalIcon,
+  Cancel01Icon,
+  PreferenceHorizontalIcon,
+} from "@hugeicons/core-free-icons";
 
 // step status → i18n key 映射
 const STATUS_I18N: Record<WorkflowStepState["status"], string> = {
@@ -111,34 +114,28 @@ export function WorkflowView() {
         </div>
         <ButtonGroup>
           {canRerun && (
-            <Button
+            <IconButton
+              icon={ArrowReloadHorizontalIcon}
+              label={t("main.rerun")}
               variant="outline"
-              size="sm"
               onClick={() => rerun(currentId!)}
-              title={t("main.rerun")}
-            >
-              <HugeiconsIcon icon={ArrowReloadHorizontalIcon} strokeWidth={1.75} />
-              {t("main.rerun")}
-            </Button>
+            />
           )}
           {canRerun && hasParams && (
-            <Button
+            <IconButton
+              icon={PreferenceHorizontalIcon}
+              label={t("main.editRerun")}
               variant="outline"
-              size="icon-sm"
               onClick={() => editRerun(currentId!)}
-              title={t("main.editRerun")}
-            >
-              <HugeiconsIcon icon={PreferenceHorizontalIcon} strokeWidth={1.75} />
-            </Button>
+            />
           )}
-          <Button
+          <IconButton
+            icon={Cancel01Icon}
+            label={t("main.stop")}
             variant="destructive"
-            size="sm"
             disabled={!running}
             onClick={cancelWorkflow}
-          >
-            {t("main.stop")}
-          </Button>
+          />
         </ButtonGroup>
       </header>
 

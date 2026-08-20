@@ -40,9 +40,10 @@ describe("OutputPanel", () => {
       </ThemeProvider>
     );
     expect(await screen.findByText("选择一个动作")).toBeInTheDocument();
-    expect(screen.getByText("停止")).toBeInTheDocument();
-    expect(screen.getByText("清空")).toBeInTheDocument();
-    expect(screen.getByText("复制")).toBeInTheDocument();
+    // 工具栏按钮已图标化：文字只在 aria-label（tooltip）里
+    expect(screen.getByRole("button", { name: "停止" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "清空" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "复制" })).toBeInTheDocument();
   });
 
   it("点击标题进入编辑视图", async () => {

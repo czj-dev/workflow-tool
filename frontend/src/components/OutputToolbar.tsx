@@ -1,10 +1,17 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Button } from "@/components/ui/button";
 import { ButtonGroup } from "@/components/ui/button-group";
 import { SidebarTrigger } from "@/components/ui/sidebar";
-import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowLeft01Icon, Edit02Icon, ArrowReloadHorizontalIcon, PreferenceHorizontalIcon } from "@hugeicons/core-free-icons";
+import {
+  ArrowLeft01Icon,
+  ArrowReloadHorizontalIcon,
+  Cancel01Icon,
+  CheckmarkCircle02Icon,
+  Copy02Icon,
+  Delete02Icon,
+  Edit02Icon,
+  PreferenceHorizontalIcon,
+} from "@hugeicons/core-free-icons";
 import { IconButton } from "./IconButton";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { ActionIcon } from "./ActionIcon";
@@ -85,48 +92,49 @@ export function OutputToolbar() {
       </div>
       <ButtonGroup>
         {canRerun && (
-          <Button
+          <IconButton
+            icon={ArrowReloadHorizontalIcon}
+            label={t("main.rerun")}
             variant="outline"
-            size="sm"
             onClick={() => rerun(currentId!)}
-            title={t("main.rerun")}
-          >
-            <HugeiconsIcon icon={ArrowReloadHorizontalIcon} strokeWidth={1.75} />
-            {t("main.rerun")}
-          </Button>
+          />
         )}
         {canRerun && hasParams && (
-          <Button
+          <IconButton
+            icon={PreferenceHorizontalIcon}
+            label={t("main.editRerun")}
             variant="outline"
-            size="icon-sm"
             onClick={() => editRerun(currentId!)}
-            title={t("main.editRerun")}
-          >
-            <HugeiconsIcon icon={PreferenceHorizontalIcon} strokeWidth={1.75} />
-          </Button>
+          />
         )}
-        <Button
+        <IconButton
+          icon={Edit02Icon}
+          label={t("edit.tooltip")}
           variant="outline"
-          size="icon-sm"
           onClick={() => setView("edit")}
-          title={t("edit.tooltip")}
-        >
-          <HugeiconsIcon icon={Edit02Icon} strokeWidth={1.75} />
-        </Button>
-        <Button variant="outline" size="sm" onClick={onCopy}>
-          {copied ? t("main.copied") : t("main.copy")}
-        </Button>
-        <Button variant="outline" size="sm" onClick={clearOutput}>
-          {t("main.clear")}
-        </Button>
-        <Button
+        />
+        {/* 复制反馈：图标切 CheckmarkCircle + success 色 + tooltip 变「已复制」（与 FragmentsList 同款） */}
+        <IconButton
+          icon={copied ? CheckmarkCircle02Icon : Copy02Icon}
+          label={copied ? t("main.copied") : t("main.copy")}
+          variant="outline"
+          className={copied ? "text-success" : undefined}
+          onClick={onCopy}
+        />
+        <IconButton
+          icon={Delete02Icon}
+          label={t("main.clear")}
+          variant="outline"
+          className="hover:text-destructive"
+          onClick={clearOutput}
+        />
+        <IconButton
+          icon={Cancel01Icon}
+          label={t("main.stop")}
           variant="destructive"
-          size="sm"
           disabled={!running}
           onClick={cancel}
-        >
-          {t("main.stop")}
-        </Button>
+        />
       </ButtonGroup>
     </header>
   );
