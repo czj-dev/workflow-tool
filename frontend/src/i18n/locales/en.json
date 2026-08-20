@@ -18,8 +18,6 @@
   "main.standby": "Standby",
   "main.standbyHint": "Run an action and its output will appear here",
   "form.presetsLabel": "Presets",
-  "form.launchedLabel": "Armed with",
-  "form.expandEdit": "Edit params",
   "form.ready": "Ready",
   "form.armedCount": "{{filled}}/{{total}} armed",
   "llm.thinking": "Thinking…",

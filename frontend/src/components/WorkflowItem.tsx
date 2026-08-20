@@ -19,16 +19,16 @@ const DOUBLE_CLICK_DELAY = 250; // ms
 // 双击 —— 始终直接运行（用默认参数）。
 // 运行指示用 Live Pulse；完成用 success 色。
 export function WorkflowItem({ workflow }: { workflow: WorkflowItemType }) {
-  const { currentId, status, view, runningWorkflowId, runWorkflow, selectWorkflow, focusWorkflow } =
+  const { currentId, status, view, runningWorkflowId, runWorkflow, selectWorkflow, focusWorkflow, formSheetOpen } =
     useActionRunner();
   const { recordUsage } = useActionUsage("workflow-usage");
   const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 是否「值得进表单」：有必填且无默认值的项。否则单击直接运行（不弹空表单）。
   const showForm = hasFormFields(workflow.params);
 
-  const isWorkflowView =
-    view === "workflow" || view === "workflow-form" || view === "workflow-edit";
-  const isCurrent = currentId === workflow.id && isWorkflowView;
+  const isWorkflowView = view === "workflow" || view === "workflow-edit";
+  // 表单抽屉打开（selectWorkflow）时也算「当前」——旧 workflow-form 视图的高亮语义迁到抽屉态
+  const isCurrent = currentId === workflow.id && (isWorkflowView || formSheetOpen);
   // 该 workflow 正在运行（无论 currentId 是否已切走）
   const isRunning = runningWorkflowId === workflow.id;
 
@@ -41,7 +41,7 @@ export function WorkflowItem({ workflow }: { workflow: WorkflowItemType }) {
         return;
       }
       if (showForm) {
-        selectWorkflow(workflow.id); // 进 workflow-form
+        selectWorkflow(workflow.id); // 打开表单抽屉（主区视图原地不动）
       } else {
         runWorkflow(workflow.id, {});
         recordUsage(workflow.id);

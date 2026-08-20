@@ -70,15 +70,14 @@ interface ExitInfo {
 }
 
 // 右栏视图枚举：OutputPanel 按此分派。原先在接口/useState/setView 三处重复，抽成单一来源。
+// 表单不再是视图：action / workflow 参数表单走左侧非模态抽屉 ParamSheet（formSheetOpen）。
 export type RunnerView =
   | "output"
-  | "form"
   | "global"
   | "logcat"
   | "fragments"
   | "edit"
   | "workflow"
-  | "workflow-form"
   | "workflow-edit"
   | "settings"
   | "actions-grid"
@@ -130,6 +129,13 @@ export interface RunnerContextValue {
   fragmentsOpen: boolean;
   setFragmentsOpen: (v: boolean) => void;
   toggleFragments: () => void;
+  // 参数表单抽屉（非模态，左侧，action / workflow 共用单实例）：开合态会话内有效不落盘。
+  // selectPreset / selectWorkflow / editRerun 打开（主区视图原地不动，抽屉只是叠加）；
+  // 前台点火（runAction / runWorkflow 非 background）与切走 currentId 的导航
+  // （focusRunning / focusWorkflow / openLlmChat）关闭。内容按 currentId 从
+  // actions / workflows 解析，故单实例重定向：开着时点其他项即替换内容。
+  formSheetOpen: boolean;
+  setFormSheetOpen: (v: boolean) => void;
   // workflow 状态
   workflows: WorkflowItem[];
   workflowErrors: string[];
@@ -346,6 +352,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   // 片段抽屉开合（会话内，重启默认关，见 RunnerContextValue 注释）
   const [fragmentsOpen, setFragmentsOpen] = useState(false);
   const toggleFragments = () => setFragmentsOpen((v) => !v);
+  // 参数表单抽屉开合（会话内，重启默认关）
+  const [formSheetOpen, setFormSheetOpen] = useState(false);
   // ⌘/Ctrl+K 全局开关片段抽屉：window 级监听，任何视图/任意焦点位置（含
   // CodeMirror、textarea）都生效。项目内无其它全局快捷键，无冲突。
   useEffect(() => {
@@ -370,9 +378,6 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   // 当前查看的 id（供持久 done 回调判断是否该更新可见 UI，不触发重渲染）
   const currentIdRef = useRef<string | null>(null);
   currentIdRef.current = currentId;
-  // 视图 ref 镜像：runAction 需读当前视图判断「发射台」路径（form 内点火不切视图），闭包捕获 state 会陈旧
-  const viewRef = useRef<RunnerView>(view);
-  viewRef.current = view;
   // 后台仍在运行的 action id 集合。后端按 id 并发（不同 id 可同时跑），
   // 故运行态必须按 id 记录，不能只靠单一 status——否则切走再回来会丢失「运行中」。
   const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
@@ -738,11 +743,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       setStatus("running");
       setExitInfo(null);
       setSelectedPreset(null);
-      // 发射台模式：从本动作的表单视图点火（普通动作）→ 留在 form 视图，
-      // ParamForm 自行切换到「摘要 + 输出」发射态；logcat / LLM 动作照旧切专属视图。
-      const stayInForm =
-        viewRef.current === "form" && currentIdRef.current === id &&
-        !action?.llm && action?.stream !== "logcat";
+      // 点火即关表单抽屉：输出属于主区视图（output / logcat / llm-chat），不再有「发射态」。
+      setFormSheetOpen(false);
       if (action?.llm) {
         setLlmText("");
         setThinkingText("");
@@ -766,7 +768,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         setLogcatTagHist([]);
         setLogcatReplaceSeq(0);
         setView("logcat");
-      } else if (!stayInForm) {
+      } else {
         setView("output");
       }
     }
@@ -837,6 +839,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     // 从 grid/sidebar 点进来只是换视图，事件一直在往里写，必须原样保留；
     // 否则（切自另一个后台运行动作）单缓冲已被覆盖，本就无法恢复（已知单缓冲限制），才清空。
     const sameId = currentIdRef.current === id;
+    // 导航去运行视图：表单抽屉随之关闭（内容按 currentId 取，不跟随切换）
+    setFormSheetOpen(false);
     setCurrentId(id);
     setStatus("running");
     setExitInfo(null);
@@ -901,6 +905,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setLogcatReplaceSeq(0);
     setStatus("idle");
     setExitInfo(null);
+    setFormSheetOpen(false); // 进聊天页：表单抽屉关闭
     setView("llm-chat");
   };
 
@@ -908,6 +913,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   // 与 focusRunning（action）语义类似，但不重置 status：workflow 的 status 由 done 事件更新，
   // 切回时若仍在跑，status 已是 "running"；若已完成，保留 done/error 徽标。
   const focusWorkflow = (id: string) => {
+    setFormSheetOpen(false); // 导航去 workflow 视图：表单抽屉随之关闭
     setCurrentId(id);
     setSelectedPreset(null);
     setView("workflow");
@@ -928,6 +934,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       setSelectedPreset(null);
       setStatus("running");
       setExitInfo(null);
+      setFormSheetOpen(false); // 点火即关表单抽屉，主区切 workflow spine
       setView("workflow");
       workflowIdRef.current = id;
       // 同步订阅 output/done：前台运行要展示 pipeline spine 与状态。
@@ -944,7 +951,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  // selectWorkflow：有 params → 预填表单切 workflow-form；无 params → 直接跑
+  // selectWorkflow：有 params → 预填表单并打开表单抽屉（主区视图原地不动）；无 params → 直接跑
   const selectWorkflow = (id: string) => {
     const w = workflows.find((x) => x.id === id);
     if (!w) return;
@@ -963,14 +970,14 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setSelectedPreset(null);
     setStatus("idle");
     setExitInfo(null);
-    setView("workflow-form");
+    setFormSheetOpen(true);
   };
 
   const cancelWorkflow = () => {
     if (workflowIdRef.current) CancelWorkflow(workflowIdRef.current);
   };
 
-  // selectPreset：把预设值（+ 各 param 的 default 预填）填入 formValues，切到 form 视图。
+  // selectPreset：把预设值（+ 各 param 的 default 预填）填入 formValues，打开表单抽屉。
   // presetName 找不到时（如 ""）仅用 default 预填，仍进表单。
   // 优先级：preset值 > param default > 全局配置同名 key
   const selectPreset = (actionId: string, presetName: string) => {
@@ -988,7 +995,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     // 进表单=准备新配置，清除上次运行的 status/exitInfo，避免选中动作残留 error/done 徽标
     setStatus("idle");
     setExitInfo(null);
-    setView("form");
+    setFormSheetOpen(true);
   };
 
   const saveGlobalConfig = async (kv: Record<string, string>) => {
@@ -1092,7 +1099,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     const params = lastRunParams[id] ?? {};
     const wf = workflows.find((w) => w.id === id);
     if (wf) {
-      // workflow → workflow-form
+      // workflow → 表单抽屉（lastRunParams 预填）
       const vals: Record<string, string> = {};
       wf.params?.forEach((p) => { vals[p.id] = params[p.id] ?? p.default ?? ""; });
       setWorkflowFormValues(vals);
@@ -1100,9 +1107,9 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       setSelectedPreset(null);
       setStatus("idle");
       setExitInfo(null);
-      setView("workflow-form");
+      setFormSheetOpen(true);
     } else {
-      // action → form（走 selectPreset 逻辑，但用 lastRunParams 覆盖 defaults）
+      // action → 表单抽屉（走 selectPreset 逻辑，但用 lastRunParams 覆盖 defaults）
       const a = actions.find((x) => x.id === id);
       if (!a) return;
       const vals: Record<string, string> = {};
@@ -1112,7 +1119,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       setSelectedPreset(null);
       setStatus("idle");
       setExitInfo(null);
-      setView("form");
+      setFormSheetOpen(true);
     }
   };
 
@@ -1169,6 +1176,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     fragmentsOpen,
     setFragmentsOpen,
     toggleFragments,
+    formSheetOpen,
+    setFormSheetOpen,
     workflows,
     workflowErrors,
     workflowSteps,

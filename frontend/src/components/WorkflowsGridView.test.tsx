@@ -29,10 +29,15 @@ import { ActionRunnerProvider } from "../context/ActionRunnerProvider";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { WorkflowsGridView } from "./WorkflowsGridView";
 
-// ViewProbe：暴露 provider 内部 view 状态，让用例可断言点击后的视图路由。
+// ViewProbe：暴露 provider 内部 view / formSheetOpen 状态，让用例可断言点击后的路由与抽屉开合。
 function ViewProbe() {
-  const { view } = useActionRunner();
-  return <div data-testid="view-probe">{view}</div>;
+  const { view, formSheetOpen } = useActionRunner();
+  return (
+    <>
+      <div data-testid="view-probe">{view}</div>
+      <div data-testid="form-open-probe">{String(formSheetOpen)}</div>
+    </>
+  );
 }
 
 beforeEach(() => {
@@ -143,7 +148,7 @@ describe("WorkflowsGridView", () => {
     expect(screen.getByTestId("view-probe")).toHaveTextContent(/^workflow$/);
   });
 
-  it("点击必填参数 workflow 卡片进入表单视图(不直接运行)", async () => {
+  it("点击必填参数 workflow 卡片打开表单抽屉(不直接运行)", async () => {
     const user = userEvent.setup();
     mockListWorkflows.mockResolvedValue({
       workflows: [
@@ -165,7 +170,9 @@ describe("WorkflowsGridView", () => {
     render(wrap());
     await user.click(await screen.findByText("必填"));
     expect(mockRunWorkflow).not.toHaveBeenCalled();
-    expect(screen.getByTestId("view-probe")).toHaveTextContent("workflow-form");
+    // selectWorkflow → 打开表单抽屉，主区视图原地不动
+    expect(screen.getByTestId("form-open-probe")).toHaveTextContent("true");
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("output");
   });
 
   it("点击全可选且无默认值的 workflow 卡片直接运行(不进表单)", async () => {

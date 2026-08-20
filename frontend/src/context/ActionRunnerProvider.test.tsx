@@ -209,7 +209,7 @@ describe("ActionRunnerProvider", () => {
     expect(mockRunAction).toHaveBeenCalledWith("a1", { NAME: "x" });
   });
 
-  it("selectPreset 填充 formValues 并切到 form 视图", async () => {
+  it("selectPreset 填充 formValues 并打开表单抽屉（视图不动）", async () => {
     mockListActions.mockResolvedValue({
       actions: [
         {
@@ -230,7 +230,8 @@ describe("ActionRunnerProvider", () => {
     await act(() => Promise.resolve());
     act(() => result.current.selectPreset("a1", "p1"));
     expect(result.current.formValues.NAME).toBe("pre");
-    expect(result.current.view).toBe("form");
+    expect(result.current.formSheetOpen).toBe(true);
+    expect(result.current.view).toBe("output"); // 主区视图原地不动
     expect(result.current.selectedPreset).toBe("p1");
   });
 
@@ -338,7 +339,7 @@ describe("ActionRunnerProvider", () => {
     // 进配置面板后不应残留上次的失败状态
     expect(result.current.status).toBe("idle");
     expect(result.current.exitInfo).toBeNull();
-    expect(result.current.view).toBe("form");
+    expect(result.current.formSheetOpen).toBe(true);
   });
 
   it("saveActionYaml 写回并刷新 actions", async () => {
@@ -673,7 +674,7 @@ describe("ActionRunnerProvider", () => {
     expect(mockRunAction).not.toHaveBeenCalled();
   });
 
-  it("editRerun 用上次 params 预填表单并切 form 视图（不立即执行）", async () => {
+  it("editRerun 用上次 params 预填表单并打开抽屉（不立即执行）", async () => {
     mockListActions.mockResolvedValue({
       actions: [
         { id: "a1", title: "A1", params: [{ id: "P", label: "P", default: "d" }] },
@@ -687,7 +688,7 @@ describe("ActionRunnerProvider", () => {
     });
     mockRunAction.mockClear();
     act(() => result.current.editRerun("a1"));
-    expect(result.current.view).toBe("form");
+    expect(result.current.formSheetOpen).toBe(true);
     expect(result.current.formValues.P).toBe("used"); // 上次值优先于 default
     expect(result.current.status).toBe("idle");
     expect(mockRunAction).not.toHaveBeenCalled();

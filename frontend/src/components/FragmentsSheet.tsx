@@ -47,10 +47,10 @@ export function FragmentsSheet() {
             '[data-slot="sheet-content"] input[data-slot="input-group-control"]',
           ) ?? true
         }
-        // 占窗口 60%：长命令预览与变量填写要横向空间。
+        // 占窗口 50%：与左侧参数表单抽屉（ParamSheet）拼屏对半分，表单占剩下的一半。
         // 必须带 data-[side=right]: 前缀——Sheet 基础类的 max-w-sm 也带该变体，
         // 特异性 0,2,0 高于裸类，不加前缀会被压回 384px（tailwind-merge 视作不同 key，不合并）。
-        className="gap-0 data-[side=right]:w-[60vw] data-[side=right]:sm:max-w-[60vw]"
+        className="gap-0 data-[side=right]:w-[50vw] data-[side=right]:sm:max-w-[50vw]"
       >
         <SheetHeader className="flex-row items-center justify-between border-b px-4 py-2.5">
           <SheetTitle className="text-sm font-semibold">

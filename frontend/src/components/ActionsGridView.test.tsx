@@ -29,10 +29,15 @@ import { ActionRunnerProvider } from "../context/ActionRunnerProvider";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { ActionsGridView } from "./ActionsGridView";
 
-// ViewProbe：暴露 provider 内部 view 状态，让用例可断言点击后的视图路由。
+// ViewProbe：暴露 provider 内部 view / formSheetOpen 状态，让用例可断言点击后的路由与抽屉开合。
 function ViewProbe() {
-  const { view } = useActionRunner();
-  return <div data-testid="view-probe">{view}</div>;
+  const { view, formSheetOpen } = useActionRunner();
+  return (
+    <>
+      <div data-testid="view-probe">{view}</div>
+      <div data-testid="form-open-probe">{String(formSheetOpen)}</div>
+    </>
+  );
 }
 
 beforeEach(() => {
@@ -79,8 +84,9 @@ describe("ActionsGridView", () => {
     render(wrap());
     await user.click(await screen.findByText("必填无默认"));
     expect(mockRunAction).not.toHaveBeenCalled();
-    // onEdit → selectPreset("") → setView("form")
-    expect(screen.getByTestId("view-probe")).toHaveTextContent("form");
+    // onEdit → selectPreset("") → 打开表单抽屉（主区视图原地不动）
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("output");
+    expect(screen.getByTestId("form-open-probe")).toHaveTextContent("true");
   });
 
   it("点击必填且带默认值的卡片直接运行(回填默认值, 如 adb-debug-activity)", async () => {
@@ -212,7 +218,7 @@ describe("ActionsGridView", () => {
     render(wrap());
     await user.click(await screen.findByText("+2"));
     expect(mockRunAction).not.toHaveBeenCalled();
-    expect(screen.getByTestId("view-probe")).toHaveTextContent("form");
+    expect(screen.getByTestId("form-open-probe")).toHaveTextContent("true");
   });
 
   it("点击 preset 分段格不冒泡触发键身默认运行", async () => {
@@ -242,7 +248,7 @@ describe("ActionsGridView", () => {
     const gear = await screen.findByRole("button", { name: "编辑参数" });
     await user.click(gear);
     expect(mockRunAction).not.toHaveBeenCalled();
-    expect(screen.getByTestId("view-probe")).toHaveTextContent("form");
+    expect(screen.getByTestId("form-open-probe")).toHaveTextContent("true");
   });
 
   it("无动作时渲染空态指引(不崩)", async () => {
@@ -266,6 +272,6 @@ describe("ActionsGridView", () => {
     const edit = await screen.findByRole("button", { name: "编辑预设参数" });
     await user.click(edit);
     expect(mockRunAction).not.toHaveBeenCalled();
-    expect(screen.getByTestId("view-probe")).toHaveTextContent("form");
+    expect(screen.getByTestId("form-open-probe")).toHaveTextContent("true");
   });
 });
