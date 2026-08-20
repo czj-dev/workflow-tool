@@ -53,8 +53,8 @@ const action = {
   icon: "▶",
   description: "",
   params: [
-    { id: "URL", label: "网址", type: "text", required: true, default: "", options: [] },
-    { id: "OPEN", label: "打开", type: "bool", required: false, default: "false", options: [] },
+    { id: "URL", label: "网址", type: "text", required: true, default: "", options: [], description: "如 https://example.com" },
+    { id: "OPEN", label: "打开", type: "bool", required: false, default: "false", options: [], description: "启用后自动跳转浏览器" },
     { id: "MODE", label: "模式", type: "select", required: false, default: "fast", options: ["fast", "full"] },
     { id: "DIR", label: "目录", type: "path", required: false, default: "", options: [] },
   ],
@@ -93,6 +93,19 @@ describe("ParamForm", () => {
     expect(screen.getByText(/打开/)).toBeInTheDocument();
     expect(screen.getByText(/模式/)).toBeInTheDocument();
     expect(screen.getByText(/目录/)).toBeInTheDocument();
+  });
+
+  it("params[].description 渲染为字段说明；未配置的字段不渲染", async () => {
+    render(
+      <ActionRunnerProvider>
+        <Harness />
+      </ActionRunnerProvider>
+    );
+    // text 字段（控件下方）与 bool 字段（label 下方）都渲染说明
+    expect(await screen.findByText("如 https://example.com")).toBeInTheDocument();
+    expect(screen.getByText("启用后自动跳转浏览器")).toBeInTheDocument();
+    // MODE / DIR 未配置 description → 无额外说明节点
+    expect(screen.queryByText("如 fast")).not.toBeInTheDocument();
   });
 
   it("required 未填时运行按钮禁用", async () => {

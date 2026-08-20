@@ -37,6 +37,7 @@ skills-lock.json
 
 # 工具缓存
 .cache/
+__pycache__/
 
 # OS
 .DS_Store

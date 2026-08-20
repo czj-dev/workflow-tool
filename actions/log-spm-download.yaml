@@ -1,0 +1,24 @@
+id: log-spm-download
+title: SPM 下载 zip 内文件
+icon: hi:download
+description: 从 SPM 数据平台的 zip 包中提取指定文件并保存到本地（分块拉取，无需认证）
+params:
+  - id: ZIP_NAME
+    label: zip 文件名
+    type: text
+    required: true
+    description: 如 log_1787193057533_LS6ANE0P7TK525767.zip
+  - id: INNER_PATH
+    label: zip 内完整路径
+    type: text
+    required: true
+    default: resources/debuglogger/mobilelog/
+    description: 如 resources/debug/mobilelog/.../main_log_1__2026_0820_091720.gz
+  - id: OUT_DIR
+    label: 输出目录
+    type: path
+    default: ${LOGS_DIR}
+    description: 留空则保存到应用当前工作目录
+command:
+  script: ./scripts/spm-download
+  timeout: 10m

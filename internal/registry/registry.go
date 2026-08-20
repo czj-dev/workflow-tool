@@ -26,12 +26,13 @@ type ActionDef struct {
 
 // ParamSpec 描述一个运行时参数（前端据此渲染表单）。
 type ParamSpec struct {
-	ID       string   `json:"id" yaml:"id"`
-	Label    string   `json:"label" yaml:"label"`
-	Type     string   `json:"type" yaml:"type"` // text|bool|select|path|file
-	Required bool     `json:"required" yaml:"required"`
-	Default  string   `json:"default" yaml:"default"`
-	Options  []string `json:"options" yaml:"options"`
+	ID          string   `json:"id" yaml:"id"`
+	Label       string   `json:"label" yaml:"label"`
+	Type        string   `json:"type" yaml:"type"` // text|bool|select|path|file
+	Required    bool     `json:"required" yaml:"required"`
+	Default     string   `json:"default" yaml:"default"`
+	Options     []string `json:"options" yaml:"options"`
+	Description string   `json:"description,omitempty" yaml:"description,omitempty"` // 字段下方的说明文案（可选）
 }
 
 // Preset 是作者定义的一整套参数值。

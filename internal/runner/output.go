@@ -24,3 +24,15 @@ func parseOutputLine(line string) (key, value string, ok bool) {
 	}
 	return body[:idx], body[idx+1:], true
 }
+
+// parseProgressLine 解析一行是否匹配 ##[progress text] 协议。
+// 命中的行不进 stdout 捕获、改以 "progress" 流 emit——前端对该流做原地覆盖
+// （见 frontend/src/lib/outputFold.ts），是 shell/script 动作唯一能刷新单行进度的途径
+// （\r 已被 splitLines 切成独立行，只会追加不会覆盖）。
+func parseProgressLine(line string) (text string, ok bool) {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "##[progress ") || !strings.HasSuffix(line, "]") {
+		return "", false
+	}
+	return line[len("##[progress ") : len(line)-1], true
+}

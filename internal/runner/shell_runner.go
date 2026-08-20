@@ -61,6 +61,13 @@ func (r *ShellRunner) Run(ctx context.Context, params map[string]any, emit EmitF
 	}
 
 	outcome := Run(ctx, ExecRequest{Cmd: cmd, Timeout: cfg.Timeout}, func(stream, line string) {
+		if stream == "stdout" {
+			// ##[progress ...] 改走 progress 流（前端原地覆盖上一条），不进 stdout 捕获
+			if text, ok := parseProgressLine(line); ok {
+				emit("progress", text)
+				return
+			}
+		}
 		emit(stream, line)
 		if stream == "stdout" {
 			stdoutBuf.WriteLine(line)

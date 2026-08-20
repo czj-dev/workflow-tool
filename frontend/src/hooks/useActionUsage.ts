@@ -14,6 +14,7 @@ export const FOOTPRINT_SEGMENTS = 5;
 const PREFIX_LABELS: Record<string, string> = {
   adb: "ADB",
   claude: "Claude",
+  log: "LOG",
 };
 export const MISC_KEY = "__misc__";
 

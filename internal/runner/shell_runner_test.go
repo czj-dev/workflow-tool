@@ -229,6 +229,26 @@ func TestShellRunner_CaptureOutput_ProtocolLine(t *testing.T) {
 	}
 }
 
+// ##[progress ...] 行改走 progress 流：不进 stdout 捕获、不当普通 stdout emit，
+// 前端据此原地覆盖上一条进度（\r 已被 splitLines 切行，只能靠该协议刷新单行）。
+func TestShellRunner_ProgressLine(t *testing.T) {
+	r := &ShellRunner{Cfg: ShellConfig{
+		Shell:   `echo "普通行"; echo "##[progress 下载 50%]"; echo "##[progress 下载 100%]"`,
+		Timeout: 5 * time.Second,
+	}}
+	var got []string
+	res := r.Run(context.Background(), nil, func(s, l string) { got = append(got, s+":"+l) })
+	if !contains(got, "progress:下载 50%") || !contains(got, "progress:下载 100%") {
+		t.Fatalf("协议行应以 progress 流 emit（文本已剥协议壳），got=%v", got)
+	}
+	if strings.Contains(res.Stdout, "##[progress") {
+		t.Fatalf("progress 行不应进 stdout 捕获: %q", res.Stdout)
+	}
+	if !strings.Contains(res.Stdout, "普通行") {
+		t.Fatalf("普通 stdout 行仍应被捕获: %q", res.Stdout)
+	}
+}
+
 func TestShellRunner_CaptureOutput_ReservedKeyOverride(t *testing.T) {
 	r := &ShellRunner{Cfg: ShellConfig{
 		Shell:   `echo "##[output exit_code=999]"`,

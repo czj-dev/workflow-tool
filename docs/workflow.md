@@ -144,6 +144,8 @@ steps:
 
 stdout 中 `##[output key=value]` 行会被解析为 `steps.<id>.outputs.key`。
 
+另有 `##[progress 文本]` 协议行：不产出 outputs，而是让该文本在 Pipeline Spine 的 step 输出里原地覆盖上一条进度行（长任务的单行滚动读数）。完整说明见 [action.md 输出协议](action.md#输出协议shell--script-形态)。
+
 ### LLM step（stream: llm）
 
 - `outputs.text` / `outputs.thinking` / `outputs.session_id` / `outputs.cost_usd` / `outputs.total_tokens`
@@ -207,7 +209,7 @@ workflow 级 `env` 注入所有 step（优先级低于 params、高于 config.ya
 
 ## 工作流参数
 
-工作流可自带 `params`，字段格式与 action 的 `params` 完全一致（`text` / `bool` / `select` / `path`）。
+工作流可自带 `params`，字段格式与 action 的 `params` 完全一致（`text` / `bool` / `select` / `path`，均支持可选 `description` 说明文案）。
 
 **关键区别**：工作流参数不从引用的 action 聚合，需自行声明；运行时作为全局变量注入**所有** step，包括 action step 和 inline shell step。
 

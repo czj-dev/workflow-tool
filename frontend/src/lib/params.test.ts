@@ -9,6 +9,7 @@ const mk = (p: Partial<ParamSpec>): ParamSpec => ({
   required: p.required ?? false,
   default: p.default ?? "",
   options: p.options ?? [],
+  description: p.description,
 });
 
 describe("hasFormFields", () => {

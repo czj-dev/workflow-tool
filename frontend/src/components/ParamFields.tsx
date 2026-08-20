@@ -2,7 +2,7 @@ import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { Field, FieldLabel } from "@/components/ui/field";
+import { Field, FieldLabel, FieldDescription, FieldContent } from "@/components/ui/field";
 import { Switch } from "@/components/ui/switch";
 import {
   Select,
@@ -31,6 +31,12 @@ export function ParamFields({ params, values, setValue }: ParamFieldsProps) {
     </>
   );
 
+  // 字段说明：yaml params[].description，可选；无则不占位
+  const renderHint = (p: ParamSpec) =>
+    p.description ? (
+      <FieldDescription className="text-xs">{p.description}</FieldDescription>
+    ) : null;
+
   return (
     <>
       {params.map((p) => {
@@ -42,7 +48,10 @@ export function ParamFields({ params, values, setValue }: ParamFieldsProps) {
               orientation="horizontal"
               className="rounded-lg border border-border bg-card px-3.5 py-2.5 shadow-[var(--card-sh)]"
             >
-              <FieldLabel>{renderLabel(p)}</FieldLabel>
+              <FieldContent>
+                <FieldLabel>{renderLabel(p)}</FieldLabel>
+                {renderHint(p)}
+              </FieldContent>
               <Switch
                 checked={values[p.id] === "true"}
                 onCheckedChange={(c) => setValue(p.id, c ? "true" : "false")}
@@ -68,6 +77,7 @@ export function ParamFields({ params, values, setValue }: ParamFieldsProps) {
                   ))}
                 </SelectContent>
               </Select>
+              {renderHint(p)}
             </Field>
           );
         }
@@ -94,6 +104,7 @@ export function ParamFields({ params, values, setValue }: ParamFieldsProps) {
                   {t("main.choose")}
                 </Button>
               </ButtonGroup>
+              {renderHint(p)}
             </Field>
           );
         }
@@ -109,6 +120,7 @@ export function ParamFields({ params, values, setValue }: ParamFieldsProps) {
                 onChange={(e) => setValue(p.id, e.target.value)}
                 className="min-h-36"
               />
+              {renderHint(p)}
             </Field>
           );
         }
@@ -122,6 +134,7 @@ export function ParamFields({ params, values, setValue }: ParamFieldsProps) {
               value={values[p.id] ?? p.default ?? ""}
               onChange={(e) => setValue(p.id, e.target.value)}
             />
+            {renderHint(p)}
           </Field>
         );
       })}

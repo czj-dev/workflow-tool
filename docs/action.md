@@ -29,6 +29,7 @@ params:                        # 可选，参数表单
     required: true             # 未填时「运行」按钮禁用
     default: ""                # 默认值
     options: []                # select 类型必填
+    description: 可选说明      # 渲染在字段下方的灰色提示文案
 
 presets:                       # 可选，预设参数组合
   - name: 首页
@@ -74,6 +75,8 @@ presets:                       # 可选，预设参数组合
 | `textarea` | 多行文本域 | 自适应高度、等宽字体；用于 LLM prompt 模板、长脚本片段等多行内容 |
 
 参数值在命令中用 `${ID}` 引用。
+
+可选 `description`：渲染在该字段控件下方的灰色说明文案（bool 类型渲染在 label 下方），用于写清取值示例或注意事项。不填则不占位。
 
 ### presets（预设）
 
@@ -208,6 +211,29 @@ command:
 ```
 
 对应文件：`scripts/adb-install.sh`（Mac）/ `scripts/adb-install.ps1`（Windows）。
+
+## 输出协议（shell / script 形态）
+
+`shell` 与 `script` 动作可以在 stdout 里写协议行，让宿主对该行做特殊处理。协议行必须独占一行，`##[` 前后允许空白。
+
+| 协议行 | 作用 |
+|---|---|
+| `##[output key=value]` | 解析为该 step 的 `outputs.key`，供 workflow 后续 step 用 `${{ steps.<id>.outputs.key }}` 引用。该行**仍会**照常显示在输出里 |
+| `##[progress 文本]` | 文本以「进度流」推送，前端**原地覆盖**上一条进度行（模拟终端 `\r` 刷新）。该行不显示协议壳、不进 stdout 捕获，因此不污染 `outputs.stdout` |
+
+进度协议的用途是长任务的单行滚动读数（下载百分比、逐块计数等）。裸 `\r` 不行：宿主的行扫描把 `\r` 也当行结束符（见 `internal/runner/exec.go` 的 `splitLines`），于是每次刷新都变成追加一行。
+
+```python
+# python：注意 flush，管道下默认块缓冲会把进度攒到退出才吐
+print(f"##[progress 下载 {done * 100 // total}%  {done}/{total} 字节]", flush=True)
+```
+
+```sh
+# sh：逐行输出天然无缓冲
+echo "##[progress 上传 $i/$n]"
+```
+
+Python 脚本更稳的做法是在 wrapper 里加 `-u`（`python3 -u foo.py`），一次性关掉缓冲，不必逐处 `flush=True`。
 
 ## adb 域形态（command.adb）
 
