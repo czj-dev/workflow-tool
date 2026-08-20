@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +12,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { ButtonGroup } from "@/components/ui/button-group";
-import { cn } from "@/lib/utils";
 import type { ParamSpec } from "../../bindings/workflow-tool/internal/registry/models.js";
 import { useActionRunner } from "../hooks/useActionRunner";
 
@@ -25,15 +23,6 @@ interface ParamFieldsProps {
 export function ParamFields({ params, values, setValue }: ParamFieldsProps) {
   const { t } = useTranslation();
   const { pickDirectory, pickFile } = useActionRunner();
-  // 拖拽高亮的字段 id：拖文件到 text/path 输入框时给一圈琥珀 ring 反馈
-  const [dragId, setDragId] = useState<string | null>(null);
-
-  const onDrop = (e: React.DragEvent, id: string) => {
-    e.preventDefault();
-    setDragId(null);
-    const f = e.dataTransfer.files[0];
-    if (f) setValue(id, (f as File & { path?: string }).path || f.name);
-  };
 
   const renderLabel = (p: ParamSpec) => (
     <>
@@ -94,15 +83,6 @@ export function ParamFields({ params, values, setValue }: ParamFieldsProps) {
                   id={p.id}
                   value={values[p.id] ?? p.default ?? ""}
                   onChange={(e) => setValue(p.id, e.target.value)}
-                  onDrop={(e) => onDrop(e, p.id)}
-                  onDragOver={(e) => {
-                    e.preventDefault();
-                    setDragId(p.id);
-                  }}
-                  onDragLeave={() => setDragId((cur) => (cur === p.id ? null : cur))}
-                  className={cn(
-                    dragId === p.id && "border-primary ring-2 ring-primary/40"
-                  )}
                 />
                 <Button
                   variant="outline"
@@ -141,13 +121,6 @@ export function ParamFields({ params, values, setValue }: ParamFieldsProps) {
               id={p.id}
               value={values[p.id] ?? p.default ?? ""}
               onChange={(e) => setValue(p.id, e.target.value)}
-              onDrop={(e) => onDrop(e, p.id)}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragId(p.id);
-              }}
-              onDragLeave={() => setDragId((cur) => (cur === p.id ? null : cur))}
-              className={cn(dragId === p.id && "border-primary ring-2 ring-primary/40")}
             />
           </Field>
         );

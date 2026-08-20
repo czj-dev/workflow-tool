@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 
 	"workflow-tool/internal/api"
 	"workflow-tool/internal/registry"
@@ -63,11 +64,23 @@ func main() {
 
 	svc.SetApp(app)
 
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title:  "Workflow Tool",
-		Width:  900,
-		Height: 640,
-		URL:    "/",
+	window := app.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:          "Workflow Tool",
+		Width:          900,
+		Height:         640,
+		URL:            "/",
+		EnableFileDrop: true,
+	})
+
+	// 整窗口拖拽落地路径（frontend/index.html 的 body 标 data-file-drop-target）：
+	// 只取第一个拖入路径，转发给前端写入当前聚焦输入框，语义对齐原先 HTML5
+	// dataTransfer.files[0] 的单文件取用方式。
+	window.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
+		files := event.Context().DroppedFiles()
+		if len(files) == 0 {
+			return
+		}
+		app.Event.Emit("file:dropped", map[string]any{"paths": files})
 	})
 
 	if err := app.Run(); err != nil {

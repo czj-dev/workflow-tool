@@ -393,6 +393,26 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const lastRunParamsRef = useRef<Record<string, Record<string, string>>>({});
   lastRunParamsRef.current = lastRunParams;
 
+  // 整窗口文件拖拽（Wails EnableFileDrop，见 main.go）：拖入文件/文件夹只取第一个路径，
+  // 写入当前聚焦的 input/textarea；未聚焦任何输入框时静默忽略。覆盖 action 参数表单、
+  // 全局配置、指令片段等所有文本输入，不需要每个组件单独接 HTML5 drop（那套读不到真实路径）。
+  useEffect(() => {
+    return Events.On("file:dropped", (e: { data: { paths?: string[] } }) => {
+      const path = e.data?.paths?.[0];
+      if (!path) return;
+      const el = document.activeElement;
+      if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return;
+      // React 受控组件：直接赋值不会触发 onChange，需用原生 setter + dispatchEvent
+      const proto =
+        el instanceof HTMLTextAreaElement
+          ? window.HTMLTextAreaElement.prototype
+          : window.HTMLInputElement.prototype;
+      const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+      setter?.call(el, path);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }, []);
+
   // 挂载时拉取动作列表
   useEffect(() => {
     ListActions()
