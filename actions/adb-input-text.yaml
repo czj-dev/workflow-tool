@@ -1,14 +1,14 @@
 id: adb-input-text
 title: 输入文本
 icon: hi:text
-description: 向设备输入文本；纯英文走 input text，含中文等非 ASCII 自动经剪贴板粘贴（需 Android 10+，个别 App 可能不响应粘贴）
+description: 向设备输入文本；纯英文走 input text，含中文等非 ASCII 经 ADBKeyboard 输入法广播（未安装自动安装内嵌 APK）
 params:
   - id: TEXT
     label: 文本
     type: text
     required: true
-  - id: RESTORE_CLIPBOARD
-    label: 输入后恢复设备剪贴板
+  - id: KEEP_IME
+    label: 输入后保持 ADBKeyboard 输入法（默认自动恢复原输入法）
     type: bool
 command:
   adb:

@@ -24,8 +24,8 @@ func TestPlanInput(t *testing.T) {
 		{"tab", "a\tb", true},
 	}
 	for _, c := range cases {
-		if got := planInput(c.text); got.UseClipboard != c.clip {
-			t.Errorf("%s: planInput(%q).UseClipboard = %v, want %v", c.name, c.text, got.UseClipboard, c.clip)
+		if got := planInput(c.text); got.UseKeyboard != c.clip {
+			t.Errorf("%s: planInput(%q).UseKeyboard = %v, want %v", c.name, c.text, got.UseKeyboard, c.clip)
 		}
 	}
 }

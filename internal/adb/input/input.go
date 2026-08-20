@@ -1,5 +1,5 @@
 // Package input 是 adb 输入域：input-text operation 按 ASCII / 非 ASCII 路由，
-// 含中文等非 ASCII 文本经剪贴板桥输入（input text 命令不支持非 ASCII）。
+// 含中文等非 ASCII 文本经 ADBKeyboard 输入法广播输入（input text 命令不支持非 ASCII）。
 package input
 
 import (
@@ -11,15 +11,15 @@ import (
 
 // inputPlan 是 planInput 的路由结果。
 type inputPlan struct {
-	UseClipboard bool
+	UseKeyboard bool
 }
 
 // planInput 决定输入路径：含非 ASCII（中文/emoji）或控制字符（换行/制表）走
-// 剪贴板桥，其余走原生 input text（与历史行为一致）。
+// ADBKeyboard 输入法广播，其余走原生 input text（与历史行为一致）。
 func planInput(text string) inputPlan {
 	for _, r := range text {
 		if r > 127 || r == '\n' || r == '\r' || r == '\t' {
-			return inputPlan{UseClipboard: true}
+			return inputPlan{UseKeyboard: true}
 		}
 	}
 	return inputPlan{}
@@ -35,14 +35,14 @@ func init() {
 }
 
 // handleInputText 按 planInput 路由：纯 ASCII 走原生 input text（空格转 %s），
-// 含非 ASCII 走剪贴板桥。
+// 含非 ASCII 走 ADBKeyboard 输入法广播。
 func handleInputText(op *adb.OpContext) adb.OpResult {
 	text := op.ParamStr("TEXT")
 	if text == "" {
 		return adb.OpResult{ExitCode: 2, Err: adbcore.NewOperationError("input-text", "TEXT is required", "", false)}
 	}
-	if planInput(text).UseClipboard {
-		return runViaClipboard(op, text)
+	if planInput(text).UseKeyboard {
+		return runViaKeyboard(op, text)
 	}
 	return runDirect(op, text)
 }

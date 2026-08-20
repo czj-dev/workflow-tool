@@ -312,7 +312,7 @@ command:
 
 | operation | params | 说明 |
 |---|---|---|
-| `input-text` | `TEXT`(text,必填)、`RESTORE_CLIPBOARD`(bool) | 纯 ASCII 走 `input text`（空格转 `%s`）；含中文/emoji/换行自动剪贴板桥（`cmd clipboard set` → `input keyevent 279` 粘贴，需 Android 10+，个别 App 可能不响应粘贴键）；`RESTORE_CLIPBOARD=true` 时粘贴后延迟 ~500ms 恢复原剪贴板（恢复失败仅告警） |
+| `input-text` | `TEXT`(text,必填)、`KEEP_IME`(bool) | 纯 ASCII 走 `input text`（空格转 `%s`）；含中文/emoji/换行走 ADBKeyboard 输入法广播（检测 `com.android.adbkeyboard`，**未安装则自动安装内嵌 APK** → `ime enable`/`ime set` 切到 `.AdbIME` → `am broadcast -a ADB_INPUT_B64 --es msg <base64>`，base64 规避空格/引号/非 ASCII 转义）；输入后默认恢复原输入法，`KEEP_IME=true` 时保留 ADBKeyboard 便于连续输入 |
 
 **前台信息（1）**
 
