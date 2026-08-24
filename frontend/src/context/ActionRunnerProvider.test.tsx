@@ -586,8 +586,8 @@ describe("ActionRunnerProvider", () => {
       _emitForTest("workflow:w1:output", { data: { stream: "step-done", line: "1:1" } });
     });
     expect(result.current.workflowSteps).toEqual([
-      { index: 0, status: "done", exitCode: 0, lines: ["hi", "[stderr] boom"], lastWasProgress: false },
-      { index: 1, status: "error", exitCode: 1, lines: ["second"], lastWasProgress: false },
+      { index: 0, status: "done", exitCode: 0, lines: ["hi", "[stderr] boom"], lastWasProgress: false, startedAt: expect.any(Number), endedAt: expect.any(Number) },
+      { index: 1, status: "error", exitCode: 1, lines: ["second"], lastWasProgress: false, startedAt: expect.any(Number), endedAt: expect.any(Number) },
     ]);
   });
 
@@ -608,8 +608,8 @@ describe("ActionRunnerProvider", () => {
       _emitForTest("workflow:w1:output", { data: { stream: "stdout", line: "chmod ok", step: "1" } });
     });
     expect(result.current.workflowSteps).toEqual([
-      { index: 0, status: "done", exitCode: 0, lines: ["push a: 100%"], lastWasProgress: true },
-      { index: 1, status: "running", lines: ["chmod ok"], lastWasProgress: false },
+      { index: 0, status: "done", exitCode: 0, lines: ["push a: 100%"], lastWasProgress: true, startedAt: expect.any(Number), endedAt: expect.any(Number) },
+      { index: 1, status: "running", lines: ["chmod ok"], lastWasProgress: false, startedAt: expect.any(Number) },
     ]);
   });
 

@@ -35,9 +35,10 @@ export function WorkflowStepsOverview({ steps }: { steps: WorkflowStepInfo[] }) 
               : s.label;
           return (
             <div key={i} className="flex items-start gap-2.5">
-              {/* 左列：节点 + 连线（self-stretch 拉满，pb 撑大让连线贯穿） */}
+              {/* 左列：节点 + 连线（self-stretch 拉满，pb 撑大让连线贯穿）。
+                  节点用 pending 空心样式，与运行态 Pipeline Spine 同一语言 */}
               <div className="flex flex-col items-center self-stretch">
-                <span className="mt-1 size-2 rounded-full bg-muted-foreground/40" />
+                <span className="mt-1 size-2 rounded-full border-2 border-muted-foreground/40" />
                 {!last && <span className="my-1 w-px flex-1 bg-border" />}
               </div>
               {/* 右列：序号 + 图标 + 名称 + kind */}

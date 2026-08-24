@@ -99,6 +99,7 @@
   "preset.confirm": "Save",
   "sidebar.workflows": "Workflows",
   "workflow.steps": "Pipeline",
+  "workflow.progressLabel": "STEP",
   "workflow.running": "Running",
   "workflow.done": "Done",
   "workflow.error": "Failed",

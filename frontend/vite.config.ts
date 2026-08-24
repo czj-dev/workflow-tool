@@ -13,6 +13,11 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    // jsdom 29 起 opaque origin 访问 localStorage 抛 SecurityError，
+    // vitest 未传 url 时 populateGlobal 拷到的 localStorage 为 undefined——补 url 修复
+    environmentOptions: {
+      jsdom: { url: "http://localhost/" },
+    },
     globals: true,
     setupFiles: "./src/test/setup.ts",
   },

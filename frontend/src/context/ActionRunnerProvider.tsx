@@ -140,6 +140,8 @@ export interface RunnerContextValue {
   workflows: WorkflowItem[];
   workflowErrors: string[];
   workflowSteps: WorkflowStepState[];
+  // 本次前台运行起点（无运行后保留到下次点火，供仪表带读数）
+  wfStartedAt: number | null;
   workflowFormValues: Record<string, string>;
   runningWorkflowId: string | null;
   runAction: (id: string, params?: Record<string, any>, background?: boolean) => Promise<void>;
@@ -384,6 +386,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
   const [workflowErrors, setWorkflowErrors] = useState<string[]>([]);
   const [workflowSteps, setWorkflowSteps] = useState<WorkflowStepState[]>([]);
+  // 本次前台运行起点（runWorkflow 点火时打点）：仪表带总 elapsed 读数用
+  const [wfStartedAt, setWfStartedAt] = useState<number | null>(null);
   const [workflowFormValues, setWorkflowFormValues] = useState<
     Record<string, string>
   >({});
@@ -492,14 +496,15 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       const d = (((e as { data?: unknown })?.data) || {}) as OutputEventData;
       if (d.stream === "step-start") {
         const idx = parseInt(d.line, 10);
+        const now = Date.now();
         setWorkflowSteps((prev) => {
           const exists = prev.find((s) => s.index === idx);
           if (exists) {
             return prev.map((s) =>
-              s.index === idx ? { ...s, status: "running" as const } : s,
+              s.index === idx ? { ...s, status: "running" as const, startedAt: now } : s,
             );
           }
-          return [...prev, { index: idx, status: "running" as const, lines: [] }];
+          return [...prev, { index: idx, status: "running" as const, lines: [], startedAt: now }];
         });
         return;
       }
@@ -507,10 +512,11 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         const parts = (d.line || "").split(":");
         const idx = parseInt(parts[0], 10);
         const code = parseInt(parts[1], 10);
+        const now = Date.now();
         setWorkflowSteps((prev) =>
           prev.map((s) =>
             s.index === idx
-              ? { ...s, status: code === 0 ? ("done" as const) : ("error" as const), exitCode: code }
+              ? { ...s, status: code === 0 ? ("done" as const) : ("error" as const), exitCode: code, endedAt: now }
               : s,
           ),
         );
@@ -944,6 +950,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setRunningWorkflowId(id);
     if (!background) {
       setWorkflowSteps([]);
+      setWfStartedAt(Date.now());
       setCurrentId(id);
       setSelectedPreset(null);
       setStatus("running");
@@ -1195,6 +1202,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     workflows,
     workflowErrors,
     workflowSteps,
+    wfStartedAt,
     workflowFormValues,
     runningWorkflowId,
     runAction,

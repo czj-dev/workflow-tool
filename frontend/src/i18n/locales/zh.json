@@ -99,6 +99,7 @@
   "preset.confirm": "保存",
   "sidebar.workflows": "工作流",
   "workflow.steps": "执行流程",
+  "workflow.progressLabel": "步骤",
   "workflow.running": "运行中",
   "workflow.done": "完成",
   "workflow.error": "失败",

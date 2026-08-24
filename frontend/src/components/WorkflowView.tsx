@@ -1,3 +1,4 @@
+import { useEffect, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -12,6 +13,7 @@ import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 import { useActionRunner } from "../hooks/useActionRunner";
+import { fmtDuration } from "../lib/duration";
 import type { WorkflowStepState } from "../types/events";
 import { ActionIcon } from "./ActionIcon";
 import { IconButton } from "./IconButton";
@@ -32,21 +34,32 @@ const STATUS_I18N: Record<WorkflowStepState["status"], string> = {
   skipped: "workflow.stepSkipped",
 };
 
-// 合并后的步骤视图：定义态（name）+ 运行态（status/lines/exitCode）
+// 仪表带光柱分段：段 = 步骤，填充 = 进度（结构即信息，与 TickRuler 同语言）
+const SEG_CLS: Record<WorkflowStepState["status"], string> = {
+  pending: "h-1.5 self-center bg-foreground/10",
+  running: "self-stretch spine-flow-h",
+  done: "h-1.5 self-center bg-success/80",
+  error: "h-1.5 self-center bg-destructive",
+  skipped: "h-1.5 self-center bg-foreground/25",
+};
+
+// 合并后的步骤视图：定义态（name）+ 运行态（status/lines/exitCode/耗时打点）
 interface StepView {
   index: number;
   name: string;
   status: WorkflowStepState["status"];
   exitCode?: number;
   lines: string[];
+  startedAt?: number;
+  endedAt?: number;
 }
 
 // Pipeline Spine：定义态步骤全部预展示，运行态状态覆盖（无运行态→pending）。
-// 卡片复刻 mockup：序号(01) + 名称 + 状态 Badge + exitCode。线状态由该 step status 决定；
-// content 列 mb 撑大 row，使 spine 线贯穿到下一节点（视觉连续）。
+// spine 列 mb 撑大 row，使 spine 线贯穿到下一节点（视觉连续）。
+// 头部仪表带 = 签名元素：分段进度光柱 + 当前步/总步读数 + 总耗时（运行中 live 递增）。
 export function WorkflowView() {
   const { t } = useTranslation();
-  const { workflows, currentId, workflowSteps, status, cancelWorkflow, setView, lastRunParams, rerun, editRerun } =
+  const { workflows, currentId, workflowSteps, wfStartedAt, status, cancelWorkflow, setView, lastRunParams, rerun, editRerun } =
     useActionRunner();
 
   const current = workflows.find((w) => w.id === currentId);
@@ -73,6 +86,8 @@ export function WorkflowView() {
             status: st?.status ?? "pending",
             exitCode: st?.exitCode,
             lines: st?.lines ?? [],
+            startedAt: st?.startedAt,
+            endedAt: st?.endedAt,
           };
         })
       : workflowSteps.map((s) => ({
@@ -81,9 +96,39 @@ export function WorkflowView() {
           status: s.status,
           exitCode: s.exitCode,
           lines: s.lines,
+          startedAt: s.startedAt,
+          endedAt: s.endedAt,
         }));
 
   const isEmpty = steps.length === 0 && status !== "running";
+
+  // ——— 仪表带读数 ———
+  // 总 elapsed：运行中用 ticker 当前时刻，终态用最后一个 step 的 endedAt 打点
+  // （全前端打点，自洽，不借道 exitInfo 规避跨 action/workflow 的归属歧义）
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (status !== "running") return;
+    setNow(Date.now());
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, [status]);
+
+  const total = steps.length;
+  const runningIdx = steps.findIndex((s) => s.status === "running");
+  const settledMax = steps.reduce(
+    (m, s) => (s.status !== "pending" ? Math.max(m, s.index) : m),
+    -1,
+  );
+  const cur = runningIdx >= 0 ? runningIdx + 1 : settledMax + 1;
+  const lastEnded = steps.reduce((m, s) => Math.max(m, s.endedAt ?? 0), 0);
+  const elapsedMs =
+    wfStartedAt && lastEnded
+      ? running
+        ? now - wfStartedAt
+        : lastEnded - wfStartedAt
+      : wfStartedAt && running
+        ? now - wfStartedAt
+        : null;
 
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -105,12 +150,6 @@ export function WorkflowView() {
             <ActionIcon name={current?.icon || "hi:workflow"} />
             {currentTitle ?? t("sidebar.workflows")}
           </button>
-          {status === "running" && (
-            <span className="inline-flex items-center gap-1.5 font-mono text-xs text-primary">
-              <span className="size-1.5 rounded-full bg-primary live-pulse" />
-              {t("workflow.running")}
-            </span>
-          )}
         </div>
         <ButtonGroup>
           {canRerun && (
@@ -139,6 +178,47 @@ export function WorkflowView() {
         </ButtonGroup>
       </header>
 
+      {/* 管线仪表带：eyebrow + 当前步/总步 + 分段光柱 + 总耗时。
+          running 段略高于其余段（当前游标），流光与 spine 连线同一动效语言。 */}
+      {!isEmpty && (
+        <div className="flex items-center gap-3 border-b bg-muted/30 px-4 py-2">
+          <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80">
+            {t("workflow.progressLabel")}
+          </span>
+          <span className="font-mono text-xs font-semibold tabular-nums text-foreground/80">
+            {String(cur).padStart(2, "0")}/{String(total).padStart(2, "0")}
+          </span>
+          <div
+            className="flex h-2 min-w-0 flex-1 items-center gap-[3px]"
+            role="progressbar"
+            aria-valuemin={1}
+            aria-valuemax={total}
+            aria-valuenow={Math.min(Math.max(cur, 1), total)}
+          >
+            {steps.map((step) => (
+              <span
+                key={step.index}
+                className={cn("min-w-0.5 flex-1 overflow-hidden rounded-full", SEG_CLS[step.status])}
+              />
+            ))}
+          </div>
+          {elapsedMs !== null && (
+            <span
+              className={cn(
+                "font-mono text-xs font-semibold tabular-nums",
+                running
+                  ? "text-primary"
+                  : status === "error"
+                    ? "text-destructive"
+                    : "text-success",
+              )}
+            >
+              {fmtDuration(elapsedMs)}
+            </span>
+          )}
+        </div>
+      )}
+
       {isEmpty ? (
         <Empty className="m-4">
           <EmptyDescription>{t("main.selectAction")}</EmptyDescription>
@@ -150,13 +230,13 @@ export function WorkflowView() {
               const last = i === steps.length - 1;
               const st = step.status;
               const nodeCls = {
-                pending: "bg-transparent border-2 border-muted-foreground/40",
+                pending: "size-2 bg-transparent border-2 border-muted-foreground/40",
                 running:
-                  "bg-primary shadow-[0_0_0_3px_color-mix(in_oklch,var(--primary)_22%,transparent)] live-pulse",
-                done: "bg-success",
-                error: "bg-destructive",
+                  "size-2.5 bg-primary shadow-[0_0_0_3px_color-mix(in_oklch,var(--primary)_22%,transparent)] live-pulse",
+                done: "size-2 bg-success",
+                error: "size-2 bg-destructive",
                 skipped:
-                  "bg-transparent border-2 border-dashed border-muted-foreground/40 opacity-50",
+                  "size-2 bg-transparent border-2 border-dashed border-muted-foreground/40 opacity-50",
               }[st];
               const lineCls = {
                 pending: "spine-pending",
@@ -172,11 +252,16 @@ export function WorkflowView() {
                 error: "border-destructive/40 text-destructive bg-destructive/10",
                 skipped: "border-dashed text-muted-foreground opacity-70",
               }[st];
+              // 耗时读数：终态取打点差值，运行态用 ticker 当前时刻 live 递增
+              const durMs =
+                step.startedAt !== undefined
+                  ? (step.endedAt ?? (running ? now : step.startedAt)) - step.startedAt
+                  : undefined;
               return (
                 <div key={step.index} className="flex gap-3.5">
                   {/* spine 列：节点 + 连线，self-stretch 拉满 row 高度 */}
                   <div className="flex w-4 flex-none flex-col items-center self-stretch">
-                    <span className={cn("mt-1 size-2.5 rounded-full", nodeCls)} />
+                    <span className={cn("mt-1 rounded-full", nodeCls)} />
                     {!last && (
                       <span
                         className={cn("my-1 w-0.5 flex-1 rounded-full", lineCls)}
@@ -199,6 +284,18 @@ export function WorkflowView() {
                           <span className="flex-1 truncate text-left text-sm font-medium">
                             {step.name}
                           </span>
+                          {durMs !== undefined && st !== "skipped" && (
+                            <span
+                              className={cn(
+                                "font-mono text-xs tabular-nums",
+                                st === "running"
+                                  ? "text-primary"
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              {fmtDuration(durMs)}
+                            </span>
+                          )}
                           {st === "error" && step.exitCode !== undefined && (
                             <span className="font-mono text-xs text-destructive">
                               exit {step.exitCode}

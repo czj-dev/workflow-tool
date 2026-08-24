@@ -100,4 +100,7 @@ export interface WorkflowStepState {
   lines: string[];
   // 上一行是否是 progress——决定下一条 progress 覆盖还是追加（同 action 的 lines 语义）
   lastWasProgress?: boolean;
+  // 帧到达时间戳（前端打点，非后端下发）：running 起 / 终态止，供耗时读数
+  startedAt?: number;
+  endedAt?: number;
 }

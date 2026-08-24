@@ -66,6 +66,9 @@ describe("WorkflowView", () => {
     );
     // 返回按钮的 aria-label = t("sidebar.allWorkflows") = 中文「全部工作流」
     const backBtn = await screen.findByRole("button", { name: "全部工作流" });
+    // 仪表带：定义态 1 步、未运行 → 读数 00/01，eyebrow 为中文「步骤」
+    expect(screen.getByText("00/01")).toBeInTheDocument();
+    expect(screen.getByText("步骤")).toBeInTheDocument();
     await user.click(backBtn);
     expect(screen.getByTestId("view-probe")).toHaveTextContent("workflows-grid");
   });
