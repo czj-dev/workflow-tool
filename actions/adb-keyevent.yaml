@@ -10,17 +10,24 @@ params:
     default: "3"
 presets:
   - name: HOME（3）
-    values: { KEYCODE: "3" }
+    values: {KEYCODE: "3"}
   - name: BACK（4）
-    values: { KEYCODE: "4" }
+    values: {KEYCODE: "4"}
   - name: MENU（82）
-    values: { KEYCODE: "82" }
+    values: {KEYCODE: "82"}
   - name: POWER（26）
-    values: { KEYCODE: "26" }
+    values: {KEYCODE: "26"}
   - name: 音量+（24）
-    values: { KEYCODE: "24" }
+    values: {KEYCODE: "24"}
   - name: 音量-（25）
-    values: { KEYCODE: "25" }
+    values: {KEYCODE: "25"}
+  - name: 语音
+    description: 语音唤醒
+    values: {KEYCODE: "231"}
+  - name: 播放
+    values: {KEYCODE: "126"}
+  - name: 播放/暂停
+    values: {KEYCODE: "85"}
 command:
   shell: |
     S="${ADB_SERIAL}"
