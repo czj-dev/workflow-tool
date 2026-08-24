@@ -189,3 +189,15 @@ export function ruleToParams(rule: LogcatRule): Record<string, string> {
 export function sortHistogram(hist: Record<string, number>): Array<[string, number]> {
   return Object.entries(hist).sort((a, b) => (b[1] - a[1]) || (a[0] < b[0] ? -1 : 1));
 }
+
+// 日志区渲染门：本地有条目就渲染列表，matched 只用于挑空态文案。
+// matched/total 是上次重放帧的快照读数，增量帧不更新 matched——若拿它当渲染门，
+// 规则收窄后「历史 0 命中」会把其后按新规则命中的增量行一并挡住（表现为改了规则
+// 不生效、面板空，直到下一次重放才恢复）。
+export function logcatPaneState(
+  count: number,
+  stats: { matched: number; total: number },
+): "list" | "zero" | "empty" {
+  if (count > 0) return "list";
+  return stats.total > 0 && stats.matched === 0 ? "zero" : "empty";
+}

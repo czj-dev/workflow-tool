@@ -271,6 +271,15 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         if (total <= MAX_LOGCAT) return [...prev, ...batch];
         return [...prev, ...batch].slice(total - MAX_LOGCAT);
       });
+      // 读数随增量自愈：matched/total 同加本批命中数。否则规则收窄后 matched 停在
+      // 重放帧的 0，面板明明在滚动、读数却是 0/N（自相矛盾且看着像没生效）。
+      // 两次重放之间 total 低估（未命中的新行后端不下发），下一帧重放整体校准。
+      // total>0 才加：尚无重放帧时读数走 logcatEntries.length 分支，不能被抬起来。
+      setLogcatStats((s) =>
+        s.total > 0
+          ? { matched: s.matched + batch.length, total: s.total + batch.length }
+          : s,
+      );
     }, 120);
     return () => clearInterval(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -343,7 +352,12 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     if (logcatRuleSyncedRef.current === logcatRule) return;
     const timer = setTimeout(() => {
       logcatRuleSyncedRef.current = logcatRule;
-      UpdateLogcatFilter(id, toApiRule(logcatRule), false).catch(() => {});
+      UpdateLogcatFilter(id, toApiRule(logcatRule), false).catch(() => {
+        // 下发失败（非法规则被后端拒 / 控制通道积压）：撤回 synced 登记，否则该规则
+        // 被永久当作「已同步」，用户必须改成另一个规则才会再下发（表现为改了不生效）。
+        if (logcatRuleSyncedRef.current === logcatRule)
+          logcatRuleSyncedRef.current = null;
+      });
     }, 300);
     return () => clearTimeout(timer);
   }, [logcatRule, currentId]);

@@ -275,10 +275,12 @@ command:
 
 | operation | params | 说明 |
 |---|---|---|
-| `logcat-stream` | `PACKAGE`、`LEVEL`、`TAG`、`INCLUDE`、`EXCLUDE` | 前台实时流式；手动停止 |
+| `logcat-stream` | `PACKAGE`、`LEVEL`、`TAG`、`INCLUDE`、`EXCLUDE`、`FILTER` | 前台实时流式；手动停止 |
 | `logcat-batch` | `LOGS_DIR`(path,必填)、`PACKAGE`、`LEVEL`、`TAG`、`INCLUDE`、`EXCLUDE`、`CLEAR_BUFFER`(bool) | 抓取到 `logcat_<时间戳>.log`；`CLEAR_BUFFER=true` 才在抓取前 `logcat -c`（默认不清空，避免丢历史） |
 
 过滤语义：`LEVEL` 为最低阈值（单字母 V/D/I/W/E/F，行 level ≥ 阈值才通过）；`TAG` 多个空格分隔、任一子串命中即通过；`INCLUDE`/`EXCLUDE` 对 message 做子串包含/排除。`PACKAGE` 仿 Android Studio Logcat 的包名过滤：启动时 `adb shell pidof <pkg>` 解析为 pid（多进程应用可返回多个 pid），Go 端按 pid 过滤。`logcat-stream` 额外每 5s 重试解析，故可在应用启动前先开 logcat、应用重启后自动跟上（app 未运行时该包无输出）。`logcat-stream` 配 `stream: logcat` 时为**双层过滤**：这里的服务端预过滤（PACKAGE/LEVEL/TAG/INCLUDE/EXCLUDE）减少 IPC 量，前端 logcat 视图另可运行时按 level/tag/message 对已缓冲条目再过滤，无需重启。
+
+`FILTER`（仅 `logcat-stream`）是完整规则的 JSON 载体，由 logcat 甲板「存为预设」写入：`{"tokens":[{"key":"tag|message|pid|tid|any","op":"contains|exact|regex","negated":bool,"value":"…","link":"or"}],"minLevel":"V","package":""}`。非空且 JSON 合法时**整体生效**，`LEVEL`/`TAG`/`INCLUDE`/`EXCLUDE`/`PACKAGE` 全部忽略（后端 `RuleFromParamsExt`）；非法 JSON 或为空则退化到上述五个 legacy 字段。表单里改 legacy 字段而 `FILTER` 非空时改动不生效——需先清空 `FILTER`。
 
 **文件传输（10）**
 

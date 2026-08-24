@@ -8,6 +8,7 @@ import {
   ruleFromParams,
   ruleToParams,
   sortHistogram,
+  logcatPaneState,
 } from "./logcatRule";
 
 describe("parseToken", () => {
@@ -276,5 +277,19 @@ describe("sortHistogram", () => {
       ["b", 2],
       ["d", 1],
     ]);
+  });
+});
+
+describe("logcatPaneState", () => {
+  it("尚无重放帧且无条目 → 等待态", () => {
+    expect(logcatPaneState(0, { matched: 0, total: 0 })).toBe("empty");
+  });
+
+  it("重放 0 命中且无条目 → 零命中提示", () => {
+    expect(logcatPaneState(0, { matched: 0, total: 500 })).toBe("zero");
+  });
+
+  it("重放 0 命中但已有增量条目 → 渲染列表（回归：规则收窄后新命中行不能被挡）", () => {
+    expect(logcatPaneState(3, { matched: 0, total: 500 })).toBe("list");
   });
 });

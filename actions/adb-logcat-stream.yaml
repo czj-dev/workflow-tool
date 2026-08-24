@@ -19,6 +19,10 @@ params:
   - id: EXCLUDE
     label: 消息排除（可空）
     type: text
+  - id: FILTER
+    label: 规则 JSON（可空）
+    type: textarea
+    description: 甲板「存为预设」写入的完整规则（含正则/取反/∨ 分组/pid，上面五个字段表达不了）。非空时整体生效并忽略上方字段；清空则回落到上方字段。
 command:
   adb:
     operation: logcat-stream
@@ -28,7 +32,9 @@ command:
 presets:
   - name: 云端响应
     values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: com.baidu.che.codriver, TAG: DVR_InitService DVR_TinnoveIpc}
-  - name: 指令分发
-    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: com.baidu.che.codriver, TAG: DVR_InitService DVR_TinnoveIpc}
+  - name: 测试表单
+    values: {FILTER: '{"tokens":[{"key":"tag","op":"contains","negated":false,"value":"DVR_CarControlOpenBot"},{"key":"tag","op":"contains","negated":false,"value":"DVR_WtNluBot"},{"key":"tag","op":"contains","negated":true,"value":"DVR_MultiRoundRuleRegistrar","link":"or"},{"key":"tag","op":"contains","negated":false,"value":"DVR_InitService","link":"or"},{"key":"message","op":"regex","negated":true,"value":"XX"},{"key":"message","op":"contains","negated":false,"value":"test","link":"or"}],"minLevel":"V","package":""}', INCLUDE: test, LEVEL: V}
   - name: 对话改写
-    values: {FILTER: '{"tokens":[{"key":"tag","op":"contains","negated":false,"value":"DVR_CarControlOpenBot"},{"key":"tag","op":"contains","negated":false,"value":"DVR_WtNluBot"},{"key":"tag","op":"contains","negated":false,"value":"DVR_MultiRoundRuleRegistrar"},{"key":"tag","op":"contains","negated":false,"value":"DVR_InitService"},{"key":"message","op":"regex","negated":true,"value":"XX"}],"minLevel":"V","package":""}', LEVEL: V, TAG: DVR_CarControlOpenBot DVR_WtNluBot DVR_MultiRoundRuleRegistrar DVR_InitService}
+    values: {FILTER: '{"tokens":[{"key":"tag","op":"contains","negated":false,"value":"DVR_CarControlOpenBot"},{"key":"tag","op":"contains","negated":false,"value":"DVR_WtNluBot"},{"key":"tag","op":"contains","negated":false,"value":"DVR_MultiRoundRuleRegistrar"},{"key":"tag","op":"contains","negated":false,"value":"DVR_InitService"}],"minLevel":"V","package":""}', LEVEL: V, TAG: DVR_CarControlOpenBot DVR_WtNluBot DVR_MultiRoundRuleRegistrar DVR_InitService}
+  - name: 指令分发
+    values: {FILTER: '{"tokens":[{"key":"tag","op":"contains","negated":false,"value":"DVR_InitService","link":"or"},{"key":"message","op":"contains","negated":false,"value":"name\":\"Nlu"},{"key":"tag","op":"exact","negated":false,"value":"DVR_WtNluBot","link":"or"},{"key":"message","op":"regex","negated":false,"value":"handleNluResultByCarType"},{"key":"tag","op":"regex","negated":false,"value":"DVR_TinnoveIpc","link":"or"}],"minLevel":"V","package":""}', INCLUDE: 'name":"Nlu', LEVEL: V}

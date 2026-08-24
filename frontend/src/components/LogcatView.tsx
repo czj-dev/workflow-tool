@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -25,6 +25,7 @@ import { useActionRunner } from "../hooks/useActionRunner";
 import type { LogcatEntry, LogcatToken } from "../types/events";
 import {
   invalidRegex,
+  logcatPaneState,
   parseInput,
   ruleFromParams,
   ruleToParams,
@@ -238,6 +239,8 @@ export function LogcatView() {
   // entries 即后端当前规则的命中集）。0 命中高亮 destructive。
   const hasStats = logcatStats.total > 0;
   const zero = hasStats && logcatStats.matched === 0;
+  // 日志区三态（见 logcatPaneState：本地有条目一律渲染列表，zero 只挑空态文案）
+  const paneState = logcatPaneState(logcatEntries.length, logcatStats);
 
   // 贴底时新条目到达自动滚到底
   useEffect(() => {
@@ -686,7 +689,7 @@ export function LogcatView() {
           onScroll={onScroll}
           className="h-full overflow-auto px-3 py-2 font-mono text-xs leading-relaxed"
         >
-          {zero ? (
+          {paneState === "zero" ? (
             <div className="flex flex-col items-center gap-1 py-8 text-center">
               <span className="font-mono text-xs text-destructive">
                 {t("logcat.zeroMatch")}
@@ -695,79 +698,92 @@ export function LogcatView() {
                 {t("logcat.zeroHint")}
               </span>
             </div>
-          ) : logcatEntries.length === 0 ? (
+          ) : paneState === "empty" ? (
             <div className="py-8 text-center text-muted-foreground">
               {t("logcat.empty")}
             </div>
           ) : (
-            visible.map((e, i) => (
-              <div
-                key={i}
-                className={`flex gap-2 whitespace-pre-wrap break-all ${levelColor(
-                  e.level,
-                )}`}
-              >
-                {e.time && (
-                  <span className="shrink-0 text-muted-foreground">{e.time}</span>
-                )}
-                {e.pid > 0 && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      toggleToken({
-                        key: "pid",
-                        op: "exact",
-                        negated: false,
-                        value: String(e.pid),
-                      })
-                    }
-                    className={`shrink-0 tabular-nums underline-offset-2 hover:underline ${
-                      tokenActive({
-                        key: "pid",
-                        op: "exact",
-                        negated: false,
-                        value: String(e.pid),
-                      })
-                        ? "text-primary"
-                        : "text-muted-foreground/50"
-                    }`}
-                    title={t("logcat.onlyThisProcess")}
-                  >
-                    {e.pid}
-                  </button>
-                )}
-                <span className="w-4 shrink-0 text-center font-bold">
-                  {e.level}
-                </span>
-                {e.tag && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      toggleToken({
-                        key: "tag",
-                        op: "exact",
-                        negated: false,
-                        value: e.tag,
-                      })
-                    }
-                    className={`w-36 shrink-0 truncate text-left underline-offset-2 hover:underline ${
-                      tokenActive({
-                        key: "tag",
-                        op: "exact",
-                        negated: false,
-                        value: e.tag,
-                      })
-                        ? "text-primary"
-                        : "text-foreground/80"
-                    }`}
-                    title={t("logcat.onlyThisTag")}
-                  >
-                    {e.tag}
-                  </button>
-                )}
-                <span className="min-w-0 flex-1">{e.message}</span>
-              </div>
-            ))
+            // 列对齐交给一个覆盖全部行的 grid：所有行的同序单元格共享同一列宽
+            // （max-content 取该列最宽内容），pid 位数变化、续行缺头部都不会再让
+            // 时间/等级列左右错位——不再依赖 ch 字符宽度估算。
+            // items-start：message 折行撑高该 grid 行时，头部四列与首行对齐。
+            <div className="grid grid-cols-[max-content_max-content_max-content_9rem_minmax(0,1fr)] items-start gap-x-2">
+              {visible.map((e, i) => {
+                // 续行 = 多行 message 的第 2 行起（threadtime 头部解析不出，见
+                // parseEntry）：头部单元格留空，等级不重复画 V（解析兜底值）。
+                const cont = e.date === "" && e.time === "" && e.pid === 0;
+                const color = levelColor(e.level);
+                return (
+                  <Fragment key={i}>
+                    <span className="tabular-nums text-muted-foreground">
+                      {e.time}
+                    </span>
+                    <span className="text-right tabular-nums">
+                      {e.pid > 0 && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            toggleToken({
+                              key: "pid",
+                              op: "exact",
+                              negated: false,
+                              value: String(e.pid),
+                            })
+                          }
+                          className={`underline-offset-2 hover:underline ${
+                            tokenActive({
+                              key: "pid",
+                              op: "exact",
+                              negated: false,
+                              value: String(e.pid),
+                            })
+                              ? "text-primary"
+                              : "text-muted-foreground/50"
+                          }`}
+                          title={t("logcat.onlyThisProcess")}
+                        >
+                          {e.pid}
+                        </button>
+                      )}
+                    </span>
+                    <span className={`text-center font-bold ${color}`}>
+                      {cont ? "" : e.level}
+                    </span>
+                    <span className="truncate">
+                      {e.tag && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            toggleToken({
+                              key: "tag",
+                              op: "exact",
+                              negated: false,
+                              value: e.tag,
+                            })
+                          }
+                          className={`max-w-full truncate text-left underline-offset-2 hover:underline ${
+                            tokenActive({
+                              key: "tag",
+                              op: "exact",
+                              negated: false,
+                              value: e.tag,
+                            })
+                              ? "text-primary"
+                              : "text-foreground/80"
+                          }`}
+                          title={t("logcat.onlyThisTag")}
+                        >
+                          {e.tag}
+                        </button>
+                      )}
+                    </span>
+                    <span className={`whitespace-pre-wrap break-all ${color}`}>
+                      {e.message}
+                    </span>
+                  </Fragment>
+                );
+              })}
+            </div>
           )}
         </div>
         {/* 离底时显示「回到底部」悬浮按钮 */}
