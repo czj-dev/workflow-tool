@@ -34,11 +34,23 @@ func (r *ShellRunner) Run(ctx context.Context, params map[string]any, emit EmitF
 
 	cfg := r.Cfg
 
-	// Phase 3：所有 Runner 实现都用 params 替换 ${VAR}（params > 内置变量 > env，未定义保留+warning）
-	cfg.Shell = Expand(ctx, cfg.Shell, params, cfg.Builtins)
-	cfg.Script = Expand(ctx, cfg.Script, params, cfg.Builtins)
-	cfg.Cwd = Expand(ctx, cfg.Cwd, params, cfg.Builtins)
+	// Phase 3：所有 Runner 实现都用 params 替换 ${VAR}（params > 内置变量 > env，未定义保留+warning）。
+	// cfg.Env 的终值也纳入查找源（env > params，与 buildEnv 覆盖顺序对齐）：
+	// PowerShell 的 ${VAR} 是 PS 变量语法读不到环境变量，Go 侧统一展开才能跨平台一致。
 	cfg.Env = ExpandMap(ctx, cfg.Env, params, cfg.Builtins)
+	lookup := params
+	if len(cfg.Env) > 0 {
+		lookup = make(map[string]any, len(params)+len(cfg.Env))
+		for k, v := range params {
+			lookup[k] = v
+		}
+		for k, v := range cfg.Env {
+			lookup[k] = v
+		}
+	}
+	cfg.Shell = Expand(ctx, cfg.Shell, lookup, cfg.Builtins)
+	cfg.Script = Expand(ctx, cfg.Script, lookup, cfg.Builtins)
+	cfg.Cwd = Expand(ctx, cfg.Cwd, lookup, cfg.Builtins)
 
 	cmd, err := buildCommandFromCfg(cfg)
 	if err != nil {

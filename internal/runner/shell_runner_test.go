@@ -130,6 +130,29 @@ func TestShellRunnerUsesParams(t *testing.T) {
 	}
 }
 
+// TestShellRunnerUsesStepEnvInText 验证 cfg.Env 的终值能被 ${VAR} 文本展开命中——
+// PowerShell 下 ${VAR} 是 PS 变量语法读不到环境变量，必须由 Go 侧展开才能跨平台一致
+// （demo-all-features 的 env 注入 artifact= 空值即此缺陷）。
+func TestShellRunnerUsesStepEnvInText(t *testing.T) {
+	r := &ShellRunner{Cfg: ShellConfig{
+		Shell:   "echo artifact=${ARTIFACT} mode=${MODE}",
+		Env:     map[string]string{"ARTIFACT": "demo-app.apk"},
+		Timeout: 5 * time.Second,
+	}}
+	var out []string
+	res := r.Run(context.Background(), map[string]any{"MODE": "fast"}, collectEmit(&out))
+	if res.Err != nil {
+		t.Fatalf("run err: %v", res.Err)
+	}
+	joined := strings.Join(collectLines(out), "\n")
+	if !strings.Contains(joined, "demo-app.apk") {
+		t.Fatalf("env 终值未参与 ${VAR} 展开，输出: %q", joined)
+	}
+	if !strings.Contains(joined, "fast") {
+		t.Fatalf("params 展开被破坏，输出: %q", joined)
+	}
+}
+
 // TestBuildEnvInjectsParamsAndKeepsParent 验证 params（全局+动作参数）与动作 env
 // 都注入子进程环境变量，且父进程 env（如 PATH）保留——脚本内部 $env:VAR / ${VAR} 才能读到。
 func TestBuildEnvInjectsParamsAndKeepsParent(t *testing.T) {
