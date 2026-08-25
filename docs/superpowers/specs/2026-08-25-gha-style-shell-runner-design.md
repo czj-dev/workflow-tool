@@ -220,3 +220,32 @@ Git Bash 接受 Windows 路径参数（自动转 MSYS 路径），临时文件�
 文档  CLAUDE.md                                四选一描述同步
 前端  bindings 重新生成                         零源码改动
 ```
+
+## 验收记录（2026-08-25，Windows 11 真机）
+
+验收方式：无法自动化 GUI 点击，改用与 exe 完全相同的库路径
+（registry.Load → actionrun.Build / workflow.Executor → Runner.Run）临时 harness
+逐项执行清单（含事件流断言），等效覆盖「YAML 加载 → Runner 构造 → 解释器执行 →
+输出协议」全链路；UI 事件推送层（events.go）由 api 包单测覆盖。
+
+| # | 资产 | 结果 | 说明 |
+| --- | --- | --- | --- |
+| 1 | test-shell-bash | ✅ | exit=0；hello workflow-tool + 多行第二行；outputs verified=yes |
+| 2 | test-shell-failfast | ✅ | exit=3；「不应出现此行」未出现（-eo pipefail 生效） |
+| 3 | test-shell-pwsh | ✅（修复后） | exit=5；两行输出齐。**验收抓住实现 bug**：pwsh 模板原为 `-Command <路径>`，脚本内 exit $LASTEXITCODE 不传播（恒 1），改 `-File` 后正确传播（commit 01d7fe9，补模板断言 + 端到端回归测试） |
+| 4 | test-script-python | ✅ | exit=0；hello from python 3.11 + py_major=3 |
+| 5 | test-script-node | ✅ | exit=0；hello from node v26.7.0 + node_major=26 |
+| 6 | test-shell-acceptance wf | ✅ | 整体 exit=0；produce→outputs→consume（build_id=42）→python action→sleep→all done 全链路通 |
+| 7 | log-json-extract 回归 | ✅ | heredoc bash 语法在 Windows 上首次真正可执行；前置信息 + 中文还原正常 |
+| 8 | xdzs-device-init 回归 | ✅ | 无设备环境下 adb 逐条报错不中断（set +e 保真），走到「[init] 完成」exit=0 |
+| 9 | demo-all-features 回归 | ✅ | 走到 fail-demo 终止（exit=1）；demo-echo/build_id=42 等前置步输出齐；fail-demo stderr 含「演示失败」中文行 |
+
+配套检查：
+
+- Go 全包测试 PASS（runner/registry/workflow/api/actionrun）；前端 vitest 215/216、
+  typecheck 干净；lint 20 项均为 pre-existing（不涉及本次改动文件）。
+- 前端 91 例失败系 Node ≥22 experimental Web Storage 占位导致 jsdom localStorage
+  不可达，setup.ts 补内存版 Storage 修复（commit ebe7638）；剩余 WorkflowView
+  「00/01」1 例失败在改造前 commit bb0f53a 复现相同失败点，确认 pre-existing。
+- 全量构建（frontend → bindings → go build）成功产出 workflow-tool.exe；
+  pwsh -File 修复后已重建。
