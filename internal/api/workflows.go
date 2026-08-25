@@ -15,6 +15,8 @@ import (
 
 // WorkflowStepInfo 是前端侧边栏/概览可见的步骤摘要。
 type WorkflowStepInfo struct {
+	// 改动 Kind 的取值集合时，必须同步前端 frontend/src/components/WorkflowStepsOverview.tsx
+	// 的 STEP_ICON 表：前端无编译期约束，缺键会落到 ?? FlashIcon 兜底、图标静默退化成 action 的闪电。
 	Kind  string `json:"kind"`  // "action" | "sleep" | "run"
 	Label string `json:"label"` // 显示文案，如 action id / "5s" / 截断 run
 	Name  string `json:"name"`  // step.name 人类可读标签（可为空）

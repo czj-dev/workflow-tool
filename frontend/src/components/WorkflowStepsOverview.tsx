@@ -9,7 +9,8 @@ import type { WorkflowStepInfo } from "../../bindings/workflow-tool/internal/api
 
 // 键必须与后端 WorkflowStepInfo.Kind 的取值一一对应（internal/api/workflows.go:18）：
 // 缺键会落到下方 ?? FlashIcon 兜底，内联步图标退化成 action 的闪电。
-// 导出仅供单测锁「表覆盖后端全部 kind」，同 theme-provider.tsx 的既有豁免写法。
+// 导出的是常量而非组件，故触发 react-refresh 规则；导出目的是让单测能锁住
+// 「图标表覆盖后端全部 kind」这一契约。本文件是纯展示组件，HMR 状态保留的损失可忽略。
 // eslint-disable-next-line react-refresh/only-export-components
 export const STEP_ICON = {
   action: FlashIcon,

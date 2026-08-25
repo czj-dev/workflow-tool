@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { render, screen } from "@testing-library/react";
-import { CommandIcon, FlashIcon } from "@hugeicons/core-free-icons";
+import { Clock01Icon, CommandIcon, FlashIcon } from "@hugeicons/core-free-icons";
 import type { WorkflowStepInfo } from "../../bindings/workflow-tool/internal/api/models.js";
 import { STEP_ICON, WorkflowStepsOverview } from "./WorkflowStepsOverview";
 
@@ -16,9 +16,11 @@ describe("WorkflowStepsOverview", () => {
     }
   });
 
-  it("run 步用命令图标而不是 action 的闪电图标", () => {
+  it("每个 kind 映射到各自的图标（run 不是 action 的闪电）", () => {
     expect(STEP_ICON.run).toBe(CommandIcon);
     expect(STEP_ICON.run).not.toBe(FlashIcon);
+    expect(STEP_ICON.action).toBe(FlashIcon);
+    expect(STEP_ICON.sleep).toBe(Clock01Icon);
   });
 
   it("渲染 run 步的 label 与 kind 文案", () => {
