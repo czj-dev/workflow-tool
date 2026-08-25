@@ -3,6 +3,7 @@ package runner
 import (
 	"context"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -65,18 +66,30 @@ func TestLookupShellSpec_PwshWrapping(t *testing.T) {
 }
 
 // TestPwshExitCodePropagation 端到端验证 pwsh WrapTail 的退出码传播
-//（cmd /c exit 5 应传播为脚本退出码 5；本机无 pwsh/powershell 时跳过）。
+//（原生命令返回 5 应传播为脚本退出码 5；本机无 pwsh/powershell 时跳过）。
 func TestPwshExitCodePropagation(t *testing.T) {
-	_, err := LookupShellSpec("pwsh")
-	if err != nil {
-		t.Skipf("pwsh spec 不可用: %v", err)
+	// 必须用 resolveInterpreter 判断解释器是否真实可用：LookupShellSpec 只查内置
+	// 模板表，对 "pwsh" 永远返回 nil，拿它做 skip 前置判断等于没判断（与
+	// shell_runner_test.go 的 requireBash 同形）。
+	if _, err := resolveInterpreter("pwsh", ""); err != nil {
+		t.Skipf("本机无 pwsh/powershell: %v", err)
+	}
+	// 原生（非 cmdlet）命令返回非零码才是 WrapTail 要证明的场景：PowerShell 默认
+	// 不把原生命令的退出码当脚本退出码。命令本身按平台取，否则装了 pwsh 的 macOS
+	// 会因为找不到 cmd 而假失败。
+	native := "cmd /c exit 5"
+	if runtime.GOOS != "windows" {
+		native = "sh -c 'exit 5'"
 	}
 	r := &ShellRunner{Cfg: ShellConfig{
-		Run:     "Write-Output \"native fail next\"\ncmd /c exit 5",
+		Run:     "Write-Output \"native fail next\"\n" + native,
 		Shell:   "pwsh",
 		Timeout: 30 * time.Second,
 	}}
 	res := r.Run(context.Background(), map[string]any{}, func(string, string) {})
+	if res.Err != nil {
+		t.Fatalf("执行失败（进程未起来，退出码无意义）: %v", res.Err)
+	}
 	if res.ExitCode != 5 {
 		t.Fatalf("exit = %d, want 5（LASTEXITCODE 传播失败；若本机回退 powershell 5，语义应一致）", res.ExitCode)
 	}
