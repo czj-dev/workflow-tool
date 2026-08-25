@@ -2,6 +2,9 @@ package runner
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -190,6 +193,40 @@ func TestBuildCommand_WindowsDefaultBash(t *testing.T) {
 	script := cmd.Args[len(cmd.Args)-1]
 	if !strings.HasSuffix(script, ".sh") {
 		t.Fatalf("run 内容应落 .sh 临时文件: %s", script)
+	}
+}
+
+// TestBuildCommand_ScriptShellOverride script 形态显式 shell 覆盖扩展名推断
+// （design 第 53/112/178 行）。刻意用自定义模板 + 不受支持的 .pl 扩展名：
+// 扩展名推断若没让位就会报「script 扩展名不受支持」；resolveInterpreter 对非内置
+// 名原样返回，所以本机没装 perl 也能断言 argv。
+func TestBuildCommand_ScriptShellOverride(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "hello.pl")
+	if err := os.WriteFile(script, []byte("print 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cmd, cleanup, err := buildCommandFromCfg(ShellConfig{Script: script, Shell: "perl -w {0}"})
+	if err != nil {
+		t.Fatalf("script + 显式 shell 应可构造: %v", err)
+	}
+	defer cleanup()
+	want := []string{"perl", "-w", script}
+	if !reflect.DeepEqual(cmd.Args, want) {
+		t.Fatalf("argv = %v, want %v", cmd.Args, want)
+	}
+}
+
+// TestBuildCommand_ScriptUnknownExtWithoutShell 反向锁住：不写 shell 时未知扩展名必须报错
+// （让位只在显式 shell 时发生，不是把校验整体拆了）。
+func TestBuildCommand_ScriptUnknownExtWithoutShell(t *testing.T) {
+	dir := t.TempDir()
+	script := filepath.Join(dir, "hello.pl")
+	if err := os.WriteFile(script, []byte("print 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := buildCommandFromCfg(ShellConfig{Script: script}); err == nil {
+		t.Fatal("未写 shell 且扩展名不受支持，应报错")
 	}
 }
 
