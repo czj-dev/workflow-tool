@@ -23,10 +23,11 @@ type ActionRequest struct {
 // ActionRunFunc 执行已有 action。
 type ActionRunFunc func(ActionRequest) runner.Result
 
-// ShellRequest 是 executor 对单个 inline shell step 的执行请求。
+// ShellRequest 是 executor 对单个 inline run step 的执行请求。
 type ShellRequest struct {
 	Ctx           context.Context
-	Shell         string // 已 ${{ }} 替换
+	Run           string // 已 ${{ }} 替换的内联命令
+	Shell         string // 解释器逻辑名（空 = bash）
 	Timeout       string // 原始字符串，回调方解析（缺省 60s）
 	Env           map[string]string
 	CaptureOutput *bool
@@ -34,7 +35,7 @@ type ShellRequest struct {
 	Emit          runner.EmitFunc
 }
 
-// ShellRunFunc 执行 inline shell step。
+// ShellRunFunc 执行 inline run step。
 type ShellRunFunc func(ShellRequest) runner.Result
 
 // Executor 按顺序执行 workflow 的 steps。
@@ -149,14 +150,14 @@ func (e *Executor) dispatch(
 			Ctx: ctx, ActionID: step.Action, Params: toAnyMap(resolved),
 			Env: stepEnv, CaptureOutput: step.CaptureOutput, Emit: emit,
 		})
-	case step.Shell != "":
-		substituted, err := Substitute(step.Shell, stepCtx)
+	case step.Run != "":
+		substituted, err := Substitute(step.Run, stepCtx)
 		if err != nil {
 			emit("stderr", err.Error())
 			return runner.Result{ExitCode: -1, Err: err}
 		}
 		return shellRun(ShellRequest{
-			Ctx: ctx, Shell: substituted, Timeout: step.Timeout,
+			Ctx: ctx, Run: substituted, Shell: step.Shell, Timeout: step.Timeout,
 			Env: stepEnv, CaptureOutput: step.CaptureOutput,
 			Params: stepCtx.Params, Emit: emit,
 		})

@@ -6,6 +6,7 @@ import (
 	"regexp"
 
 	"workflow-tool/internal/registry"
+	"workflow-tool/internal/runner"
 )
 
 var idPattern = regexp.MustCompile(`^[a-z0-9-]+$`)
@@ -32,7 +33,7 @@ type WorkflowDef struct {
 	Steps       []Step               `yaml:"steps"`
 }
 
-// Step 是 workflow 中的一步。action / sleep / shell 三者互斥。
+// Step 是 workflow 中的一步。action / run / sleep 三者互斥。
 type Step struct {
 	ID              string            `yaml:"id"`                // 可选；未写用 steps[i] 索引兜底
 	Name            string            `yaml:"name"`              // 可选；Pipeline Spine 显示用
@@ -40,8 +41,9 @@ type Step struct {
 	Action          string            `yaml:"action"`            // 引用已有 action id
 	Params          map[string]string `yaml:"params"`            // 覆盖 action 的参数
 	Sleep           int               `yaml:"sleep"`             // sleep N 秒
-	Shell           string            `yaml:"shell"`             // 直接执行 shell 命令
-	Timeout         string            `yaml:"timeout"`           // 仅 shell step 有效
+	Run             string            `yaml:"run"`               // 直接执行的内联命令（GHA run）
+	Shell           string            `yaml:"shell"`             // 可选修饰：解释器（默认 bash），只搭配 run
+	Timeout         string            `yaml:"timeout"`           // 仅 run step 有效
 	Env             map[string]string `yaml:"env"`               // step 级 env，覆盖 workflow.env 同名 key
 	CaptureOutput   *bool             `yaml:"capture_output"`    // nil/true=默认；false=关闭
 	Retry           int               `yaml:"retry"`             // 可选重试次数
@@ -88,14 +90,14 @@ func Validate(def *WorkflowDef) error {
 		if s.Sleep > 0 {
 			count++
 		}
-		if s.Shell != "" {
+		if s.Run != "" {
 			count++
 		}
 		if count == 0 {
-			return fmt.Errorf("steps[%d]: 必须指定 action、sleep 或 shell 之一", i)
+			return fmt.Errorf("steps[%d]: 必须指定 action、run 或 sleep 之一", i)
 		}
 		if count > 1 {
-			return fmt.Errorf("steps[%d]: action、sleep、shell 三者互斥", i)
+			return fmt.Errorf("steps[%d]: action、run、sleep 三者互斥", i)
 		}
 		if s.ID != "" {
 			if !idPattern.MatchString(s.ID) {
@@ -111,6 +113,14 @@ func Validate(def *WorkflowDef) error {
 				if _, ok := seenStepID[refID]; !ok {
 					return fmt.Errorf("steps[%d].if 引用了不存在或尚未执行的 step id %q", i, refID)
 				}
+			}
+		}
+		if s.Shell != "" {
+			if s.Run == "" {
+				return fmt.Errorf("steps[%d]: shell 只能搭配 run 形态", i)
+			}
+			if !runner.IsValidShellName(s.Shell) {
+				return fmt.Errorf("steps[%d].shell 非法 %q：应为 %s 之一或含 {0} 的自定义模板", i, s.Shell, runner.KnownShellNames())
 			}
 		}
 	}

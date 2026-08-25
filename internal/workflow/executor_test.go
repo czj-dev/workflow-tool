@@ -29,7 +29,7 @@ func TestExecutor_RunsStepsSequentially(t *testing.T) {
 		return runner.Result{ExitCode: 0}
 	}
 	shellRun := func(req ShellRequest) runner.Result {
-		req.Emit("stdout", "sh:"+req.Shell)
+		req.Emit("stdout", "sh:"+req.Run)
 		return runner.Result{ExitCode: 0}
 	}
 
@@ -92,8 +92,8 @@ func TestExecutor_StopsOnFailure(t *testing.T) {
 func TestExecutor_ShellStep(t *testing.T) {
 	var called string
 	shellRun := func(req ShellRequest) runner.Result {
-		called = req.Shell
-		req.Emit("stdout", "sh:"+req.Shell)
+		called = req.Run
+		req.Emit("stdout", "sh:"+req.Run)
 		return runner.Result{ExitCode: 0}
 	}
 	actionRun := func(ActionRequest) runner.Result {
@@ -103,7 +103,7 @@ func TestExecutor_ShellStep(t *testing.T) {
 	wf := LoadedWorkflow{Def: WorkflowDef{
 		ID:    "test-shell",
 		Title: "Test Shell",
-		Steps: []Step{{Shell: "echo hi"}},
+		Steps: []Step{{Run: "echo hi"}},
 	}}
 
 	exec := &Executor{}
@@ -184,13 +184,13 @@ func TestExecutor_StepOutputsAccumulate(t *testing.T) {
 	wf := LoadedWorkflow{Def: WorkflowDef{
 		ID: "wf-1", Title: "t",
 		Steps: []Step{
-			{ID: "first", Shell: "echo 1"},
-			{ID: "second", Shell: "echo 2", If: "steps.first.outputs.exit_code == '0'"},
+			{ID: "first", Run: "echo 1"},
+			{ID: "second", Run: "echo 2", If: "steps.first.outputs.exit_code == '0'"},
 		},
 	}}
 	var ranSecond bool
 	shellRun := func(req ShellRequest) runner.Result {
-		if req.Shell == "echo 2" {
+		if req.Run == "echo 2" {
 			ranSecond = true
 		}
 		return runner.Result{
@@ -215,14 +215,14 @@ func TestExecutor_IfFalseSkips(t *testing.T) {
 	wf := LoadedWorkflow{Def: WorkflowDef{
 		ID: "wf-1", Title: "t",
 		Steps: []Step{
-			{ID: "first", Shell: "echo 1"},
-			{ID: "skip", Shell: "echo skipped", If: "steps.first.outputs.exit_code == '99'"},
-			{ID: "third", Shell: "echo 3"},
+			{ID: "first", Run: "echo 1"},
+			{ID: "skip", Run: "echo skipped", If: "steps.first.outputs.exit_code == '99'"},
+			{ID: "third", Run: "echo 3"},
 		},
 	}}
 	var ran []string
 	shellRun := func(req ShellRequest) runner.Result {
-		ran = append(ran, req.Shell)
+		ran = append(ran, req.Run)
 		return runner.Result{ExitCode: 0, Outputs: map[string]string{"exit_code": "0", "success": "true"}}
 	}
 	var skipEvents []string
@@ -249,15 +249,15 @@ func TestExecutor_IndexFallbackID(t *testing.T) {
 	wf := LoadedWorkflow{Def: WorkflowDef{
 		ID: "wf-1", Title: "t",
 		Steps: []Step{
-			{Shell: "echo first"}, // 无 id，用 "0"
+			{Run: "echo first"}, // 无 id，用 "0"
 			// expr-lang 的点语法不接受数字字面量作为字段名（steps.0 解析失败），
 			// 索引兜底键必须用 bracket 语法访问。
-			{Shell: "echo second", If: `steps["0"].outputs.exit_code == '0'`},
+			{Run: "echo second", If: `steps["0"].outputs.exit_code == '0'`},
 		},
 	}}
 	var ran []string
 	shellRun := func(req ShellRequest) runner.Result {
-		ran = append(ran, req.Shell)
+		ran = append(ran, req.Run)
 		return runner.Result{ExitCode: 0, Outputs: map[string]string{"exit_code": "0"}}
 	}
 	res := (&Executor{}).Execute(context.Background(), wf,
@@ -275,7 +275,7 @@ func TestExecutor_SubstituteActionParamsExpr(t *testing.T) {
 	wf := LoadedWorkflow{Def: WorkflowDef{
 		ID: "wf-1", Title: "t",
 		Steps: []Step{
-			{ID: "find", Shell: "produce"},
+			{ID: "find", Run: "produce"},
 			{ID: "install", Action: "adb-install", Params: map[string]string{"APK_PATH": "${{ steps.find.outputs.apk_path }}"}},
 		},
 	}}
@@ -303,13 +303,13 @@ func TestExecutor_SubstituteEnvExpr(t *testing.T) {
 	wf := LoadedWorkflow{Def: WorkflowDef{
 		ID: "wf-env", Title: "t",
 		Steps: []Step{
-			{ID: "find", Shell: "produce"},
-			{ID: "install", Shell: "echo $TOKEN", Env: map[string]string{"TOKEN": "${{ steps.find.outputs.token }}"}},
+			{ID: "find", Run: "produce"},
+			{ID: "install", Run: "echo $TOKEN", Env: map[string]string{"TOKEN": "${{ steps.find.outputs.token }}"}},
 		},
 	}}
 	var gotEnv map[string]string
 	shellRun := func(req ShellRequest) runner.Result {
-		if req.Shell == "echo $TOKEN" {
+		if req.Run == "echo $TOKEN" {
 			gotEnv = req.Env
 			return runner.Result{ExitCode: 0}
 		}
@@ -330,14 +330,14 @@ func TestExecutor_SubstituteShellExpr(t *testing.T) {
 	wf := LoadedWorkflow{Def: WorkflowDef{
 		ID: "wf-1", Title: "t",
 		Steps: []Step{
-			{ID: "first", Shell: "produce"},
-			{ID: "consume", Shell: "use ${{ steps.first.outputs.token }}"},
+			{ID: "first", Run: "produce"},
+			{ID: "consume", Run: "use ${{ steps.first.outputs.token }}"},
 		},
 	}}
 	var seen string
 	shellRun := func(req ShellRequest) runner.Result {
-		if strings.HasPrefix(req.Shell, "use ") {
-			seen = req.Shell
+		if strings.HasPrefix(req.Run, "use ") {
+			seen = req.Run
 			return runner.Result{ExitCode: 0}
 		}
 		return runner.Result{ExitCode: 0, Outputs: map[string]string{"token": "abc123", "exit_code": "0"}}
@@ -357,7 +357,7 @@ func TestExecutor_PassesContextToCallbacks(t *testing.T) {
 		ID: "wf-ctx", Title: "t",
 		Steps: []Step{
 			{Action: "a"},
-			{Shell: "echo hi"},
+			{Run: "echo hi"},
 		},
 	}}
 	ctx := context.WithValue(context.Background(), ctxKey{}, "v")
