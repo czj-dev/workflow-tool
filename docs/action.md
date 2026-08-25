@@ -201,6 +201,7 @@ command:
 - `.ps1` → pwsh（未装 pwsh 时回退 Windows PowerShell 5）
 - `.py` → python
 - `.js` → node
+- 显式写了 `command.shell` 时以它为准，扩展名推断让位（如 `script: ./x.pl` + `shell: "perl {0}"`）
 
 路径规则：
 - 相对路径基于 **exe 所在目录**（非 cwd）
@@ -445,7 +446,7 @@ command:
 - `title` 必填
 - `run` 与 `script` 与 `adb.operation` 与 `llm.prompt` **四选一、互斥**
 - `command.shell` 只允许搭配 `run`/`script` 形态；值必须是内置名（`bash`/`sh`/`pwsh`/`powershell`/`python`/`node`/`cmd`）或含 `{0}` 的自定义模板
-- `script` 必须带受支持的扩展名（`.sh` / `.ps1` / `.py` / `.js`）
+- `script` 必须带受支持的扩展名（`.sh` / `.ps1` / `.py` / `.js`）；显式写了 `command.shell` 时不校验扩展名
 - `params[].type` 只允许 `text` / `bool` / `select` / `path` / `file` / `textarea`
 - `select` 类型必须提供 `options`
 - `stream` 只允许空 或 `"logcat"`

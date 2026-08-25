@@ -532,7 +532,8 @@ func TestValidate_ShellModifier(t *testing.T) {
 	}
 }
 
-// TestValidate_ScriptExtension 校验 script 扩展名受支持。
+// TestValidate_ScriptExtension 校验 script 扩展名受支持；显式写 shell 时扩展名推断让位
+// （design 第 53 行「shell: 字段可显式覆盖扩展名推断」，runner 侧本就支持）。
 func TestValidate_ScriptExtension(t *testing.T) {
 	ok := &ActionDef{ID: "a", Title: "A", Command: Command{Script: "./s/hello.py"}}
 	if err := Validate(ok); err != nil {
@@ -541,5 +542,9 @@ func TestValidate_ScriptExtension(t *testing.T) {
 	bad := &ActionDef{ID: "a", Title: "A", Command: Command{Script: "./s/hello.rb"}}
 	if err := Validate(bad); err == nil {
 		t.Fatal(".rb 扩展名应报错")
+	}
+	override := &ActionDef{ID: "a", Title: "A", Command: Command{Script: "./s/hello.pl", Shell: "perl {0}"}}
+	if err := Validate(override); err != nil {
+		t.Fatalf("script + 显式 shell 应合法（校验不该比引擎更严）: %v", err)
 	}
 }

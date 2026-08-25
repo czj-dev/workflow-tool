@@ -193,8 +193,9 @@ func Validate(def *ActionDef) error {
 			return err
 		}
 	}
-	// script 必须带受支持的扩展名（.sh/.ps1/.py/.js）
-	if def.Command.Script != "" {
+	// script 必须带受支持的扩展名（.sh/.ps1/.py/.js）；显式写了 shell 时由它决定
+	// 解释器，扩展名推断让位——与 runner.buildCommandFromCfg 同语义，校验不得更严。
+	if def.Command.Script != "" && def.Command.Shell == "" {
 		if _, err := runner.ShellNameByScript(def.Command.Script); err != nil {
 			return err
 		}
