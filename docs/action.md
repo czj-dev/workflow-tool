@@ -53,7 +53,7 @@ presets:                       # 可选，预设参数组合
 | 字段 | 说明 |
 |------|------|
 | `run` | 内联命令（GHA 风格），写入临时脚本文件执行。默认 `bash`（Windows 自动探测 Git Bash）；多行块照旧支持 |
-| `script` | 脚本文件路径（必须带扩展名），按扩展名路由解释器：`.sh`→bash、`.ps1`→pwsh、`.py`→python、`.js`→node |
+| `script` | 脚本文件路径（必须带扩展名），按扩展名路由解释器：`.sh`→bash、`.ps1`→pwsh、`.py`→python、`.js`→node；显式 `shell` 时不校验扩展名 |
 | `shell` | 可选修饰字段：解释器逻辑名，默认 `bash`。可选 `bash`/`sh`/`pwsh`/`powershell`/`python`/`node`/`cmd`，或含 `{0}` 的自定义模板（如 `"perl {0}"`，按空白分词）。只允许搭配 `run`/`script` 形态 |
 | `adb` | adb 域操作（详见下方「adb 域形态」章节） |
 | `llm` | LLM 调用（详见下方「LLM 域形态」章节） |
@@ -201,7 +201,8 @@ command:
 - `.ps1` → pwsh（未装 pwsh 时回退 Windows PowerShell 5）
 - `.py` → python
 - `.js` → node
-- 显式写了 `command.shell` 时以它为准，扩展名推断让位（如 `script: ./x.pl` + `shell: "perl {0}"`）
+
+显式写了 `command.shell` 时以它为准，扩展名推断让位（如 `script: ./x.pl` + `shell: "perl {0}"`）。
 
 路径规则：
 - 相对路径基于 **exe 所在目录**（非 cwd）

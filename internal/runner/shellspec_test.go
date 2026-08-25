@@ -66,11 +66,11 @@ func TestLookupShellSpec_PwshWrapping(t *testing.T) {
 }
 
 // TestPwshExitCodePropagation 端到端验证 pwsh WrapTail 的退出码传播
-//（原生命令返回 5 应传播为脚本退出码 5；本机无 pwsh/powershell 时跳过）。
+// （原生命令返回 5 应传播为脚本退出码 5；本机无 pwsh/powershell 时跳过）。
 func TestPwshExitCodePropagation(t *testing.T) {
 	// 必须用 resolveInterpreter 判断解释器是否真实可用：LookupShellSpec 只查内置
-	// 模板表，对 "pwsh" 永远返回 nil，拿它做 skip 前置判断等于没判断（与
-	// shell_runner_test.go 的 requireBash 同形）。
+	// 模板表，对 "pwsh" 恒返回 nil error（spec 非空），拿它做 skip 前置判断等于
+	// 没判断（与 shell_runner_test.go 的 requireBash 同形）。
 	if _, err := resolveInterpreter("pwsh", ""); err != nil {
 		t.Skipf("本机无 pwsh/powershell: %v", err)
 	}

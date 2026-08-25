@@ -4,9 +4,11 @@ import { Clock01Icon, CommandIcon, FlashIcon } from "@hugeicons/core-free-icons"
 import type { WorkflowStepInfo } from "../../bindings/workflow-tool/internal/api/models.js";
 import { STEP_ICON, WorkflowStepsOverview } from "./WorkflowStepsOverview";
 
-// 后端 WorkflowStepInfo.Kind 的全部取值（internal/api/workflows.go:18）。
-// 少一个键就落到 ?? FlashIcon 兜底、退化成 action 的闪电图标——
-// 正是 shell→run 改名踩到的回归。
+// 后端 WorkflowStepInfo.Kind 的全部取值（internal/api/workflows.go:18），前端硬编码的第二份清单。
+// 本用例锁的是前端表自身的自洽性：三个键都在、三个图标不写混——少一个键就落到
+// ?? FlashIcon 兜底、退化成 action 的闪电图标。
+// 注意：后端把 Kind 取值改名（如 shell→run 那次）本用例抓不到——此处也要同步改名才会变红；
+// 后端改名的防线是 internal/api/workflows.go:18 指向本文件 STEP_ICON 的交叉引用注释。
 const BACKEND_KINDS = ["action", "sleep", "run"] as const;
 
 describe("WorkflowStepsOverview", () => {
