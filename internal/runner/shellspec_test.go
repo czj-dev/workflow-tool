@@ -129,15 +129,17 @@ func TestLookupShellSpec_CustomTemplateMissingPlaceholder(t *testing.T) {
 	}
 }
 
-func TestIsValidShellName(t *testing.T) {
+// TestLookupShellSpec_Acceptance 覆盖 shell 值的接受面：空/内置名/含 {0} 的自定义模板
+// 合法；未知工具名与缺占位符的模板报错（原 TestIsValidShellName 的验收面）。
+func TestLookupShellSpec_Acceptance(t *testing.T) {
 	for _, ok := range []string{"", "bash", "sh", "pwsh", "powershell", "python", "node", "cmd", "perl {0}"} {
-		if !IsValidShellName(ok) {
-			t.Errorf("IsValidShellName(%q) = false, want true", ok)
+		if _, err := LookupShellSpec(ok); err != nil {
+			t.Errorf("LookupShellSpec(%q) err = %v, want nil", ok, err)
 		}
 	}
 	for _, bad := range []string{"zsh", "perl", "{1}"} {
-		if IsValidShellName(bad) {
-			t.Errorf("IsValidShellName(%q) = true, want false", bad)
+		if _, err := LookupShellSpec(bad); err == nil {
+			t.Errorf("LookupShellSpec(%q) err = nil, want error", bad)
 		}
 	}
 }

@@ -63,18 +63,6 @@ func LookupShellSpec(name string) (ShellSpec, error) {
 	return ShellSpec{Template: words, Ext: ".sh"}, nil
 }
 
-// IsBuiltinShellName 判断是否内置 shell 名。
-func IsBuiltinShellName(name string) bool {
-	_, ok := builtinShellSpecs[name]
-	return ok
-}
-
-// IsValidShellName 校验 shell 值合法性（空/内置名/含 {0} 的自定义模板）。
-func IsValidShellName(name string) bool {
-	_, err := LookupShellSpec(name)
-	return err == nil
-}
-
 // KnownShellNames 返回内置名列表（错误信息用）。
 func KnownShellNames() string {
 	return "bash/sh/pwsh/powershell/python/node/cmd"

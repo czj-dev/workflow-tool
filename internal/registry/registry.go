@@ -189,8 +189,8 @@ func Validate(def *ActionDef) error {
 		if def.Command.Adb.Operation != "" || def.Command.LLM.Prompt != "" {
 			return fmt.Errorf("command.shell 只能搭配 run/script 形态")
 		}
-		if !runner.IsValidShellName(def.Command.Shell) {
-			return fmt.Errorf("command.shell 非法 %q：应为 %s 之一或含 {0} 的自定义模板", def.Command.Shell, runner.KnownShellNames())
+		if _, err := runner.LookupShellSpec(def.Command.Shell); err != nil {
+			return err
 		}
 	}
 	// script 必须带受支持的扩展名（.sh/.ps1/.py/.js）

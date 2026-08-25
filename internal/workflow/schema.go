@@ -119,8 +119,8 @@ func Validate(def *WorkflowDef) error {
 			if s.Run == "" {
 				return fmt.Errorf("steps[%d]: shell 只能搭配 run 形态", i)
 			}
-			if !runner.IsValidShellName(s.Shell) {
-				return fmt.Errorf("steps[%d].shell 非法 %q：应为 %s 之一或含 {0} 的自定义模板", i, s.Shell, runner.KnownShellNames())
+			if _, err := runner.LookupShellSpec(s.Shell); err != nil {
+				return fmt.Errorf("steps[%d]: %w", i, err)
 			}
 		}
 	}
