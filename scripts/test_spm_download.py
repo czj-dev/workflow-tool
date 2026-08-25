@@ -26,6 +26,11 @@ assert mod.resolve_args(
     ["spm-download.py"], {"ZIP_NAME": "a.zip", "INNER_PATH": "/i", "OUT_DIR": "/tmp"}
 ) == ["a.zip", "/i", "/tmp"]
 
+# OUT_DIR 空串是表单「留空」的真实形态（不是缺 key），不得追加第三个元素
+assert mod.resolve_args(
+    ["spm-download.py"], {"ZIP_NAME": "a.zip", "INNER_PATH": "/i", "OUT_DIR": ""}
+) == ["a.zip", "/i"]
+
 # 带输出目录的命令行传参
 assert mod.resolve_args(["spm-download.py", "a.zip", "/i", "/tmp"], {}) == ["a.zip", "/i", "/tmp"]
 
@@ -33,5 +38,20 @@ assert mod.resolve_args(["spm-download.py", "a.zip", "/i", "/tmp"], {}) == ["a.z
 env_argv = ["spm-download.py"]
 assert mod.resolve_args(env_argv, {"ZIP_NAME": "a.zip", "INNER_PATH": "/i"}) == ["a.zip", "/i"]
 assert env_argv == ["spm-download.py"], "resolve_args 不得修改入参"
+
+# 参数不足/过多 → sys.exit(__doc__)，抛 SystemExit
+bad_cases = (
+    (["spm-download.py"], {}),  # 无参数且 env 为空
+    (["spm-download.py", "a.zip"], {}),  # 只有 2 个
+    (["spm-download.py"], {"ZIP_NAME": "a.zip"}),  # env 缺 INNER_PATH
+    (["spm-download.py", "a", "b", "c", "d"], {}),  # 5 个，过多
+)
+for bad_argv, bad_env in bad_cases:
+    try:
+        mod.resolve_args(bad_argv, bad_env)
+    except SystemExit:
+        pass
+    else:
+        raise AssertionError(f"参数个数不对应退出: {bad_argv} env={bad_env}")
 
 print("ok")
