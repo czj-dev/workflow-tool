@@ -34,6 +34,20 @@ function ViewProbe() {
   return <div data-testid="view-probe">{view}</div>;
 }
 
+// FocusProbe：用例里唯一能让 provider 选中 workflow 的入口。
+// 仪表带读数取自 workflows.find(w => w.id === currentId)?.steps，currentId 初值为 null 时
+// 步骤列表为空，整条仪表带被空态短路（WorkflowView 落 Empty），读数节点根本不进 DOM，
+// 所以断言 00/01 之前必须先选中。这里用 focusWorkflow 而非 runWorkflow：它只写
+// currentId + view，不动 status、不打运行起始时间，正合「定义态 1 步、未运行」的语义。
+function FocusProbe() {
+  const { focusWorkflow } = useActionRunner();
+  return (
+    <button type="button" data-testid="focus-probe" onClick={() => focusWorkflow("demo-x")}>
+      focus
+    </button>
+  );
+}
+
 beforeEach(() => {
   mockListWorkflows.mockReset();
   mockOn.mockClear();
@@ -51,7 +65,9 @@ describe("WorkflowView", () => {
           icon: "hi:workflow",
           description: "",
           params: [],
-          steps: [{ action: "a" }],
+          // 后端 ListWorkflows 给前端的形状是 WorkflowStepInfo{kind,label,name}
+          // （internal/api/workflows.go），不是 workflow YAML 里的 step 形状。
+          steps: [{ kind: "action", label: "a", name: "" }],
         },
       ],
       errors: [],
@@ -61,13 +77,16 @@ describe("WorkflowView", () => {
         <SidebarProvider>
           <WorkflowView />
           <ViewProbe />
+          <FocusProbe />
         </SidebarProvider>
       </ActionRunnerProvider>,
     );
+    // 先选中 workflow，否则仪表带整块不渲染（见 FocusProbe 注释）
+    await user.click(screen.getByTestId("focus-probe"));
     // 返回按钮的 aria-label = t("sidebar.allWorkflows") = 中文「全部工作流」
     const backBtn = await screen.findByRole("button", { name: "全部工作流" });
     // 仪表带：定义态 1 步、未运行 → 读数 00/01，eyebrow 为中文「步骤」
-    expect(screen.getByText("00/01")).toBeInTheDocument();
+    expect(await screen.findByText("00/01")).toBeInTheDocument();
     expect(screen.getByText("步骤")).toBeInTheDocument();
     await user.click(backBtn);
     expect(screen.getByTestId("view-probe")).toHaveTextContent("workflows-grid");
