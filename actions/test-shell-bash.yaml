@@ -1,0 +1,15 @@
+id: test-shell-bash
+title: "验收: bash 默认形态"
+icon: hi:test
+description: "验证默认 bash：多行块 + ${VAR} 展开 + ##[output] 协议 + 退出码 0（预期成功）"
+params:
+  - id: NAME
+    label: 名字
+    type: text
+    default: workflow-tool
+command:
+  run: |
+    echo "hello ${NAME}"
+    echo "多行第二行"
+    echo "##[output verified=yes]"
+  timeout: 30s

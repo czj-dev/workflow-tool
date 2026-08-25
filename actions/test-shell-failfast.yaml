@@ -1,0 +1,10 @@
+id: test-shell-failfast
+title: "验收: -eo pipefail 快速失败"
+icon: hi:test
+description: "预期失败：第 2 行 exit 3，-e 生效后续行不执行、exit_code=3（用于验证错误处理语义统一）"
+command:
+  run: |
+    echo "first"
+    exit 3
+    echo "不应出现此行"
+  timeout: 30s

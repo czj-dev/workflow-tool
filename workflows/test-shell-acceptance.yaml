@@ -1,0 +1,36 @@
+id: test-shell-acceptance
+title: "验收: GHA shell 端到端"
+icon: hi:workflow
+description: "run(bash)+output → pwsh 退出码传播(continue_on_error 容错无 pwsh 环境) → if 引用 outputs → script python action → sleep → 收尾"
+
+steps:
+  - id: produce
+    name: 生产数据
+    run: |
+      echo "start"
+      echo "##[output build_id=42]"
+
+  - id: pwsh-code
+    name: "pwsh 退出码传播（预期失败不中断）"
+    shell: pwsh
+    run: |
+      Write-Output "native fail next"
+      cmd /c exit 5
+    continue_on_error: true
+
+  - id: consume
+    name: 消费 outputs
+    if: steps.produce.outputs.build_id == '42'
+    run: echo "build_id=${{ steps.produce.outputs.build_id }}"
+
+  - id: py
+    name: script python action
+    action: test-script-python
+
+  - id: wait
+    name: 等待 1s
+    sleep: 1
+
+  - id: done
+    name: 收尾
+    run: echo "all done"
