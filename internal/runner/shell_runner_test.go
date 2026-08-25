@@ -220,13 +220,16 @@ func TestBuildCommand_ScriptShellOverride(t *testing.T) {
 // TestBuildCommand_ScriptUnknownExtWithoutShell 反向锁住：不写 shell 时未知扩展名必须报错
 // （让位只在显式 shell 时发生，不是把校验整体拆了）。
 func TestBuildCommand_ScriptUnknownExtWithoutShell(t *testing.T) {
-	dir := t.TempDir()
-	script := filepath.Join(dir, "hello.pl")
-	if err := os.WriteFile(script, []byte("print 1\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := buildCommandFromCfg(ShellConfig{Script: script}); err == nil {
+	// 不需要真实文件：扩展名推断（ShellNameByScript）早于路径存在性校验（resolveScriptPath），
+	// 错误必然先由前者抛出，所以只拼一个不存在的 .pl 路径即可。
+	script := filepath.Join(t.TempDir(), "hello.pl")
+	_, _, err := buildCommandFromCfg(ShellConfig{Script: script})
+	if err == nil {
 		t.Fatal("未写 shell 且扩展名不受支持，应报错")
+	}
+	// 校验错误来自扩展名推断，而非别处（否则这条防线会因错误的理由变绿）
+	if !strings.Contains(err.Error(), "扩展名不受支持") {
+		t.Fatalf("错误应来自扩展名推断，got %v", err)
 	}
 }
 
