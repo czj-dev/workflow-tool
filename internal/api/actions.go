@@ -176,9 +176,9 @@ func (s *Service) GetVarReferenceCounts() map[string]int {
 			}
 		}
 	}
-	// actions：inline shell + cwd + env values + script 脚本文件内容
+	// actions：inline run + cwd + env values + script 脚本文件内容
 	for _, la := range s.reg.Actions {
-		add(la.Def.Command.Shell)
+		add(la.Def.Command.Run)
 		add(la.Def.Command.Cwd)
 		for _, v := range la.Def.Command.Env {
 			add(v)
@@ -197,7 +197,7 @@ func (s *Service) GetVarReferenceCounts() map[string]int {
 			add(v)
 		}
 		for _, step := range lw.Def.Steps {
-			add(step.Shell)
+			add(step.Run)
 			for _, v := range step.Params {
 				add(v)
 			}
@@ -216,21 +216,13 @@ func (s *Service) GetVarReferenceCounts() map[string]int {
 	return counts
 }
 
-// readScriptBytes 读取 script 脚本内容（.sh 与 .ps1 都读并合并），相对路径基于 baseDir。
-// 两份都读是为了与运行平台解耦——统计的是「变量名是否被引用」，与实际执行哪个脚本无关。
-// 两个后缀都读不到（路径含变量、文件缺失）则返回 false。
+// readScriptBytes 读取 script 脚本内容（路径自带扩展名），相对路径基于 baseDir。
+// 读不到（路径含变量、文件缺失）返回 false——统计场景容忍缺文件。
 func readScriptBytes(script, baseDir string) ([]byte, bool) {
 	p := script
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(baseDir, p)
 	}
-	var data []byte
-	found := false
-	for _, ext := range []string{".sh", ".ps1"} {
-		if d, err := os.ReadFile(p + ext); err == nil {
-			data = append(data, d...)
-			found = true
-		}
-	}
-	return data, found
+	d, err := os.ReadFile(p)
+	return d, err == nil
 }

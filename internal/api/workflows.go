@@ -15,8 +15,8 @@ import (
 
 // WorkflowStepInfo 是前端侧边栏/概览可见的步骤摘要。
 type WorkflowStepInfo struct {
-	Kind  string `json:"kind"`  // "action" | "sleep" | "shell"
-	Label string `json:"label"` // 显示文案，如 action id / "5s" / 截断 shell
+	Kind  string `json:"kind"`  // "action" | "sleep" | "run"
+	Label string `json:"label"` // 显示文案，如 action id / "5s" / 截断 run
 	Name  string `json:"name"`  // step.name 人类可读标签（可为空）
 }
 
@@ -71,12 +71,12 @@ func buildStepInfos(steps []workflow.Step) []WorkflowStepInfo {
 		case s.Sleep > 0:
 			info.Kind = "sleep"
 			info.Label = fmt.Sprintf("%ds", s.Sleep)
-		case s.Shell != "":
-			label := s.Shell
+		case s.Run != "":
+			label := s.Run
 			if len(label) > 40 {
 				label = label[:37] + "..."
 			}
-			info.Kind = "shell"
+			info.Kind = "run"
 			info.Label = label
 		}
 		infos[i] = info
@@ -194,7 +194,9 @@ func (s *Service) makeShellRun(merged map[string]any) workflow.ShellRunFunc {
 			}
 		}
 		r := &runner.ShellRunner{Cfg: runner.ShellConfig{
+			Run:           req.Run,
 			Shell:         req.Shell,
+			BashPath:      s.bashOverride(),
 			Timeout:       parseShellTimeout(req.Timeout),
 			Env:           expandedEnv,
 			CaptureOutput: req.CaptureOutput,

@@ -40,7 +40,7 @@ params:
 steps:
   - action: some-action
   - sleep: 5
-  - shell: echo hi
+  - run: echo hi
 `)
 	res := svc.ListWorkflows()
 	if len(res.Workflows) != 1 {
@@ -53,7 +53,7 @@ steps:
 	want := []WorkflowStepInfo{
 		{Kind: "action", Label: "some-action"},
 		{Kind: "sleep", Label: "5s"},
-		{Kind: "shell", Label: "echo hi"},
+		{Kind: "run", Label: "echo hi"},
 	}
 	if len(w.Steps) != len(want) {
 		t.Fatalf("steps 数量不符：%+v", w.Steps)
@@ -192,7 +192,7 @@ presets:
   - name: 首页
     values: { URL: https://example.com }
 command:
-  shell: echo ${URL}
+  run: echo ${URL}
 `), 0644)
 
 	svc := New(registry.Load(dir, dir), nil, dir, cfgPath, filepath.Join(dir, "fragments.yaml"))
@@ -215,7 +215,7 @@ func TestListActionsIncludesStream(t *testing.T) {
 	os.WriteFile(filepath.Join(dir, "a.yaml"), []byte(`id: a
 title: A
 command:
-  shell: echo hi
+  run: echo hi
   stream: logcat
 `), 0644)
 
@@ -265,7 +265,7 @@ func TestGetActionYamlReturnsRawWithComments(t *testing.T) {
 	dir := t.TempDir()
 	ad := filepath.Join(dir, "actions")
 	os.Mkdir(ad, 0755)
-	os.WriteFile(filepath.Join(ad, "a.yaml"), []byte("# 注释\nid: a\ntitle: A\ncommand:\n  shell: echo hi\n"), 0644)
+	os.WriteFile(filepath.Join(ad, "a.yaml"), []byte("# 注释\nid: a\ntitle: A\ncommand:\n  run: echo hi\n"), 0644)
 	svc := New(registry.Load(ad, dir), nil, dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
 	got, err := svc.GetActionYaml("a")
 	if err != nil {
@@ -280,9 +280,9 @@ func TestSetActionYamlValidWritesAndReloads(t *testing.T) {
 	dir := t.TempDir()
 	ad := filepath.Join(dir, "actions")
 	os.Mkdir(ad, 0755)
-	os.WriteFile(filepath.Join(ad, "a.yaml"), []byte("id: a\ntitle: A\ncommand:\n  shell: echo hi\n"), 0644)
+	os.WriteFile(filepath.Join(ad, "a.yaml"), []byte("id: a\ntitle: A\ncommand:\n  run: echo hi\n"), 0644)
 	svc := New(registry.Load(ad, dir), nil, dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
-	res, err := svc.SetActionYaml("a", "id: a\ntitle: 改名\ncommand:\n  shell: echo bye\n")
+	res, err := svc.SetActionYaml("a", "id: a\ntitle: 改名\ncommand:\n  run: echo bye\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -299,7 +299,7 @@ func TestSetActionYamlRejectsBadYAML(t *testing.T) {
 	dir := t.TempDir()
 	ad := filepath.Join(dir, "actions")
 	os.Mkdir(ad, 0755)
-	orig := "id: a\ntitle: A\ncommand:\n  shell: echo hi\n"
+	orig := "id: a\ntitle: A\ncommand:\n  run: echo hi\n"
 	os.WriteFile(filepath.Join(ad, "a.yaml"), []byte(orig), 0644)
 	svc := New(registry.Load(ad, dir), nil, dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
 	_, err := svc.SetActionYaml("a", "id: a\n  : : :\n")
@@ -316,10 +316,10 @@ func TestSetActionYamlRejectsValidation(t *testing.T) {
 	dir := t.TempDir()
 	ad := filepath.Join(dir, "actions")
 	os.Mkdir(ad, 0755)
-	os.WriteFile(filepath.Join(ad, "a.yaml"), []byte("id: a\ntitle: A\ncommand:\n  shell: echo hi\n"), 0644)
+	os.WriteFile(filepath.Join(ad, "a.yaml"), []byte("id: a\ntitle: A\ncommand:\n  run: echo hi\n"), 0644)
 	svc := New(registry.Load(ad, dir), nil, dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
 	// 缺 title → Validate 失败
-	_, err := svc.SetActionYaml("a", "id: a\ncommand:\n  shell: echo\n")
+	_, err := svc.SetActionYaml("a", "id: a\ncommand:\n  run: echo\n")
 	if err == nil {
 		t.Fatal("校验失败应报错")
 	}
@@ -329,10 +329,10 @@ func TestSetActionYamlRejectsIDChange(t *testing.T) {
 	dir := t.TempDir()
 	ad := filepath.Join(dir, "actions")
 	os.Mkdir(ad, 0755)
-	orig := "id: a\ntitle: A\ncommand:\n  shell: echo hi\n"
+	orig := "id: a\ntitle: A\ncommand:\n  run: echo hi\n"
 	os.WriteFile(filepath.Join(ad, "a.yaml"), []byte(orig), 0644)
 	svc := New(registry.Load(ad, dir), nil, dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
-	_, err := svc.SetActionYaml("a", "id: b\ntitle: A\ncommand:\n  shell: echo\n")
+	_, err := svc.SetActionYaml("a", "id: b\ntitle: A\ncommand:\n  run: echo\n")
 	if err == nil {
 		t.Fatal("改 id 应被拒")
 	}
@@ -343,8 +343,8 @@ func TestSetActionYamlRejectsIDChange(t *testing.T) {
 }
 
 // TestGetVarReferenceCountsCoversWorkflowFields 校验 workflow 中 ${VAR} 引用被正确统计：
-// step.shell、step.params、step.env、workflow.env 都会经 runner.Expand 展开，必须计入引用计数。
-// 复现场景：xdzs-debug-chain 的 find-apk step.shell 引用 VOICE_DEBUG_OUTPUT 却未被计数。
+// step.run、step.params、step.env、workflow.env 都会经 runner.Expand 展开，必须计入引用计数。
+// 复现场景：xdzs-debug-chain 的 find-apk step.run 引用 VOICE_DEBUG_OUTPUT 却未被计数。
 func TestGetVarReferenceCountsCoversWorkflowFields(t *testing.T) {
 	svc, _ := newWorkflowSvc(t, `id: chain
 title: Chain
@@ -353,7 +353,7 @@ env:
 steps:
   - id: find-apk
     name: 定位 APK
-    shell: |
+    run: |
       APK=$(find "${VOICE_DEBUG_OUTPUT}" -maxdepth 1 -name "*.apk" | head -1)
   - id: install
     action: adb-install
@@ -425,7 +425,7 @@ func TestBuildActionRunParamsKeepsNonString(t *testing.T) {
 
 // TestGetVarReferenceCountsDedupesWithinField 校验同一字段内重复引用只计一次。
 func TestGetVarReferenceCountsDedupesWithinField(t *testing.T) {
-	svc, _ := newWorkflowSvc(t, "id: w\ntitle: W\nsteps:\n  - shell: \"echo ${DUP} ${DUP}\"\n")
+	svc, _ := newWorkflowSvc(t, "id: w\ntitle: W\nsteps:\n  - run: \"echo ${DUP} ${DUP}\"\n")
 	if c := svc.GetVarReferenceCounts()["DUP"]; c != 1 {
 		t.Fatalf("同字段内重复引用应只计一次，got %d", c)
 	}

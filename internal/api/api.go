@@ -67,7 +67,7 @@ func New(reg *registry.Registry, wfReg *workflow.WorkflowRegistry, baseDir, cfgP
 	svc.bin = binary.NewService()
 	svc.dev = device.NewService(svc.binPaths)
 	svc.builtins = builtinvars.New(svc.dev)
-	svc.runDeps = actionrun.Deps{BaseDir: baseDir, ADBPaths: svc.binPaths, ADBDevice: svc.dev, Builtins: svc.builtins}
+	svc.runDeps = actionrun.Deps{BaseDir: baseDir, ADBPaths: svc.binPaths, ADBDevice: svc.dev, Builtins: svc.builtins, BashPath: svc.bashOverride}
 	return svc
 }
 
@@ -85,6 +85,13 @@ func (s *Service) adbOverrides() map[string]string {
 		}
 	}
 	return out
+}
+
+// bashOverride 返回 config.yaml 的 BASH_PATH（bash/sh 探测级联第一优先）；未配置为空。
+func (s *Service) bashOverride() string {
+	s.gMu.Lock()
+	defer s.gMu.Unlock()
+	return s.global["BASH_PATH"]
 }
 
 // binPaths 解析当前三个二进制路径（config 覆盖 -> PATH -> 常见路径）。
