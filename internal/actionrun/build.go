@@ -30,6 +30,7 @@ type Deps struct {
 	ADBPaths  func() binary.Paths    // 二进制路径解析（config 覆盖 → PATH → 常见路径），唯一实现是 api.binPaths
 	ADBDevice DeviceResolver         // 设备解析（serial 校验与回退）
 	Builtins  *builtinvars.Registry  // 内置变量注册表（CURRENT_DATE/CURRENT_TIME/ADB_SERIAL）
+	BashPath  func() string          // config.yaml BASH_PATH 惰性读取（bash/sh 解析级联第一优先），nil = 无覆盖
 }
 
 // Options 是一次构造的可变输入：直接运行与 workflow step 运行的差异全部在这里。
@@ -69,8 +70,10 @@ func Build(ctx context.Context, la registry.LoadedAction, deps Deps, opts Option
 		return buildLLM(ctx, la, opts, deps.Builtins)
 	default:
 		return &runner.ShellRunner{Cfg: runner.ShellConfig{
-			Shell:         la.Def.Command.Shell,
+			Run:           la.Def.Command.Run,
 			Script:        la.Def.Command.Script,
+			Shell:         la.Def.Command.Shell,
+			BashPath:      bashPathOf(deps),
 			Cwd:           la.Cwd, // raw，由 ShellRunner 用 params 替换
 			Timeout:       la.Timeout,
 			Env:           mergeEnv(la.Def.Command.Env, opts.ExtraEnv),
@@ -123,4 +126,12 @@ func strOf(params map[string]any, key string) string {
 		return ""
 	}
 	return fmt.Sprint(v)
+}
+
+// bashPathOf 安全读取 deps.BashPath（nil 返回空串）。
+func bashPathOf(deps Deps) string {
+	if deps.BashPath == nil {
+		return ""
+	}
+	return deps.BashPath()
 }

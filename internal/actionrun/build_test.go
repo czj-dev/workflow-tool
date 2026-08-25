@@ -15,8 +15,8 @@ func TestBuildShellForm(t *testing.T) {
 	la := registry.LoadedAction{
 		Def: registry.ActionDef{
 			Command: registry.Command{
-				Shell: "echo hi",
-				Env:   map[string]string{"A": "1"},
+				Run: "echo hi",
+				Env: map[string]string{"A": "1"},
 			},
 		},
 		Cwd: "/tmp",
@@ -26,7 +26,7 @@ func TestBuildShellForm(t *testing.T) {
 	if !ok {
 		t.Fatalf("want ShellRunner, got %T", r)
 	}
-	if sr.Cfg.Shell != "echo hi" || sr.Cfg.BaseDir != "/base" || sr.Cfg.Cwd != "/tmp" {
+	if sr.Cfg.Run != "echo hi" || sr.Cfg.BaseDir != "/base" || sr.Cfg.Cwd != "/tmp" {
 		t.Fatalf("cfg mismatch: %+v", sr.Cfg)
 	}
 	if sr.Cfg.CaptureOutput != nil {
@@ -58,6 +58,27 @@ func TestBuildShellForm(t *testing.T) {
 	sr5 := Build(context.Background(), la, Deps{Builtins: builtins}, Options{}).(*runner.ShellRunner)
 	if sr5.Cfg.Builtins != builtins {
 		t.Fatal("Deps.Builtins 未透传到 ShellConfig.Builtins")
+	}
+}
+
+// TestBuildPassesShellFields 验证 Run/Shell/Script/BashPath 透传到 ShellConfig。
+func TestBuildPassesShellFields(t *testing.T) {
+	la := registry.LoadedAction{Def: registry.ActionDef{
+		ID: "a", Title: "A",
+		Command: registry.Command{Run: "echo hi", Shell: "pwsh"},
+	}}
+	deps := Deps{BashPath: func() string { return `C:\custom\bash.exe` }}
+	sr := Build(context.Background(), la, deps, Options{}).(*runner.ShellRunner)
+	if sr.Cfg.Run != "echo hi" || sr.Cfg.Shell != "pwsh" {
+		t.Fatalf("Run/Shell 未透传: %+v", sr.Cfg)
+	}
+	if sr.Cfg.BashPath != `C:\custom\bash.exe` {
+		t.Fatalf("BashPath 未透传: %q", sr.Cfg.BashPath)
+	}
+	// BashPath 为 nil deps 时不 panic、为空串
+	sr2 := Build(context.Background(), la, Deps{}, Options{}).(*runner.ShellRunner)
+	if sr2.Cfg.BashPath != "" {
+		t.Fatalf("nil Deps.BashPath 应兜底空串: %q", sr2.Cfg.BashPath)
 	}
 }
 
