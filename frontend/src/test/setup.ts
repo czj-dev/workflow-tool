@@ -34,3 +34,28 @@ if (!Element.prototype.getAnimations) {
     return [];
   };
 }
+
+// Node ≥22 的 experimental 原生 Web Storage 未启用时 globalThis.localStorage 为 undefined，
+// 且该键被 Node 占住导致 vitest populateGlobal 跳过、jsdom 的实现不可达
+// （window === globalThis，无从取原生实现）——补一个内存版 Storage 供测试用
+if (!globalThis.localStorage || !globalThis.sessionStorage) {
+  const makeStorage = (): Storage => {
+    const map = new Map<string, string>();
+    return {
+      get length() {
+        return map.size;
+      },
+      clear: () => map.clear(),
+      getItem: (key: string) => (map.has(key) ? map.get(key)! : null),
+      key: (index: number) => [...map.keys()][index] ?? null,
+      removeItem: (key: string) => void map.delete(key),
+      setItem: (key: string, value: string) => void map.set(key, String(value)),
+    };
+  };
+  if (!globalThis.localStorage) {
+    Object.defineProperty(globalThis, "localStorage", { configurable: true, value: makeStorage() });
+  }
+  if (!globalThis.sessionStorage) {
+    Object.defineProperty(globalThis, "sessionStorage", { configurable: true, value: makeStorage() });
+  }
+}
