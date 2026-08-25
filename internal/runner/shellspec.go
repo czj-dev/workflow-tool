@@ -58,7 +58,9 @@ func LookupShellSpec(name string) (ShellSpec, error) {
 		}
 	}
 	if !has {
-		return ShellSpec{}, fmt.Errorf("command.shell 非法 %q：应为 %s 之一或含 {0} 的自定义模板", name, KnownShellNames())
+		// 不带 command. 前缀：workflow step 的字段是顶层 shell:，没有 command 这一层，
+		// 调用方（registry / workflow.schema）各自负责补自己的字段路径。
+		return ShellSpec{}, fmt.Errorf("shell 非法 %q：应为 %s 之一或含 {0} 的自定义模板", name, KnownShellNames())
 	}
 	return ShellSpec{Template: words, Ext: ".sh"}, nil
 }

@@ -511,8 +511,8 @@ func TestValidate_ShellModifier(t *testing.T) {
 	}{
 		{"合法内置名", "id: a\ntitle: A\ncommand:\n  run: echo\n  shell: pwsh\n", ""},
 		{"合法自定义模板", "id: a\ntitle: A\ncommand:\n  run: echo\n  shell: \"perl {0}\"\n", ""},
-		{"非法工具名", "id: a\ntitle: A\ncommand:\n  run: echo\n  shell: zsh\n", "command.shell 非法"},
-		{"自定义模板缺占位符", "id: a\ntitle: A\ncommand:\n  run: echo\n  shell: perl\n", "command.shell 非法"},
+		{"非法工具名", "id: a\ntitle: A\ncommand:\n  run: echo\n  shell: zsh\n", "shell 非法"},
+		{"自定义模板缺占位符", "id: a\ntitle: A\ncommand:\n  run: echo\n  shell: perl\n", "shell 非法"},
 		{"shell 配 adb 形态", "id: a\ntitle: A\ncommand:\n  adb:\n    operation: list-packages\n  shell: bash\n", "只能搭配 run/script"},
 		{"shell 配 llm 形态", "id: a\ntitle: A\nparams:\n  - id: p\n    type: text\ncommand:\n  llm:\n    prompt: p\n  shell: bash\n", "只能搭配 run/script"},
 	}
