@@ -19,11 +19,8 @@ func fakeLookup(hits map[string]string) func(string) (string, error) {
 }
 
 func TestLookupPosixShell_OverrideWins(t *testing.T) {
-	dir := t.TempDir()
-	override := filepath.Join(dir, "mybash.exe")
-	if err := osWriteFile(override); err != nil {
-		t.Fatal(err)
-	}
+	// validate 是恒 nil 的 stub，不看真实文件，所以这里只需要一个路径字符串。
+	override := filepath.Join(t.TempDir(), "mybash.exe")
 	lookup := posixShellLookup{
 		lookPath: fakeLookup(nil), // PATH 什么都找不到，也不该被用到
 		validate: func(p string) error { return nil },
@@ -50,8 +47,9 @@ func TestLookupPosixShell_WSLBashExcluded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got, "Git") || !strings.Contains(got, "bash.exe") {
-		t.Fatalf("应回退到常见 Git 安装目录, got %q", got)
+	want := filepath.Join(`C:\Program Files\Git\bin`, "bash.exe")
+	if got != want {
+		t.Fatalf("应回退到常见 Git 安装目录, got %q, want %q", got, want)
 	}
 }
 
@@ -75,8 +73,9 @@ func TestLookupPosixShell_NotFound(t *testing.T) {
 	}
 }
 
-func TestResolveInterpreter_PwshFallsBackToPowerShell(t *testing.T) {
-	// 本机环境无关性：直接测 resolveInterpreter 的 powershell 分支（Windows 必有）
+func TestResolveInterpreter_UnknownNamePassesThrough(t *testing.T) {
+	// 非内置逻辑名（powershell / node / cmd / 自定义模板首元素）不做任何映射，
+	// 原样返回交给 exec 解析——两个平台的 default 分支行为一致。
 	got, err := resolveInterpreter("powershell", "")
 	if err != nil {
 		t.Fatal(err)
@@ -84,9 +83,4 @@ func TestResolveInterpreter_PwshFallsBackToPowerShell(t *testing.T) {
 	if got != "powershell" {
 		t.Fatalf("powershell 名应原样返回, got %q", got)
 	}
-}
-
-// osWriteFile 写一个空文件（fake exe 用）。
-func osWriteFile(p string) error {
-	return os.WriteFile(p, []byte(""), 0755)
 }

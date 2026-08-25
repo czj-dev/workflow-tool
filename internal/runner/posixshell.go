@@ -1,3 +1,7 @@
+// 这个文件故意不带 build tag：bash/sh 探测的级联逻辑本身与平台无关——纯字符串与
+// 路径判断——带了 tag 的话注入式设计在 macOS/Linux 上一条用例都跑不到，等于白做
+// （design 第 177 行要求「探测函数接受候选注入，单测不依赖真实机器状态」）。
+// 真正与平台相关的部分（谁来调它、候选目录取值）留在 shell_lookup_windows.go。
 package runner
 
 import (
@@ -7,10 +11,7 @@ import (
 )
 
 // posixShellLookup 收拢 bash/sh 探测的外部依赖（PATH 查找、可执行校验、候选目录），
-// 便于单测注入。级联逻辑本身与平台无关——纯字符串与路径判断——所以这里不带
-// build tag：带了的话注入式设计在 macOS/Linux 上一条用例都跑不到，等于白做
-// （design 第 177 行要求「探测函数接受候选注入，单测不依赖真实机器状态」）。
-// 真正与平台相关的部分（谁来调它、候选目录取值）留在 shell_lookup_windows.go。
+// 便于单测注入。
 type posixShellLookup struct {
 	lookPath func(string) (string, error) // PATH 查找
 	validate func(string) error           // 路径可执行性校验
