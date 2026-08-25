@@ -11,8 +11,9 @@ icon: hi:play                  # 可选，hugeicons 图标 key 或 emoji
 description: 简要说明           # 可选，UI 悬停提示
 
 command:
-  shell: echo hello            # 形态 A：内联 shell 命令
-  # script: ./scripts/foo      # 形态 B：脚本文件
+  run: echo hello              # 形态 A：内联命令（GHA 风格）
+  shell: bash                  # 可选修饰：解释器，默认 bash
+  # script: ./scripts/foo.sh   # 形态 B：脚本文件（带扩展名）
   # adb: { operation: push }   # 形态 C：adb 域操作
   # llm: { system: ROLE, prompt: TASK }   # 形态 D：LLM 调用
   cwd: ${SOME_DIR}             # 可选，工作目录，默认用户主目录
@@ -47,12 +48,13 @@ presets:                       # 可选，预设参数组合
 
 ### command
 
-`shell`、`script`、`adb`、`llm` **四选一互斥**，必须指定其一。
+`run`、`script`、`adb`、`llm` **四选一互斥**，必须指定其一。
 
 | 字段 | 说明 |
 |------|------|
-| `shell` | 内联命令，macOS/Linux 用 `sh -c` 执行，Windows 用 PowerShell |
-| `script` | 脚本路径（不含扩展名），按 OS 自动加 `.sh` / `.ps1`，相对路径基于 exe 目录 |
+| `run` | 内联命令（GHA 风格），写入临时脚本文件执行。默认 `bash`（Windows 自动探测 Git Bash）；多行块照旧支持 |
+| `script` | 脚本文件路径（必须带扩展名），按扩展名路由解释器：`.sh`→bash、`.ps1`→pwsh、`.py`→python、`.js`→node |
+| `shell` | 可选修饰字段：解释器逻辑名，默认 `bash`。可选 `bash`/`sh`/`pwsh`/`powershell`/`python`/`node`/`cmd`，或含 `{0}` 的自定义模板（如 `"perl {0}"`，按空白分词）。只允许搭配 `run`/`script` 形态 |
 | `adb` | adb 域操作（详见下方「adb 域形态」章节） |
 | `llm` | LLM 调用（详见下方「LLM 域形态」章节） |
 | `cwd` | 工作目录，支持 `${VAR}` 替换，默认 `$HOME` |
@@ -111,7 +113,7 @@ presets:                       # 可选，预设参数组合
 | `CURRENT_TIME` | 当前毫秒时间戳（如 `1755590400000`） | `${OUTPUT_DIR}${CURRENT_TIME}.png`，避免同名文件覆盖 |
 | `ADB_SERIAL` | 当前激活设备 serial（UI 设备选择器选中的设备） | shell/script 动作里 `adb -s "${ADB_SERIAL}" shell ...` |
 
-`ADB_SERIAL` 若在 `config.yaml` 里显式配置，或动作参数里已有同名值，则内置变量不生效（参数/配置优先级更高，见上）——这是给需要固定某台设备的场景保留的覆盖能力。`command.adb.operation` 形态本身有独立的在线校验与自动重连回退逻辑（详见下方"adb 域形态"），内置变量表里的 `ADB_SERIAL` 主要解决 `command.shell`/`script` 形态里引用 `${ADB_SERIAL}` 时同样能取到当前激活设备。
+`ADB_SERIAL` 若在 `config.yaml` 里显式配置，或动作参数里已有同名值，则内置变量不生效（参数/配置优先级更高，见上）——这是给需要固定某台设备的场景保留的覆盖能力。`command.adb.operation` 形态本身有独立的在线校验与自动重连回退逻辑（详见下方"adb 域形态"），内置变量表里的 `ADB_SERIAL` 主要解决 `command.run`/`script` 形态里引用 `${ADB_SERIAL}` 时同样能取到当前激活设备。
 
 ### workflow 中的变量优先级扩展
 
@@ -193,28 +195,55 @@ command:
 
 ## 脚本形态（script）
 
-`script` 字段指向脚本文件路径（不含扩展名），运行时按 OS 自动拼接：
+`script` 字段指向脚本文件路径（**必须带扩展名**），按扩展名路由解释器：
 
-- macOS / Linux → `<script>.sh`（用 `sh -c` 执行）
-- Windows → `<script>.ps1`（用 PowerShell 执行）
+- `.sh` → bash
+- `.ps1` → pwsh（未装 pwsh 时回退 Windows PowerShell 5）
+- `.py` → python
+- `.js` → node
 
 路径规则：
 - 相对路径基于 **exe 所在目录**（非 cwd）
 - 推荐放在 `scripts/` 目录下
+- 单份维护：不再需要 `.sh` + `.ps1` 双份脚本，同一份文件跨平台执行
 
 示例：
 
 ```yaml
 command:
-  script: ./scripts/adb-install
-  timeout: 5m
+  script: ./scripts/spm-download.py
+  timeout: 10m
 ```
 
-对应文件：`scripts/adb-install.sh`（Mac）/ `scripts/adb-install.ps1`（Windows）。
+## 错误处理语义（run / script 形态）
 
-## 输出协议（shell / script 形态）
+- `bash`（默认）：`--noprofile --norc -eo pipefail`——任一命令非零即中断、管道取最右非零码
+- `sh`：`-e`
+- `pwsh` / `powershell`：脚本头注入 `$ErrorActionPreference = 'stop'`；尾部注入退出码传播
+  （原生命令如 adb/gradlew 的非零退出码默认不会成为脚本退出码，包装行解决该 PowerShell 经典坑）
+- `python` / `node`：异常与退出码自然传播（`python -u` 无缓冲 stdout，保 `##[progress]` 流式）
+- `cmd`：无错误语义增强（GHA 亦然）
 
-`shell` 与 `script` 动作可以在 stdout 里写协议行，让宿主对该行做特殊处理。协议行必须独占一行，`##[` 前后允许空白。
+逃生门：脚本内 `set +e`、`|| true`、`$ErrorActionPreference = 'Continue'` 照常有效——
+默认严格、显式放宽。
+
+内联 `run` 的内容写入临时脚本文件（LF 行尾）执行，无引号/转义边界问题；`script` 直接
+执行真实文件，不落副本。
+
+## Windows bash 探测级联
+
+`bash`/`sh` 在 Windows 按以下顺序解析（绝不静默回退 PowerShell，找不到即报错）：
+
+1. `config.yaml` 的 `BASH_PATH`（显式覆盖）
+2. `PATH` 中的 bash（排除 `C:\Windows\System32\bash.exe`——那是 WSL 入口，语义完全不同）
+3. 常见安装路径：`C:\Program Files\Git\bin` → `C:\Program Files\Git\usr\bin` →
+   `C:\Program Files (x86)\Git\bin` → `C:\msys64\usr\bin` → `C:\msys64\bin`
+
+找不到时安装 Git for Windows 或设置 `BASH_PATH`。macOS/Linux 直接用 PATH。
+
+## 输出协议（run / script 形态）
+
+`run` 与 `script` 动作可以在 stdout 里写协议行，让宿主对该行做特殊处理。协议行必须独占一行，`##[` 前后允许空白。
 
 | 协议行 | 作用 |
 |---|---|
@@ -358,7 +387,7 @@ id: hello
 title: 打个招呼
 icon: 👋
 command:
-  shell: echo "Hello, World!"
+  run: echo "Hello, World!"
 ```
 
 ### 带参数 + 预设
@@ -380,7 +409,7 @@ presets:
   - name: BACK（4）
     values: { KEYCODE: "4" }
 command:
-  shell: adb shell input keyevent "${KEYCODE}"
+  run: adb shell input keyevent "${KEYCODE}"
   timeout: 30s
 ```
 
@@ -399,7 +428,7 @@ params:
     label: 录屏保存路径
     type: path
 command:
-  shell: |
+  run: |
     args="--window-title=Scrcpy"
     if [ "${RECORD}" = "true" ] && [ -n "${RECORD_PATH}" ]; then
       args="$args --record=${RECORD_PATH}/scrcpy-$(date +%Y%m%d_%H%M%S).mp4"
@@ -414,7 +443,9 @@ command:
 
 - `id` 必须匹配 `^[a-z0-9-]+$`
 - `title` 必填
-- `shell` 与 `script` 与 `adb.operation` 与 `llm.prompt` **四选一、互斥**
+- `run` 与 `script` 与 `adb.operation` 与 `llm.prompt` **四选一、互斥**
+- `command.shell` 只允许搭配 `run`/`script` 形态；值必须是内置名（`bash`/`sh`/`pwsh`/`powershell`/`python`/`node`/`cmd`）或含 `{0}` 的自定义模板
+- `script` 必须带受支持的扩展名（`.sh` / `.ps1` / `.py` / `.js`）
 - `params[].type` 只允许 `text` / `bool` / `select` / `path` / `file` / `textarea`
 - `select` 类型必须提供 `options`
 - `stream` 只允许空 或 `"logcat"`

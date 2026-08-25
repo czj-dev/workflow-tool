@@ -33,17 +33,18 @@ steps:                         # 必填，至少一步
 
   - sleep: 5                   # 形态 B：等待 N 秒
 
-  - shell: echo "done"         # 形态 C：内联 shell 命令
-    timeout: 30s               # 仅 shell step 有效
+  - run: echo "done"           # 形态 C：内联命令（写入临时脚本执行，默认 bash）
+    shell: bash                # 可选修饰：解释器（bash/sh/pwsh/powershell/python/node/cmd 或自定义模板），只搭配 run
+    timeout: 30s               # 仅 run step 有效
 
-  - shell: flaky-command       # 可选修饰符（任意形态可用）
+  - run: flaky-command         # 可选修饰符（任意形态可用）
     retry: 2                   # 失败重试次数
     continue_on_error: true    # 失败不中断后续步骤
 ```
 
 ## 三种 Step 形态
 
-每个 step 必须且只能指定 `action`、`sleep`、`shell` 三者之一。
+每个 step 必须且只能指定 `action`、`sleep`、`run` 三者之一。
 
 ### action：引用已有动作
 
@@ -59,13 +60,13 @@ steps:
 
 参数解析顺序：step 的 `params` > 工作流的 `params` > 全局配置 > 环境变量。
 
-**引用上游 step 输出**：action step 的 `params` 值支持 `${{ }}` 表达式展开，可直接消费前置 step 的 outputs。例如先用 shell 找到 APK 路径，再传给 install：
+**引用上游 step 输出**：action step 的 `params` 值支持 `${{ }}` 表达式展开，可直接消费前置 step 的 outputs。例如先用 run 找到 APK 路径，再传给 install：
 
 ```yaml
 steps:
   - id: find-apk
     name: 查找 APK
-    shell: |
+    run: |
       APK=$(find "${VOICE_DEBUG_OUTPUT}" -maxdepth 1 -name "*.apk" | head -1)
       [ -n "$APK" ] || { echo "未找到 apk" >&2; exit 1; }
       echo "##[output apk_path=$APK]"
@@ -92,14 +93,16 @@ steps:
   - action: adb-debug-activity
 ```
 
-### shell：内联命令
+### run：内联命令
 
-无需单独建 action 的一次性命令：
+无需单独建 action 的一次性命令，写入临时脚本后由解释器执行（默认 bash，Windows 上自动探测 Git Bash，见 [action.md Windows bash 探测级联](action.md)）。可用 `shell` 修饰字段换解释器：
 
 ```yaml
 steps:
-  - shell: echo "开始处理 ${WF_MSG}"
+  - run: echo "开始处理 ${WF_MSG}"
     timeout: 30s               # 可选，默认 60s
+  - run: Write-Output "pwsh here"
+    shell: pwsh                # 指定解释器，可选值同 action 的 command.shell
 ```
 
 ## 错误处理
@@ -110,7 +113,7 @@ step 失败（退出码非 0）时自动重试。每次重试前 emit `retry N/M
 
 ```yaml
 steps:
-  - shell: curl -f https://flaky-api.example.com
+  - run: curl -f https://flaky-api.example.com
     retry: 3                   # 首次失败后最多再试 3 次
 ```
 
@@ -122,7 +125,7 @@ steps:
 
 ```yaml
 steps:
-  - shell: optional-cleanup
+  - run: optional-cleanup
     continue_on_error: true    # 清理失败不影响主流程
   - action: main-task
 ```
@@ -144,7 +147,7 @@ steps:
 
 stdout 中 `##[output key=value]` 行会被解析为 `steps.<id>.outputs.key`。
 
-另有 `##[progress 文本]` 协议行：不产出 outputs，而是让该文本在 Pipeline Spine 的 step 输出里原地覆盖上一条进度行（长任务的单行滚动读数）。完整说明见 [action.md 输出协议](action.md#输出协议shell--script-形态)。
+另有 `##[progress 文本]` 协议行：不产出 outputs，而是让该文本在 Pipeline Spine 的 step 输出里原地覆盖上一条进度行（长任务的单行滚动读数）。完整说明见 [action.md 输出协议](action.md#输出协议run--script-形态)。
 
 ### LLM step（stream: llm）
 
@@ -152,37 +155,38 @@ stdout 中 `##[output key=value]` 行会被解析为 `steps.<id>.outputs.key`。
 
 **未写 `id` 的 step 引用注意**：未写 `id` 的 step 用索引兜底（键为 `"0"`/`"1"`…），此时**必须**用 bracket 语法引用：`steps["0"].outputs.exit_code`（expr 的点语法不接受数字开头的键，`steps.0.outputs.exit_code` 无法解析）。推荐给需要被引用的 step 都显式写 `id`，用 `steps.<id>.outputs.<key>` 点语法引用即可。
 
-### 安全提示：${{ }} 直接拼接进 shell
+### 安全提示：${{ }} 直接拼接进 run 命令
 
-`${{ expr }}` 的求值结果会被**未经转义**地字符串拼接进 shell 命令，再交给 `sh -c` / `powershell -Command` 执行。这与 GitHub Actions 的取向一致——是设计取向，不是 bug，但**使用者必须留意**：
+`${{ expr }}` 的求值结果会被**未经转义**地字符串拼接进 `run` 命令，写入临时脚本后交给 bash（默认）执行。这与 GitHub Actions 的取向一致——是设计取向，不是 bug，但**使用者必须留意**：
 
 - 值来自 `##[output key=value]` 协议（脚本内部可控）时风险有限
 - 值来自 **LLM step 的 `outputs.text`** 时**完全是外来数据**：一次提示词注入即可任意执行本地命令
-- 值中包含 `;`、`` ` ``、`$( )`、`&&`、换行等 shell 元字符时，会被 shell 解释而非当成字面量
+- 值中包含 `;`、`` ` ``、`$( )`、`&&`、换行等 shell 元字符时，会被解释器解释而非当成字面量
 
 举例：若某 step output 值为 `x; rm -rf /tmp/pwned`，则
 ```yaml
-- shell: echo ${{ steps.a.outputs.v }}
+- run: echo ${{ steps.a.outputs.v }}
 ```
 会被展开为 `echo x; rm -rf /tmp/pwned` 并执行。
 
-**展开位置**：`${{ }}` 在三处被展开——`shell` 命令字符串、action step 的 `params` 值、step 的 `env` 值。其中只有 `shell` 命令字符串存在命令注入风险（求值结果被直接拼进 `sh -c` / `powershell -Command`）；`params`/`env` 的值只会成为参数或环境变量本身，风险较低——但若该值随后又被 `${VAR}` 拼进某条 shell 命令，注入风险会随之转移。
+**展开位置**：`${{ }}` 在三处被展开——`run` 命令字符串、action step 的 `params` 值、step 的 `env` 值。其中只有 `run` 命令字符串存在命令注入风险（求值结果被直接写进脚本）；`params`/`env` 的值只会成为参数或环境变量本身，风险较低——但若该值随后又被 `${VAR}` 拼进某条 run 命令，注入风险会随之转移。
 
-针对 `shell` 命令字符串的规避：把占位符包进引号，让展开后的值落进「字面量」区间而非命令解析区间：
+针对 `run` 命令字符串的规避：把占位符包进引号，让展开后的值落进「字面量」区间而非命令解析区间：
 
 ```yaml
-# sh / bash：单引号内所有元字符（; ` $() 换行 等）都按字面量处理
+# bash：单引号内所有元字符（; ` $() 换行 等）都按字面量处理
 - id: consume
-  shell: echo '${{ steps.llm.outputs.text }}'
+  run: echo '${{ steps.llm.outputs.text }}'
 ```
 
 ```yaml
-# PowerShell：单引号字符串不做插值/子表达式展开
+# pwsh（PowerShell）：单引号字符串不做插值/子表达式展开
 - id: consume
-  shell: Write-Output '${{ steps.llm.outputs.text }}'
+  shell: pwsh
+  run: Write-Output '${{ steps.llm.outputs.text }}'
 ```
 
-**残余风险**：单引号只能挡住除单引号以外的元字符——若值本身含 `'`（sh）就仍可能越界。所以当值来源**完全不可控**（尤其是 LLM 的 `outputs.text`）时，最稳妥的是**根本不要把它拼进 shell 命令**，改用一个专门的 `action` 脚本，由脚本自行按 `argv` 或从文件读取处理。**不要用 `${{ }}` 直接拼未经引号包裹的命令行。**
+**残余风险**：单引号只能挡住除单引号以外的元字符——若值本身含 `'`（bash）就仍可能越界。所以当值来源**完全不可控**（尤其是 LLM 的 `outputs.text`）时，最稳妥的是**根本不要把它拼进 run 命令**，改用一个专门的 `action` 脚本，由脚本自行按 `argv` 或从文件读取处理。**不要用 `${{ }}` 直接拼未经引号包裹的命令行。**
 
 ## 条件执行（if）
 
@@ -211,7 +215,7 @@ workflow 级 `env` 注入所有 step（优先级低于 params、高于 config.ya
 
 工作流可自带 `params`，字段格式与 action 的 `params` 完全一致（`text` / `bool` / `select` / `path`，均支持可选 `description` 说明文案）。
 
-**关键区别**：工作流参数不从引用的 action 聚合，需自行声明；运行时作为全局变量注入**所有** step，包括 action step 和 inline shell step。
+**关键区别**：工作流参数不从引用的 action 聚合，需自行声明；运行时作为全局变量注入**所有** step，包括 action step 和 inline run step。
 
 ```yaml
 params:
@@ -221,7 +225,7 @@ params:
     default: fast
     options: [fast, slow]
 steps:
-  - shell: echo "mode=${WF_MODE}"      # inline shell 可用
+  - run: echo "mode=${WF_MODE}"        # inline run 可用
   - action: some-action                # action step 也可用
 ```
 
@@ -240,13 +244,13 @@ steps:
 
 ### 全功能演示
 
-覆盖 `params` 四类型、`action`/`sleep`/`shell` 三形态、`env`、`if` 条件与 `outputs` 引用、`SKIPPED`、`retry`、`continue_on_error`：
+覆盖 `params` 四类型、`action`/`sleep`/`run` 三形态、`env`、`if` 条件与 `outputs` 引用、`SKIPPED`、`retry`、`continue_on_error`：
 
 ```yaml
 id: demo-all-features
 title: "演示: 全功能工作流"
 icon: hi:workflow
-description: "覆盖 workflow 全部能力：params 四类型、action/sleep/shell 三形态、env、if 条件与 outputs 引用、SKIPPED、retry、continue_on_error"
+description: "覆盖 workflow 全部能力：params 四类型、action/sleep/run 三形态、env、if 条件与 outputs 引用、SKIPPED、retry、continue_on_error"
 
 env:
   GREETING: hello
@@ -272,10 +276,10 @@ params:
     default: ""
 
 steps:
-  # 1. shell 形态：回显参数 —— 验证 params 四类型注入 + 普通 stdout
+  # 1. run 形态：回显参数 —— 验证 params 四类型注入 + 普通 stdout
   - id: echo-params
     name: 回显参数
-    shell: echo "msg=${WF_MSG} mode=${WF_MODE} verbose=${WF_VERBOSE} out=${WF_OUTDIR}"
+    run: echo "msg=${WF_MSG} mode=${WF_MODE} verbose=${WF_VERBOSE} out=${WF_OUTDIR}"
 
   # 2. sleep 形态：等待
   - id: wait
@@ -288,10 +292,10 @@ steps:
     action: demo-echo
     params: { MSG: "来自 workflow 的问候" }
 
-  # 4. shell 形态：写 outputs 协议行
+  # 4. run 形态：写 outputs 协议行
   - id: produce
     name: 生产数据
-    shell: |
+    run: |
       echo "开始执行..."
       echo "##[output build_id=42]"
       echo "完成"
@@ -300,25 +304,27 @@ steps:
   - id: consume
     name: 消费数据（条件满足）
     if: steps.produce.outputs.exit_code == '0'
-    shell: echo "build_id=${{ steps.produce.outputs.build_id }}, greeting=${GREETING}"
+    run: echo "build_id=${{ steps.produce.outputs.build_id }}, greeting=${GREETING}"
 
   # 6. if 条件为假 —— 验证 SKIPPED 状态
   - id: skip-this
     name: 条件跳过演示
     if: steps.produce.outputs.exit_code == '99'
-    shell: echo "这行不会被执行"
+    run: echo "这行不会被执行"
 
   # 7. retry 演示：命令必然失败，验证重试痕迹 + continue_on_error 不中断后续
   - id: retry-demo
     name: 重试演示（必然失败）
-    shell: exit 1
+    run: exit 1
     retry: 2
     continue_on_error: true
 
   # 8. 故意失败（验证 error 态 + stderr 分层），作为整条 workflow 的终止点
   - id: fail-demo
     name: 演示失败
-    shell: Write-Error "演示失败：这是一条 stderr 输出"; exit 1
+    run: |
+      echo "演示失败：这是一条 stderr 输出" >&2
+      exit 1
 ```
 
 对应的演示 action（`actions/demo-echo.yaml`，纯 echo 无外部依赖）：
@@ -335,7 +341,7 @@ params:
     required: true
     default: hello
 command:
-  shell: echo "action 回显 ${MSG}"
+  run: echo "action 回显 ${MSG}"
 ```
 
 ### 真实业务链路
@@ -385,7 +391,8 @@ steps:
 - `id` 必须匹配 `^[a-z0-9-]+$`
 - `title` 必填
 - `steps` 不能为空
-- 每个 step 必须指定 `action` / `sleep` / `shell` 之一（三者互斥）
+- 每个 step 必须指定 `action` / `sleep` / `run` 之一（三者互斥）
+- step 的 `shell` 修饰字段只能搭配 `run` 形态；值必须是内置名（`bash`/`sh`/`pwsh`/`powershell`/`python`/`node`/`cmd`）或含 `{0}` 的自定义模板
 - step 的 `id` 若填写必须匹配 `^[a-z0-9-]+$` 且同一 workflow 内唯一
 - `params[].id` 必填，且不能是保留字 `steps` / `env` / `params` / `config`
 - `params[].type` 只允许 `text` / `bool` / `select` / `path`
