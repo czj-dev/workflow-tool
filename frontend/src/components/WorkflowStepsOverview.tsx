@@ -7,10 +7,14 @@ import {
 } from "@hugeicons/core-free-icons";
 import type { WorkflowStepInfo } from "../../bindings/workflow-tool/internal/api/models.js";
 
-const STEP_ICON = {
+// 键必须与后端 WorkflowStepInfo.Kind 的取值一一对应（internal/api/workflows.go:18）：
+// 缺键会落到下方 ?? FlashIcon 兜底，内联步图标退化成 action 的闪电。
+// 导出仅供单测锁「表覆盖后端全部 kind」，同 theme-provider.tsx 的既有豁免写法。
+// eslint-disable-next-line react-refresh/only-export-components
+export const STEP_ICON = {
   action: FlashIcon,
   sleep: Clock01Icon,
-  shell: CommandIcon,
+  run: CommandIcon,
 } as const;
 
 // 配置态的静态管线预览：每行一个步骤（节点 + 连线 + 序号 + 图标 + 名称 + kind），
