@@ -34,8 +34,8 @@ const (
 var builtinShellSpecs = map[string]ShellSpec{
 	"bash":       {Template: []string{"bash", "--noprofile", "--norc", "-eo", "pipefail", scriptPlaceholder}, Ext: ".sh"},
 	"sh":         {Template: []string{"sh", "-e", scriptPlaceholder}, Ext: ".sh"},
-	"pwsh":       {Template: []string{"pwsh", "-NoProfile", "-Command", scriptPlaceholder}, Ext: ".ps1", WrapHead: pwshWrapHead, WrapTail: pwshWrapTail},
-	"powershell": {Template: []string{"powershell", "-NoProfile", "-Command", scriptPlaceholder}, Ext: ".ps1", WrapHead: pwshWrapHead, WrapTail: pwshWrapTail},
+	"pwsh":       {Template: []string{"pwsh", "-NoProfile", "-File", scriptPlaceholder}, Ext: ".ps1", WrapHead: pwshWrapHead, WrapTail: pwshWrapTail},
+	"powershell": {Template: []string{"powershell", "-NoProfile", "-File", scriptPlaceholder}, Ext: ".ps1", WrapHead: pwshWrapHead, WrapTail: pwshWrapTail},
 	"python":     {Template: []string{"python", "-u", scriptPlaceholder}, Ext: ".py"}, // -u 无缓冲 stdout，保 ##[progress] 流式
 	"node":       {Template: []string{"node", scriptPlaceholder}, Ext: ".js"},
 	"cmd":        {Template: []string{"cmd", "/D", "/Q", "/V:ON", "/C", "\"" + scriptPlaceholder + "\""}, Ext: ".cmd"},

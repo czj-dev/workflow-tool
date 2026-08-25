@@ -1,9 +1,11 @@
 package runner
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestLookupShellSpec_BuiltinBash(t *testing.T) {
@@ -44,6 +46,39 @@ func TestLookupShellSpec_PwshWrapping(t *testing.T) {
 	}
 	if spec.Ext != ".ps1" {
 		t.Fatalf("Ext = %q, want .ps1", spec.Ext)
+	}
+	// 必须用 -File 而非 -Command 执行脚本路径：-Command <path> 会吞掉
+	// 脚本内 exit $LASTEXITCODE 的退出码（恒为 1），退出码传播语义依赖 -File
+	//（真机验收 test-shell-pwsh 抓住的回归，见 spec 验收记录）。
+	foundFile := false
+	for _, a := range spec.Template {
+		if a == "-File" {
+			foundFile = true
+		}
+		if a == "-Command" {
+			t.Fatalf("pwsh 模板不应使用 -Command（退出码不传播）: %v", spec.Template)
+		}
+	}
+	if !foundFile {
+		t.Fatalf("pwsh 模板缺 -File: %v", spec.Template)
+	}
+}
+
+// TestPwshExitCodePropagation 端到端验证 pwsh WrapTail 的退出码传播
+//（cmd /c exit 5 应传播为脚本退出码 5；本机无 pwsh/powershell 时跳过）。
+func TestPwshExitCodePropagation(t *testing.T) {
+	_, err := LookupShellSpec("pwsh")
+	if err != nil {
+		t.Skipf("pwsh spec 不可用: %v", err)
+	}
+	r := &ShellRunner{Cfg: ShellConfig{
+		Run:     "Write-Output \"native fail next\"\ncmd /c exit 5",
+		Shell:   "pwsh",
+		Timeout: 30 * time.Second,
+	}}
+	res := r.Run(context.Background(), map[string]any{}, func(string, string) {})
+	if res.ExitCode != 5 {
+		t.Fatalf("exit = %d, want 5（LASTEXITCODE 传播失败；若本机回退 powershell 5，语义应一致）", res.ExitCode)
 	}
 }
 
