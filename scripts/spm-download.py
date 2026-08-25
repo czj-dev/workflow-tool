@@ -13,6 +13,7 @@ import os
 import sys
 import urllib.request
 import urllib.error
+from collections.abc import Mapping
 
 BASE = "https://spm.auto-pai.com/spm-data"
 ZIP_PREFIX = "autopai-tlc/platform/C5181/log/"
@@ -32,19 +33,26 @@ def post(path: str, body: dict) -> dict:
         sys.exit(f"HTTP {e.code}: {e.read().decode('utf-8', 'replace')[:200]}")
 
 
+def resolve_args(argv: list[str], env: Mapping[str, str]) -> list[str]:
+    """解析实参，返回 [zip名, zip内路径] 或 [zip名, zip内路径, 输出目录]；不修改入参。
+
+    script 形态直挂时无薄壳传参，参数从环境变量读（action params 会注入子进程 env）。
+    """
+    if len(argv) in (3, 4):
+        return list(argv[1:])
+    if len(argv) == 1 and env.get("ZIP_NAME") and env.get("INNER_PATH"):
+        args = [env["ZIP_NAME"], env["INNER_PATH"]]
+        out_dir = env.get("OUT_DIR", "")
+        if out_dir:
+            args.append(out_dir)
+        return args
+    sys.exit(__doc__)
+
+
 def main() -> None:
-    if len(sys.argv) not in (3, 4):
-        # script 形态直挂时无薄壳传参：参数从环境变量读（action params 会注入子进程 env）
-        if len(sys.argv) == 1 and os.environ.get("ZIP_NAME") and os.environ.get("INNER_PATH"):
-            args = [os.environ["ZIP_NAME"], os.environ["INNER_PATH"]]
-            out_dir = os.environ.get("OUT_DIR", "")
-            if out_dir:
-                args.append(out_dir)
-            sys.argv.extend(args)
-        else:
-            sys.exit(__doc__)
-    zip_name, inner = sys.argv[1], sys.argv[2].lstrip("/")
-    out_dir = sys.argv[3] if len(sys.argv) == 4 else os.getcwd()
+    args = resolve_args(sys.argv, os.environ)
+    zip_name, inner = args[0], args[1].lstrip("/")
+    out_dir = args[2] if len(args) == 3 else os.getcwd()
     zip_path = ZIP_PREFIX + zip_name
 
     sid = post("/api/storage/connectWithPreset", {"user_id": "spm"})["data"]["session_id"]
