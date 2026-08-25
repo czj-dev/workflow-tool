@@ -3,7 +3,7 @@ title: 同步电脑时间到安卓
 icon: hi:clock
 description: "adb root + 设置设备系统时间为电脑当前时间并同步硬件时钟"
 command:
-  shell: |
+  run: |
     # ponytail: 不用 set -e —— adb root 等命令偶发非零码/无害 stderr，逐条尽力执行即可
     if ! command -v adb &> /dev/null; then
       echo "错误：未找到 adb"

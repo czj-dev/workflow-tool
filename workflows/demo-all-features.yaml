@@ -32,7 +32,7 @@ steps:
   # 1. shell 形态：回显参数 —— 验证 params 四类型注入 + 普通 stdout
   - id: echo-params
     name: 回显参数
-    shell: echo "msg=${WF_MSG} mode=${WF_MODE} verbose=${WF_VERBOSE} out=${WF_OUTDIR}"
+    run: echo "msg=${WF_MSG} mode=${WF_MODE} verbose=${WF_VERBOSE} out=${WF_OUTDIR}"
 
   # 2. sleep 形态：等待 —— 验证等待态展示
   - id: wait
@@ -48,7 +48,7 @@ steps:
   # 4. shell 形态：写 outputs 协议行 —— 验证 ##[output] 自定义 key（供后续三步以 ${{ }} 引用）
   - id: produce
     name: 生产数据
-    shell: |
+    run: |
       echo "开始执行..."
       echo "##[output build_id=42]"
       echo "##[output artifact=demo-app.apk]"
@@ -66,29 +66,30 @@ steps:
     name: "${{ }} 注入 env"
     env:
       ARTIFACT: "${{ steps.produce.outputs.artifact }}"
-    shell: echo "env 注入 artifact=${ARTIFACT}"
+    run: echo "env 注入 artifact=${ARTIFACT}"
 
   # 7. shell 形态 + ${{ }} 拼进命令串 —— 验证 outputs 引用 + ${{ }} 拼接 shell + env 引用
   - id: consume
     name: 消费数据（条件满足）
     if: steps.produce.outputs.exit_code == '0'
-    shell: echo "build_id=${{ steps.produce.outputs.build_id }}, greeting=${GREETING}"
+    run: echo "build_id=${{ steps.produce.outputs.build_id }}, greeting=${GREETING}"
 
   # 8. if 条件为假 —— 验证 SKIPPED 状态
   - id: skip-this
     name: 条件跳过演示
     if: steps.produce.outputs.exit_code == '99'
-    shell: echo "这行不会被执行"
+    run: echo "这行不会被执行"
 
   # 9. retry 演示：命令必然失败，验证重试痕迹（retry 1/2、retry 2/2）+ continue_on_error 不中断后续
   - id: retry-demo
     name: 重试演示（必然失败）
-    shell: exit 1
+    run: exit 1
     retry: 2
     continue_on_error: true
 
   # 10. 故意失败（stderr + 非零退出，且不 continue_on_error）—— 验证 error 态 + stderr 分层，作为整条 workflow 的终止点
-  # PowerShell: Write-Error 写 stderr；exit 1 让退出码非 0
   - id: fail-demo
     name: 演示失败
-    shell: Write-Error "演示失败：这是一条 stderr 输出"; exit 1
+    run: |
+      echo "演示失败：这是一条 stderr 输出" >&2
+      exit 1

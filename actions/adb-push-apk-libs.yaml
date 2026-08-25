@@ -13,7 +13,7 @@ params:
     required: true
     default: /system/app/DuerOSAutoVr/
 command:
-  shell: |
+  run: |
     APK="${APK_PATH}"
     [ -f "$APK" ] || { echo "APK 不存在: $APK"; exit 1; }
     DIR="${REMOTE_PATH}"

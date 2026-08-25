@@ -20,5 +20,5 @@ params:
     default: ${LOGS_DIR}
     description: 留空则保存到应用当前工作目录
 command:
-  script: ./scripts/spm-download
+  script: ./scripts/spm-download.py
   timeout: 10m

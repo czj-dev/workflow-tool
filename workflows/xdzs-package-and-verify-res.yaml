@@ -21,7 +21,7 @@ steps:
     action: xdzs-device-init
   - id: packag
     name: 打包资源
-    shell: |
+    run: |
       RES_DIR="${PROJECT_DIR}/resource/${RES_NAME}"
       if [ ! -d "$RES_DIR" ]; then
         echo "资源目录不存在: $RES_DIR" >&2; exit 1
@@ -34,7 +34,7 @@ steps:
     timeout: 240s
   - id: mkdir-remote
     name: 创建设备目录
-    shell: adb shell mkdir -p /resources/sota/speech/backup/
+    run: adb shell mkdir -p /resources/sota/speech/backup/
   - id: push
     name: push 资源包
     action: adb-push
@@ -44,4 +44,4 @@ steps:
       ALLOW_PROTECTED: "true"
   - id: chmod
     name: 授权 777
-    shell: adb shell chmod -R 777 /resources/sota/speech
+    run: adb shell chmod -R 777 /resources/sota/speech

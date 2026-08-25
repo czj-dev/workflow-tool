@@ -22,7 +22,7 @@ presets:
     description: vr.intent.action.QUERY / 打开空调
     values: { ACTION: "vr.intent.action.QUERY", EXTRA: "--es query \"打开空调\"" }
 command:
-  shell: |
+  run: |
     S="${ADB_SERIAL}"
     [ -n "$S" ] && ADB="adb -s $S" || ADB="adb"
     $ADB shell am broadcast -a "${ACTION}" ${EXTRA}

@@ -12,7 +12,7 @@ steps:
     params: { VARIANT: Debug }
   - id: find-apk
     name: 定位 APK
-    shell: |
+    run: |
       APK=$(find "${VOICE_DEBUG_OUTPUT}" -maxdepth 1 -name "*.apk" | head -1)
       if [ -z "$APK" ]; then echo "未找到 APK: ${VOICE_DEBUG_OUTPUT}"; exit 1; fi
       echo "定位 APK: $APK"

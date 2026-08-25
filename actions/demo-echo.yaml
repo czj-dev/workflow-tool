@@ -12,4 +12,4 @@ presets:
   - name: 默认问候
     values: { MSG: "hello from action" }
 command:
-  shell: echo "action 回显 ${MSG}"
+  run: echo "action 回显 ${MSG}"

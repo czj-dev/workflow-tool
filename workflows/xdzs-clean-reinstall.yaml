@@ -23,7 +23,7 @@ steps:
     params: { PACKAGE: "${PACKAGE}" }
   - id: clear-data
     name: 清除数据
-    shell: |
+    run: |
       S="${ADB_SERIAL}"
       [ -n "$S" ] && adb -s "$S" shell pm clear "${PACKAGE}" || adb shell pm clear "${PACKAGE}"
   - id: uninstall
@@ -33,7 +33,7 @@ steps:
     continue_on_error: true   # 系统应用 pm uninstall 会失败，属正常，跳过继续
   - id: find-apk
     name: 定位 APK
-    shell: |
+    run: |
       APK=$(find "${VOICE_DEBUG_OUTPUT}" -maxdepth 1 -name "*.apk" | head -1)
       if [ -z "$APK" ]; then echo "未找到 APK: ${VOICE_DEBUG_OUTPUT}"; exit 1; fi
       echo "定位 APK: $APK"
@@ -47,7 +47,7 @@ steps:
     continue_on_error: true   # 卸载成功后无已安装包，备份失败属正常
   - id: clean-app-data
     name: 清理应用残留数据
-    shell: |
+    run: |
       S="${ADB_SERIAL}"; PKG="${PACKAGE}"
       if [ -n "$S" ]; then A="adb -s $S"; else A="adb"; fi
       DATA_APP=$($A shell find /data/app/ -name "*${PKG}-*" 2>/dev/null | tr -d '\r')
@@ -56,7 +56,7 @@ steps:
       $A shell rm -rf /data/data/${PKG}
   - id: mkdir-remote
     name: 清理并创建目标目录
-    shell: |
+    run: |
       S="${ADB_SERIAL}"
       [ -n "$S" ] && A="adb -s $S" || A="adb"
       $A shell rm -rf "${REMOTE_PATH}"
@@ -79,7 +79,7 @@ steps:
     action: adb-reboot
   - id: wait
     name: 等待连接
-    shell: |
+    run: |
       S="${ADB_SERIAL}"
       [ -n "$S" ] && adb -s "$S" wait-for-device || adb wait-for-device
     timeout: 120s

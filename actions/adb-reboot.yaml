@@ -19,7 +19,7 @@ presets:
     description: reboot bootloader
     values: { MODE: bootloader }
 command:
-  shell: |
+  run: |
     S="${ADB_SERIAL}"
     [ -n "$S" ] && ADB="adb -s $S" || ADB="adb"
     $ADB reboot ${MODE}

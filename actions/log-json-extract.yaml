@@ -8,7 +8,7 @@ params:
     type: textarea
     required: true
 command:
-  shell: |
+  run: |
     LINE=$(cat <<'EOF'
     ${LOG_LINE}
     EOF

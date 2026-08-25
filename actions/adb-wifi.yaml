@@ -9,7 +9,7 @@ params:
     default: enable
     options: ["enable", "disable"]
 command:
-  shell: |
+  run: |
     S="${ADB_SERIAL}"
     [ -n "$S" ] && adb -s "$S" shell svc wifi "${STATE}" || adb shell svc wifi "${STATE}"
   timeout: 30s

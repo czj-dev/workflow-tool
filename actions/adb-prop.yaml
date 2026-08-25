@@ -26,7 +26,7 @@ presets:
   - name: aiBox
     values: {MODE: set, PROP: persist.evs.aibox.switch, VALUE: I}
 command:
-  shell: |
+  run: |
     S="${ADB_SERIAL}"
     [ -n "$S" ] && ADB="adb -s $S" || ADB="adb"
     if [ "${MODE}" = "set" ]; then

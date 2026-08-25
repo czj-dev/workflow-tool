@@ -3,7 +3,7 @@ title: 设备信息
 icon: hi:settings
 description: 聚合设备画像：型号 / 品牌 / 系统版本 / 分辨率 / 密度 / CPU / 内存 / IP / MAC
 command:
-  shell: |
+  run: |
     S="${ADB_SERIAL}"
     [ -n "$S" ] && ADB="adb -s $S" || ADB="adb"
     echo "===== 设备信息 ====="

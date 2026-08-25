@@ -29,7 +29,7 @@ presets:
   - name: 播放/暂停
     values: {KEYCODE: "85"}
 command:
-  shell: |
+  run: |
     S="${ADB_SERIAL}"
     [ -n "$S" ] && adb -s "$S" shell input keyevent "${KEYCODE}" || adb shell input keyevent "${KEYCODE}"
   timeout: 30s

@@ -3,9 +3,10 @@ title: 语音权限赋予
 icon: hi:settings
 description: "adb root/remount/setenforce + 授予 codriver & voicesetting 权限"
 command:
-  shell: |
-    # ponytail: 不用 set -e —— disable-verify/setenforce 等命令会返回非零码 + stderr 提示，
-    # 但都是无害的（照抄 wt_debug.sh 的容错行为），逐条尽力执行即可
+  run: |
+    # ponytail: 逐条尽力执行（disable-verify/setenforce 等命令会返回非零码 + stderr 提示，
+    # 但都是无害的，照抄 wt_debug.sh 的容错行为）。默认 -eo pipefail 下必须显式关闭 -e。
+    set +e
     echo "[init] adb root & remount"
     adb root
     adb shell disable-verify 99

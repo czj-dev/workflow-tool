@@ -34,7 +34,15 @@ def post(path: str, body: dict) -> dict:
 
 def main() -> None:
     if len(sys.argv) not in (3, 4):
-        sys.exit(__doc__)
+        # script 形态直挂时无薄壳传参：参数从环境变量读（action params 会注入子进程 env）
+        if len(sys.argv) == 1 and os.environ.get("ZIP_NAME") and os.environ.get("INNER_PATH"):
+            args = [os.environ["ZIP_NAME"], os.environ["INNER_PATH"]]
+            out_dir = os.environ.get("OUT_DIR", "")
+            if out_dir:
+                args.append(out_dir)
+            sys.argv.extend(args)
+        else:
+            sys.exit(__doc__)
     zip_name, inner = sys.argv[1], sys.argv[2].lstrip("/")
     out_dir = sys.argv[3] if len(sys.argv) == 4 else os.getcwd()
     zip_path = ZIP_PREFIX + zip_name
