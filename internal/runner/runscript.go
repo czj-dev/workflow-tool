@@ -5,8 +5,9 @@ import (
 	"strings"
 )
 
-// lfNormalizer 行尾归一：CRLF 与孤立 CR 一律变 LF（顺序敏感——先 \r\n 再 \r，
-// strings.Replacer 按最长匹配优先，单次扫描不会把 \r\n 拆成两个 \n）。
+// lfNormalizer 行尾归一：CRLF 与孤立 CR 一律变 LF。strings.NewReplacer 的优先级由
+// 参数顺序决定（越靠前越优先），所以 "\r\n" 必须列在 "\r" 之前——顺序写反会把 CRLF
+// 拆成两个 LF。
 var lfNormalizer = strings.NewReplacer("\r\n", "\n", "\r", "\n")
 
 // writeRunScript 把内联 run 内容写入临时脚本文件，返回路径与清理函数（调用方 defer）。

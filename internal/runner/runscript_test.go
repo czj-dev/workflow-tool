@@ -20,7 +20,7 @@ func TestWriteRunScript_ForcesLF(t *testing.T) {
 	if strings.Contains(string(data), "\r") {
 		t.Fatalf("临时脚本必须 LF 行尾, got %q", data)
 	}
-	if !strings.HasSuffix(string(data), "echo b\n") {
+	if string(data) != "echo a\necho b\n" {
 		t.Fatalf("内容异常: %q", data)
 	}
 }
