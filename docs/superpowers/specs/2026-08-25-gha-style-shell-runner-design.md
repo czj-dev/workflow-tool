@@ -79,12 +79,14 @@ type ShellSpec struct {
 | --- | --- | --- | --- |
 | `bash` | `<解析出的bash> --noprofile --norc -eo pipefail {0}` | `.sh` | 无 |
 | `sh` | `sh -e {0}` | `.sh` | 无 |
-| `pwsh` | `pwsh -NoProfile -Command {0}` | `.ps1` | 头 `$ErrorActionPreference = 'stop'`；尾 `if ((Test-Path -LiteralPath variable:\LASTEXITCODE)) { exit $LASTEXITCODE }` |
+| `pwsh` | `pwsh -NoProfile -File {0}` | `.ps1` | 头 `$ErrorActionPreference = 'stop'`；尾 `if ((Test-Path -LiteralPath variable:\LASTEXITCODE)) { exit $LASTEXITCODE }` |
 | `powershell` | 同 pwsh 但用 `powershell` | `.ps1` | 同 pwsh |
 | `python` | `python -u {0}`（`-u` 无缓冲 stdout，保 `##[progress]` 流式） | `.py` | 无 |
 | `node` | `node {0}` | `.js` | 无 |
 | `cmd` | `cmd /D /Q /V:ON /C "{0}"`（{0} 带引号） | `.cmd` | 无 |
 | 自定义 | 用户模板按空白分词（与 GHA 一致，不支持引号分组） | 默认 `.sh` | 无 |
+
+> **`-File` 而非 `-Command`（01d7fe9 修正）**：`-Command <脚本路径>` 会吞掉脚本内 `exit $LASTEXITCODE` 的退出码（恒为 1），WrapTail 的退出码传播只在 `-File` 下成立。改回 `-Command` 即复现该回归，`internal/runner/shellspec_test.go` 的 `TestLookupShellSpec_PwshWrapping` 会拦住。
 
 新增解释器 = 注册表加一条记录。
 
