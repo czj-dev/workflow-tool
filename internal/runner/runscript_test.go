@@ -25,6 +25,27 @@ func TestWriteRunScript_ForcesLF(t *testing.T) {
 	}
 }
 
+// TestWriteRunScript_ForcesLF_LoneCR 孤立 \r（老式 Mac 行尾 / 粘贴进 YAML 的回车）
+// 也必须归一为 LF——bash 会把 \r 算进命令名，报 $'\r': command not found。
+func TestWriteRunScript_ForcesLF_LoneCR(t *testing.T) {
+	spec, _ := LookupShellSpec("bash")
+	path, cleanup, err := writeRunScript(spec, "echo a\recho b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "\r") {
+		t.Fatalf("孤立 \\r 必须归一为 LF, got %q", data)
+	}
+	if string(data) != "echo a\necho b\n" {
+		t.Fatalf("内容异常: %q", data)
+	}
+}
+
 func TestWriteRunScript_PwshWrapping(t *testing.T) {
 	spec, _ := LookupShellSpec("pwsh")
 	path, cleanup, err := writeRunScript(spec, "Write-Output hi")
