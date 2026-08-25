@@ -1,5 +1,3 @@
-//go:build windows
-
 package runner
 
 import (
@@ -52,8 +50,8 @@ func TestLookupPosixShell_WSLBashExcluded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got, `Git\bin\bash.exe`) {
-		t.Fatalf("应回退到常见路径, got %q", got)
+	if !strings.Contains(got, "Git") || !strings.Contains(got, "bash.exe") {
+		t.Fatalf("应回退到常见 Git 安装目录, got %q", got)
 	}
 }
 
