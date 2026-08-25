@@ -16,13 +16,12 @@ func stripANSI(s string) string {
 	return ansiRe.ReplaceAllString(s, "")
 }
 
-// resolveScript 把无扩展名脚本路径解析为完整路径（加 ext），相对路径基于 baseDir。
-func resolveScript(script, ext, baseDir string) (string, error) {
+// resolveScriptPath 把 script 路径解析为绝对路径（不加后缀），相对路径基于 baseDir。
+func resolveScriptPath(script, baseDir string) (string, error) {
 	p := script
 	if !filepath.IsAbs(p) {
 		p = filepath.Join(baseDir, p)
 	}
-	p += ext
 	if _, err := os.Stat(p); err != nil {
 		return "", fmt.Errorf("脚本不存在: %s", p)
 	}

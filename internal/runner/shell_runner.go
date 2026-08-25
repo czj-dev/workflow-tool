@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
-	"runtime"
+	"strings"
 	"time"
 
 	"workflow-tool/internal/builtinvars"
@@ -13,14 +13,16 @@ import (
 
 // ShellConfig 是已解析、待执行的命令配置。
 type ShellConfig struct {
-	Shell         string                // 内联命令（与 Script 二选一）
-	Script        string                // 脚本路径不含扩展名（与 Shell 二选一）
+	Run           string                // 内联命令（与 Script 二选一），执行时落临时脚本文件
+	Shell         string                // 解释器逻辑名（空 = bash；内置名或含 {0} 的自定义模板）
+	Script        string                // 脚本路径带扩展名（与 Run 二选一），按扩展名路由解释器
 	Cwd           string                // 工作目录（必须存在）
 	Timeout       time.Duration         // 超时
 	Env           map[string]string     // 额外环境变量
 	BaseDir       string                // exe 目录，用于解析相对 script 路径
 	CaptureOutput *bool                 // nil 或指向 true = 捕获全量 stdout/stderr 供 outputs 使用；指向 false = 关闭（长跑/持续输出 action 用）
 	Builtins      *builtinvars.Registry // 内置变量注册表（CURRENT_DATE/CURRENT_TIME/ADB_SERIAL），nil 时跳过该层查找
+	BashPath      string                // config.yaml BASH_PATH 覆盖（bash/sh 解析级联第一优先），空则级联探测
 }
 
 // ShellRunner 执行单条 shell 命令或脚本文件，流式输出。
@@ -48,14 +50,15 @@ func (r *ShellRunner) Run(ctx context.Context, params map[string]any, emit EmitF
 			lookup[k] = v
 		}
 	}
-	cfg.Shell = Expand(ctx, cfg.Shell, lookup, cfg.Builtins)
+	cfg.Run = Expand(ctx, cfg.Run, lookup, cfg.Builtins)
 	cfg.Script = Expand(ctx, cfg.Script, lookup, cfg.Builtins)
 	cfg.Cwd = Expand(ctx, cfg.Cwd, lookup, cfg.Builtins)
 
-	cmd, err := buildCommandFromCfg(cfg)
+	cmd, cleanup, err := buildCommandFromCfg(cfg)
 	if err != nil {
 		return Result{Err: err, Duration: time.Since(start)}
 	}
+	defer cleanup()
 	hideWindow(cmd) // Windows 上隐藏子进程控制台窗口（action 执行不再弹黑框）；非 Windows 空操作
 	setPgid(cmd)    // Unix: 新进程组，cancel 时杀整组（含子进程）；Windows: 空操作
 	if cfg.Cwd != "" {
@@ -98,39 +101,61 @@ func (r *ShellRunner) Run(ctx context.Context, params map[string]any, emit EmitF
 	}
 }
 
-// buildCommandFromCfg 按 Shell/Script 和 OS 构造 exec.Cmd。
-func buildCommandFromCfg(cfg ShellConfig) (*exec.Cmd, error) {
-	if cfg.Shell == "" && cfg.Script == "" {
-		return nil, fmt.Errorf("command: shell 和 script 必须二选一")
+// buildCommandFromCfg 按 Run/Script 与 ShellSpec 构造 exec.Cmd（GHA 语义）。
+// Run 落临时脚本文件（返回 cleanup 供调用方 defer 删除）；Script 直接用真实路径，
+// 解释器默认按扩展名路由、cfg.Shell 显式指定时以指定为准。
+func buildCommandFromCfg(cfg ShellConfig) (*exec.Cmd, func(), error) {
+	if cfg.Run == "" && cfg.Script == "" {
+		return nil, nil, fmt.Errorf("command: run 和 script 必须二选一")
 	}
-	if cfg.Shell != "" && cfg.Script != "" {
-		return nil, fmt.Errorf("command: shell 和 script 互斥")
+	if cfg.Run != "" && cfg.Script != "" {
+		return nil, nil, fmt.Errorf("command: run 和 script 互斥")
 	}
-	if runtime.GOOS == "windows" {
-		if cfg.Shell != "" {
-			// Windows 默认用 PowerShell（引号与 ${VAR} 传递比 cmd /c 可靠）；优先 pwsh 7，回退 Windows PowerShell
-			if path, err := exec.LookPath("pwsh"); err == nil {
-				return exec.Command(path, "-NoProfile", "-Command", cfg.Shell), nil
-			}
-			return exec.Command("powershell", "-NoProfile", "-Command", cfg.Shell), nil
-		}
-		script, err := resolveScript(cfg.Script, ".ps1", cfg.BaseDir)
+	var spec ShellSpec
+	var scriptPath string
+	cleanup := func() {}
+	if cfg.Run != "" {
+		var err error
+		spec, err = LookupShellSpec(cfg.Shell)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		if path, err := exec.LookPath("pwsh"); err == nil {
-			return exec.Command(path, "-NoProfile", "-File", script), nil
+		scriptPath, cleanup, err = writeRunScript(spec, cfg.Run)
+		if err != nil {
+			return nil, nil, err
 		}
-		return exec.Command("powershell", "-NoProfile", "-File", script), nil
+	} else {
+		name := cfg.Shell
+		if name == "" {
+			var err error
+			if name, err = ShellNameByScript(cfg.Script); err != nil {
+				return nil, nil, err
+			}
+		}
+		var err error
+		if spec, err = LookupShellSpec(name); err != nil {
+			return nil, nil, err
+		}
+		if scriptPath, err = resolveScriptPath(cfg.Script, cfg.BaseDir); err != nil {
+			return nil, nil, err
+		}
 	}
-	if cfg.Shell != "" {
-		return exec.Command("sh", "-c", cfg.Shell), nil
-	}
-	script, err := resolveScript(cfg.Script, ".sh", cfg.BaseDir)
+	argv := expandTemplate(spec.Template, scriptPath)
+	exe, err := resolveInterpreter(argv[0], cfg.BashPath)
 	if err != nil {
-		return nil, err
+		cleanup()
+		return nil, nil, err
 	}
-	return exec.Command("sh", script), nil
+	return exec.Command(exe, argv[1:]...), cleanup, nil
+}
+
+// expandTemplate 把 argv 模板里的 {0} 替换为脚本路径（每个元素至多替换一次）。
+func expandTemplate(template []string, scriptPath string) []string {
+	argv := make([]string, len(template))
+	for i, a := range template {
+		argv[i] = strings.Replace(a, scriptPlaceholder, scriptPath, 1)
+	}
+	return argv
 }
 
 // buildEnv 构造子进程环境变量：父进程 env + params（全局配置 + 动作参数，供脚本内部

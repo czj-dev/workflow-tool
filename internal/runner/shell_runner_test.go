@@ -2,21 +2,23 @@ package runner
 
 import (
 	"context"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
 )
 
-func skipWindows(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("unix 专属行为，windows 由 script 测试覆盖")
+// requireBash 保证本机可解析 bash（Git Bash/MSYS2），否则跳过——
+// 真实执行类测试依赖 bash 存在。
+func requireBash(t *testing.T) {
+	t.Helper()
+	if _, err := resolveInterpreter("bash", ""); err != nil {
+		t.Skipf("bash 不可用: %v", err)
 	}
 }
 
 func TestShellRunner_Success(t *testing.T) {
-	skipWindows(t)
-	r := &ShellRunner{Cfg: ShellConfig{Shell: "echo hello", Timeout: 5 * time.Second}}
+	requireBash(t)
+	r := &ShellRunner{Cfg: ShellConfig{Run: "echo hello", Timeout: 5 * time.Second}}
 	var got []string
 	res := r.Run(context.Background(), nil, func(s, l string) { got = append(got, s+":"+l) })
 	if res.Err != nil {
@@ -31,8 +33,8 @@ func TestShellRunner_Success(t *testing.T) {
 }
 
 func TestShellRunner_NonZeroExit(t *testing.T) {
-	skipWindows(t)
-	r := &ShellRunner{Cfg: ShellConfig{Shell: "sh -c 'exit 7'", Timeout: 5 * time.Second}}
+	requireBash(t)
+	r := &ShellRunner{Cfg: ShellConfig{Run: "sh -c 'exit 7'", Timeout: 5 * time.Second}}
 	res := r.Run(context.Background(), nil, func(s, l string) {})
 	if res.ExitCode != 7 {
 		t.Fatalf("exit=%d want 7", res.ExitCode)
@@ -40,8 +42,8 @@ func TestShellRunner_NonZeroExit(t *testing.T) {
 }
 
 func TestShellRunner_Timeout(t *testing.T) {
-	skipWindows(t)
-	r := &ShellRunner{Cfg: ShellConfig{Shell: "sleep 10", Timeout: 100 * time.Millisecond}}
+	requireBash(t)
+	r := &ShellRunner{Cfg: ShellConfig{Run: "sleep 10", Timeout: 100 * time.Millisecond}}
 	res := r.Run(context.Background(), nil, func(s, l string) {})
 	if res.Err == nil {
 		t.Fatalf("期望超时错误")
@@ -49,9 +51,9 @@ func TestShellRunner_Timeout(t *testing.T) {
 }
 
 func TestShellRunner_Cancel(t *testing.T) {
-	skipWindows(t)
+	requireBash(t)
 	ctx, cancel := context.WithCancel(context.Background())
-	r := &ShellRunner{Cfg: ShellConfig{Shell: "sleep 10", Timeout: 30 * time.Second}}
+	r := &ShellRunner{Cfg: ShellConfig{Run: "sleep 10", Timeout: 30 * time.Second}}
 	go func() {
 		time.Sleep(100 * time.Millisecond)
 		cancel()
@@ -63,8 +65,8 @@ func TestShellRunner_Cancel(t *testing.T) {
 }
 
 func TestShellRunner_Stderr(t *testing.T) {
-	skipWindows(t)
-	r := &ShellRunner{Cfg: ShellConfig{Shell: "sh -c 'echo err >&2'", Timeout: 5 * time.Second}}
+	requireBash(t)
+	r := &ShellRunner{Cfg: ShellConfig{Run: "sh -c 'echo err >&2'", Timeout: 5 * time.Second}}
 	var saw bool
 	r.Run(context.Background(), nil, func(s, l string) {
 		if s == "stderr" && l == "err" {
@@ -80,7 +82,7 @@ func TestShellRunner_MissingCommand(t *testing.T) {
 	r := &ShellRunner{Cfg: ShellConfig{Timeout: time.Second}}
 	res := r.Run(context.Background(), nil, func(s, l string) {})
 	if res.Err == nil {
-		t.Fatalf("shell/script 都空时应报错")
+		t.Fatalf("run/script 都空时应报错")
 	}
 }
 
@@ -111,10 +113,11 @@ func collectLines(out []string) []string {
 	return lines
 }
 
-// TestShellRunnerUsesParams 验证 Run 用 params 替换 ${VAR}（跨平台：echo 在 cmd/sh 都可用）。
+// TestShellRunnerUsesParams 验证 Run 用 params 替换 ${VAR}（统一 bash 语法）。
 func TestShellRunnerUsesParams(t *testing.T) {
+	requireBash(t)
 	r := &ShellRunner{Cfg: ShellConfig{
-		Shell:   "echo hello ${NAME}",
+		Run:     "echo hello ${NAME}",
 		Timeout: 5 * time.Second,
 	}}
 	var out []string
@@ -123,19 +126,17 @@ func TestShellRunnerUsesParams(t *testing.T) {
 		t.Fatalf("run err: %v", res.Err)
 	}
 	joined := strings.Join(collectLines(out), "\n")
-	// 跨 shell 校验：cmd 的 echo 输出 "hello world" 一行；PowerShell 的 echo 多参数会分行，
-	// 只要出现 NAME 的值 "world" 即说明 ${NAME} 已被 params 替换
 	if !strings.Contains(joined, "world") {
 		t.Fatalf("params 未注入，输出: %q", joined)
 	}
 }
 
 // TestShellRunnerUsesStepEnvInText 验证 cfg.Env 的终值能被 ${VAR} 文本展开命中——
-// PowerShell 下 ${VAR} 是 PS 变量语法读不到环境变量，必须由 Go 侧展开才能跨平台一致
-// （demo-all-features 的 env 注入 artifact= 空值即此缺陷）。
+// Go 侧统一展开保证跨解释器一致（demo-all-features 的 env 注入 artifact= 空值即此缺陷）。
 func TestShellRunnerUsesStepEnvInText(t *testing.T) {
+	requireBash(t)
 	r := &ShellRunner{Cfg: ShellConfig{
-		Shell:   "echo artifact=${ARTIFACT} mode=${MODE}",
+		Run:     "echo artifact=${ARTIFACT} mode=${MODE}",
 		Env:     map[string]string{"ARTIFACT": "demo-app.apk"},
 		Timeout: 5 * time.Second,
 	}}
@@ -170,40 +171,32 @@ func TestBuildEnvInjectsParamsAndKeepsParent(t *testing.T) {
 	}
 }
 
-// TestBuildCommandWindowsShellUsesPowerShell 验证 Windows 下 shell 形态默认走 PowerShell
-// （而非 cmd /c），shell 内容作为 -Command 参数完整传递（引号不被吃掉）。
-func TestBuildCommandWindowsShellUsesPowerShell(t *testing.T) {
-	if runtime.GOOS != "windows" {
-		t.Skip("windows 专属行为")
-	}
-	cmd, err := buildCommandFromCfg(ShellConfig{Shell: `claude -p "hi"`})
+// TestBuildCommand_WindowsDefaultBash 验证 Windows 下默认（不写 shell）走 bash
+// 且 argv 含 -eo pipefail 错误语义、run 内容落临时文件（.sh 后缀）。
+func TestBuildCommand_WindowsDefaultBash(t *testing.T) {
+	requireBash(t)
+	cmd, cleanup, err := buildCommandFromCfg(ShellConfig{Run: `echo "hi"`})
 	if err != nil {
 		t.Fatal(err)
 	}
+	defer cleanup()
 	joined := strings.Join(cmd.Args, " ")
-	if strings.Contains(joined, " /c ") {
-		t.Fatalf("不应再用 cmd /c: %s", joined)
+	if !strings.Contains(joined, "bash") {
+		t.Fatalf("默认应走 bash: %s", joined)
 	}
-	if !strings.Contains(joined, "powershell") && !strings.Contains(joined, "pwsh") {
-		t.Fatalf("Windows shell 应用 powershell/pwsh: %s", joined)
+	if !strings.Contains(joined, "-eo") || !strings.Contains(joined, "pipefail") {
+		t.Fatalf("bash 应带 -eo pipefail: %s", joined)
 	}
-	if !strings.Contains(joined, "-Command") {
-		t.Fatalf("应用 -Command 传 shell: %s", joined)
-	}
-	if !strings.Contains(joined, `claude -p "hi"`) {
-		t.Fatalf("shell 内容应完整保留（含引号）: %s", joined)
+	script := cmd.Args[len(cmd.Args)-1]
+	if !strings.HasSuffix(script, ".sh") {
+		t.Fatalf("run 内容应落 .sh 临时文件: %s", script)
 	}
 }
 
 func TestShellRunner_CaptureOutput_DefaultOn(t *testing.T) {
-	// Windows 走 PowerShell：`1>&2` 在 Windows PowerShell 5.1 是保留字（解析失败），
-	// 用 [Console]::Error.WriteLine 写 stderr；Unix 走 sh -c 用 POSIX 语法。
-	shell := `echo "hello"; echo "err" 1>&2`
-	if runtime.GOOS == "windows" {
-		shell = `echo "hello"; [Console]::Error.WriteLine("err")`
-	}
+	requireBash(t)
 	r := &ShellRunner{Cfg: ShellConfig{
-		Shell:   shell,
+		Run:     `echo "hello"; echo "err" >&2`,
 		Timeout: 5 * time.Second,
 	}}
 	res := r.Run(context.Background(), nil, func(string, string) {})
@@ -222,9 +215,10 @@ func TestShellRunner_CaptureOutput_DefaultOn(t *testing.T) {
 }
 
 func TestShellRunner_CaptureOutput_ExplicitOff(t *testing.T) {
+	requireBash(t)
 	off := false
 	r := &ShellRunner{Cfg: ShellConfig{
-		Shell:         `echo "hello"`,
+		Run:           `echo "hello"`,
 		Timeout:       5 * time.Second,
 		CaptureOutput: &off,
 	}}
@@ -238,8 +232,9 @@ func TestShellRunner_CaptureOutput_ExplicitOff(t *testing.T) {
 }
 
 func TestShellRunner_CaptureOutput_ProtocolLine(t *testing.T) {
+	requireBash(t)
 	r := &ShellRunner{Cfg: ShellConfig{
-		Shell:   `echo "normal line"; echo "##[output build_id=42]"`,
+		Run:     `echo "normal line"; echo "##[output build_id=42]"`,
 		Timeout: 5 * time.Second,
 	}}
 	res := r.Run(context.Background(), nil, func(string, string) {})
@@ -255,8 +250,9 @@ func TestShellRunner_CaptureOutput_ProtocolLine(t *testing.T) {
 // ##[progress ...] 行改走 progress 流：不进 stdout 捕获、不当普通 stdout emit，
 // 前端据此原地覆盖上一条进度（\r 已被 splitLines 切行，只能靠该协议刷新单行）。
 func TestShellRunner_ProgressLine(t *testing.T) {
+	requireBash(t)
 	r := &ShellRunner{Cfg: ShellConfig{
-		Shell:   `echo "普通行"; echo "##[progress 下载 50%]"; echo "##[progress 下载 100%]"`,
+		Run:     `echo "普通行"; echo "##[progress 下载 50%]"; echo "##[progress 下载 100%]"`,
 		Timeout: 5 * time.Second,
 	}}
 	var got []string
@@ -273,8 +269,9 @@ func TestShellRunner_ProgressLine(t *testing.T) {
 }
 
 func TestShellRunner_CaptureOutput_ReservedKeyOverride(t *testing.T) {
+	requireBash(t)
 	r := &ShellRunner{Cfg: ShellConfig{
-		Shell:   `echo "##[output exit_code=999]"`,
+		Run:     `echo "##[output exit_code=999]"`,
 		Timeout: 5 * time.Second,
 	}}
 	res := r.Run(context.Background(), nil, func(string, string) {})
@@ -285,10 +282,10 @@ func TestShellRunner_CaptureOutput_ReservedKeyOverride(t *testing.T) {
 }
 
 func TestShellRunner_StdoutCapped(t *testing.T) {
-	skipWindows(t)
+	requireBash(t)
 	// 生成超过 256KB 的输出：300000 个 'x'，每行1个字符+\n，共约 600KB
 	r := &ShellRunner{Cfg: ShellConfig{
-		Shell:   "yes x | head -n 300000",
+		Run:     "yes x | head -n 300000",
 		Timeout: 10 * time.Second,
 	}}
 	res := r.Run(context.Background(), nil, func(s, l string) {})
