@@ -22,7 +22,7 @@ func TestLoad_Valid(t *testing.T) {
 id: build
 title: 构建
 command:
-  shell: pnpm build
+  run: pnpm build
   timeout: 90s
 `)
 	reg := Load(dir, "/base")
@@ -43,7 +43,7 @@ func TestLoad_DefaultTimeout(t *testing.T) {
 	writeFile(t, dir, "a.yaml", `id: x
 title: X
 command:
-  shell: echo hi
+  run: echo hi
 `)
 	reg := Load(dir, "/base")
 	if reg.Actions["x"].Timeout != 60*time.Second {
@@ -55,12 +55,12 @@ func TestLoad_BadFileSkipped(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "bad.yaml", `id: x
 command:
-  shell: x
+  run: x
 shell: y`)
 	writeFile(t, dir, "good.yaml", `id: y
 title: Y
 command:
-  shell: echo
+  run: echo
 `)
 	reg := Load(dir, "/base")
 	if _, ok := reg.Actions["y"]; !ok {
@@ -76,12 +76,12 @@ func TestLoad_DuplicateID(t *testing.T) {
 	writeFile(t, dir, "a.yaml", `id: dup
 title: A
 command:
-  shell: echo a
+  run: echo a
 `)
 	writeFile(t, dir, "b.yaml", `id: dup
 title: B
 command:
-  shell: echo b
+  run: echo b
 `)
 	reg := Load(dir, "/base")
 	if len(reg.Errors) != 1 {
@@ -94,7 +94,7 @@ func TestLoad_InvalidID(t *testing.T) {
 	writeFile(t, dir, "a.yaml", `id: Bad ID
 title: X
 command:
-  shell: echo
+  run: echo
 `)
 	reg := Load(dir, "/base")
 	if len(reg.Errors) != 1 {
@@ -102,12 +102,12 @@ command:
 	}
 }
 
-func TestLoad_ShellScriptMutex(t *testing.T) {
+func TestLoad_RunScriptMutex(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "a.yaml", `id: x
 title: X
 command:
-  shell: echo
+  run: echo
   script: ./s
 `)
 	reg := Load(dir, "/base")
@@ -134,7 +134,7 @@ presets:
   - name: 首页
     values: { URL: https://example.com }
 command:
-  shell: echo ${URL}
+  run: echo ${URL}
 `)
 	reg := Load(dir, dir)
 	if len(reg.Errors) != 0 {
@@ -165,7 +165,7 @@ func TestLoadKeepsRawCwd(t *testing.T) {
 	writeFile(t, dir, "a.yaml", `id: a
 title: A
 command:
-  shell: echo hi
+  run: echo hi
   cwd: ${NOPE_VAR}/sub
 `)
 	reg := Load(dir, dir)
@@ -173,9 +173,9 @@ command:
 	if la.Cwd != "${NOPE_VAR}/sub" {
 		t.Fatalf("Load 应保留 raw Cwd，got %q", la.Cwd)
 	}
-	// shell 也应保留 raw（不在 Load 替换）
-	if la.Def.Command.Shell != "echo hi" {
-		t.Fatalf("unexpected shell: %q", la.Def.Command.Shell)
+	// run 也应保留 raw（不在 Load 替换）
+	if la.Def.Command.Run != "echo hi" {
+		t.Fatalf("unexpected run: %q", la.Def.Command.Run)
 	}
 }
 
@@ -188,7 +188,7 @@ params:
     label: x
     type: select
 command:
-  shell: echo hi
+  run: echo hi
 `)
 	reg := Load(dir, dir)
 	if len(reg.Errors) == 0 {
@@ -205,7 +205,7 @@ params:
     label: x
     type: color
 command:
-  shell: echo hi
+  run: echo hi
 `)
 	reg := Load(dir, dir)
 	if len(reg.Errors) == 0 {
@@ -226,7 +226,7 @@ params:
     type: file
     required: true
 command:
-  shell: echo ${LOCAL}
+  run: echo ${LOCAL}
 `)
 	reg := Load(dir, dir)
 	if len(reg.Errors) != 0 {
@@ -284,7 +284,7 @@ title: A
 params:
   - { id: QUESTION, label: 问题, type: textarea, required: true }
 command:
-  shell: echo hi
+  run: echo hi
   llm:
     prompt: QUESTION
 `)
@@ -299,7 +299,7 @@ func TestValidateBadStream(t *testing.T) {
 	writeFile(t, dir, "a.yaml", `id: a
 title: A
 command:
-  shell: echo hi
+  run: echo hi
   stream: wat
 `)
 	reg := Load(dir, dir)
@@ -313,7 +313,7 @@ func TestLoadParsesStreamLogcat(t *testing.T) {
 	writeFile(t, dir, "a.yaml", `id: a
 title: A
 command:
-  shell: echo hi
+  run: echo hi
   stream: logcat
 `)
 	reg := Load(dir, dir)
@@ -331,7 +331,7 @@ func TestLoadRecordsSourceFile(t *testing.T) {
 	writeFile(t, dir, "a.yaml", `id: a
 title: A
 command:
-  shell: echo hi
+  run: echo hi
 `)
 	reg := Load(dir, dir)
 	la := reg.Actions["a"]
@@ -344,7 +344,7 @@ command:
 }
 
 func TestParseActionExported(t *testing.T) {
-	def, err := ParseAction([]byte("id: a\ntitle: A\ncommand:\n  shell: echo\n"))
+	def, err := ParseAction([]byte("id: a\ntitle: A\ncommand:\n  run: echo\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -354,7 +354,7 @@ func TestParseActionExported(t *testing.T) {
 }
 
 func TestValidateExported(t *testing.T) {
-	legal := &ActionDef{ID: "a", Title: "A", Command: Command{Shell: "echo"}}
+	legal := &ActionDef{ID: "a", Title: "A", Command: Command{Run: "echo"}}
 	if err := Validate(legal); err != nil {
 		t.Fatalf("合法定义不应报错: %v", err)
 	}
@@ -365,7 +365,7 @@ func TestValidateExported(t *testing.T) {
 }
 
 func TestAddPresetToYAML_NewPreset(t *testing.T) {
-	in := []byte("id: a\ntitle: A\ncommand:\n  shell: echo\n")
+	in := []byte("id: a\ntitle: A\ncommand:\n  run: echo\n")
 	out, err := AddPresetToYAML(in, "p1", "描述", map[string]string{"URL": "x"})
 	if err != nil {
 		t.Fatalf("AddPresetToYAML: %v", err)
@@ -386,7 +386,7 @@ func TestAddPresetToYAML_NewPreset(t *testing.T) {
 }
 
 func TestAddPresetToYAML_OverwriteSameName(t *testing.T) {
-	in := []byte("id: a\ntitle: A\npresets:\n  - name: p1\n    values: {URL: old}\ncommand:\n  shell: echo\n")
+	in := []byte("id: a\ntitle: A\npresets:\n  - name: p1\n    values: {URL: old}\ncommand:\n  run: echo\n")
 	out, err := AddPresetToYAML(in, "p1", "新描述", map[string]string{"URL": "new"})
 	if err != nil {
 		t.Fatal(err)
@@ -410,7 +410,7 @@ func TestAddPresetToYAML_EmptyName(t *testing.T) {
 }
 
 func TestAddPresetToYAML_OverwriteMovesToEnd(t *testing.T) {
-	in := []byte("id: a\ntitle: A\npresets:\n  - name: A1\n    values: {K: 1}\n  - name: B1\n    values: {K: 2}\n  - name: C1\n    values: {K: 3}\ncommand:\n  shell: echo\n")
+	in := []byte("id: a\ntitle: A\npresets:\n  - name: A1\n    values: {K: 1}\n  - name: B1\n    values: {K: 2}\n  - name: C1\n    values: {K: 3}\ncommand:\n  run: echo\n")
 	out, err := AddPresetToYAML(in, "B1", "", map[string]string{"K": "new"})
 	if err != nil {
 		t.Fatal(err)
@@ -435,7 +435,7 @@ func TestAddPresetToYAML_OverwriteMovesToEnd(t *testing.T) {
 func TestAddPresetToYAML_PreservesStandardFormat(t *testing.T) {
 	// 2 空格缩进、无 quote 的标准格式是仓库动作 yaml 的主流形态；
 	// 锁住 round-trip 后原 id/title/command/params 行原样保留、缩进仍为 2 空格。
-	in := []byte("id: a\ntitle: A\nparams:\n  - id: URL\n    label: 网址\n    type: text\ncommand:\n  shell: echo ${URL}\n")
+	in := []byte("id: a\ntitle: A\nparams:\n  - id: URL\n    label: 网址\n    type: text\ncommand:\n  run: echo ${URL}\n")
 	out, err := AddPresetToYAML(in, "p1", "描述", map[string]string{"URL": "x"})
 	if err != nil {
 		t.Fatal(err)
@@ -446,7 +446,7 @@ func TestAddPresetToYAML_PreservesStandardFormat(t *testing.T) {
 		"title: A\n",
 		"  - id: URL\n",
 		"    type: text\n",
-		"  shell: echo ${URL}\n",
+		"  run: echo ${URL}\n",
 	} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("round-trip 后应保留 %q, got:\n%s", want, s)
@@ -463,7 +463,7 @@ func TestParseAction_CaptureOutputField(t *testing.T) {
 id: test-capture
 title: 测试
 command:
-  shell: echo hi
+  run: echo hi
   capture_output: false
 `)
 	def, err := ParseAction(yamlSrc)
@@ -480,7 +480,7 @@ func TestParseAction_CaptureOutputDefaultNil(t *testing.T) {
 id: test-capture-default
 title: 测试
 command:
-  shell: echo hi
+  run: echo hi
 `)
 	def, err := ParseAction(yamlSrc)
 	if err != nil {
@@ -492,12 +492,54 @@ command:
 }
 
 func TestAddPresetToYAML_PreservesComments(t *testing.T) {
-	in := []byte("# 顶部注释\nid: a\ntitle: A\ncommand:\n  shell: echo\n")
+	in := []byte("# 顶部注释\nid: a\ntitle: A\ncommand:\n  run: echo\n")
 	out, err := AddPresetToYAML(in, "p1", "", map[string]string{"K": "v"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Contains(out, []byte("# 顶部注释")) {
 		t.Fatalf("顶部注释应保留, got:\n%s", out)
+	}
+}
+
+// TestValidate_ShellModifier 校验 shell 修饰字段：非法值报错、配 adb/llm 形态报错。
+func TestValidate_ShellModifier(t *testing.T) {
+	cases := []struct {
+		name    string
+		yaml    string
+		wantErr string
+	}{
+		{"合法内置名", "id: a\ntitle: A\ncommand:\n  run: echo\n  shell: pwsh\n", ""},
+		{"合法自定义模板", "id: a\ntitle: A\ncommand:\n  run: echo\n  shell: \"perl {0}\"\n", ""},
+		{"非法工具名", "id: a\ntitle: A\ncommand:\n  run: echo\n  shell: zsh\n", "command.shell 非法"},
+		{"自定义模板缺占位符", "id: a\ntitle: A\ncommand:\n  run: echo\n  shell: perl\n", "command.shell 非法"},
+		{"shell 配 adb 形态", "id: a\ntitle: A\ncommand:\n  adb:\n    operation: list-packages\n  shell: bash\n", "只能搭配 run/script"},
+		{"shell 配 llm 形态", "id: a\ntitle: A\nparams:\n  - id: p\n    type: text\ncommand:\n  llm:\n    prompt: p\n  shell: bash\n", "只能搭配 run/script"},
+	}
+	for _, c := range cases {
+		def, err := ParseAction([]byte(c.yaml))
+		if err != nil {
+			t.Fatalf("%s: parse: %v", c.name, err)
+		}
+		err = Validate(def)
+		if c.wantErr == "" {
+			if err != nil {
+				t.Errorf("%s: 不应报错, got %v", c.name, err)
+			}
+		} else if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+			t.Errorf("%s: 应报含 %q 的错误, got %v", c.name, c.wantErr, err)
+		}
+	}
+}
+
+// TestValidate_ScriptExtension 校验 script 扩展名受支持。
+func TestValidate_ScriptExtension(t *testing.T) {
+	ok := &ActionDef{ID: "a", Title: "A", Command: Command{Script: "./s/hello.py"}}
+	if err := Validate(ok); err != nil {
+		t.Fatalf(".py 应合法: %v", err)
+	}
+	bad := &ActionDef{ID: "a", Title: "A", Command: Command{Script: "./s/hello.rb"}}
+	if err := Validate(bad); err == nil {
+		t.Fatal(".rb 扩展名应报错")
 	}
 }

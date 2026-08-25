@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"workflow-tool/internal/runner"
 )
 
 // ActionDef 是动作的 YAML 定义。
@@ -44,8 +46,11 @@ type Preset struct {
 
 // Command 是动作的执行块。
 type Command struct {
+	Run    string `yaml:"run"`    // 形态 A：内联命令（GHA run，落临时脚本执行）
+	Script string `yaml:"script"` // 形态 B：脚本文件路径（带扩展名，按扩展名路由解释器）
+	// Shell 是 run/script 形态的可选修饰字段：解释器逻辑名（默认 bash），
+	// 或含 {0} 的自定义模板。只允许搭配 run/script。
 	Shell   string            `yaml:"shell"`
-	Script  string            `yaml:"script"`
 	Cwd     string            `yaml:"cwd"`
 	Timeout string            `yaml:"timeout"`
 	Env     map[string]string `yaml:"env"`
@@ -53,10 +58,10 @@ type Command struct {
 	// nil/true=默认捕获；false=关闭（scrcpy/logcat 等长跑用）
 	CaptureOutput *bool `yaml:"capture_output"`
 	// Adb 是第三种执行形态：调用内置 ADBRunner 按 operation 分发到 adb 域服务。
-	// 与 shell/script/llm 四选一互斥。
+	// 与 run/script/llm 四选一互斥。
 	Adb AdbCommand `yaml:"adb"`
 	// LLM 是第四种执行形态：调用内置 LLMRunner，按 System/Prompt 指向的 param 拼装 CLI 调用。
-	// 与 shell/script/adb 四选一互斥。
+	// 与 run/script/adb 四选一互斥。
 	LLM LLMCommand `yaml:"llm"`
 }
 
@@ -159,9 +164,9 @@ func Validate(def *ActionDef) error {
 	if def.Title == "" {
 		return fmt.Errorf("title 必填")
 	}
-	// command 四选一互斥：shell / script / adb.operation / llm.prompt
+	// command 四选一互斥：run / script / adb.operation / llm.prompt
 	commandForms := 0
-	if def.Command.Shell != "" {
+	if def.Command.Run != "" {
 		commandForms++
 	}
 	if def.Command.Script != "" {
@@ -174,10 +179,25 @@ func Validate(def *ActionDef) error {
 		commandForms++
 	}
 	if commandForms == 0 {
-		return fmt.Errorf("command 必须指定 shell/script/adb/llm 之一")
+		return fmt.Errorf("command 必须指定 run/script/adb/llm 之一")
 	}
 	if commandForms > 1 {
-		return fmt.Errorf("command.shell/script/adb/llm 四选一互斥")
+		return fmt.Errorf("command.run/script/adb/llm 四选一互斥")
+	}
+	// shell 是 run/script 形态的修饰字段
+	if def.Command.Shell != "" {
+		if def.Command.Adb.Operation != "" || def.Command.LLM.Prompt != "" {
+			return fmt.Errorf("command.shell 只能搭配 run/script 形态")
+		}
+		if !runner.IsValidShellName(def.Command.Shell) {
+			return fmt.Errorf("command.shell 非法 %q：应为 %s 之一或含 {0} 的自定义模板", def.Command.Shell, runner.KnownShellNames())
+		}
+	}
+	// script 必须带受支持的扩展名（.sh/.ps1/.py/.js）
+	if def.Command.Script != "" {
+		if _, err := runner.ShellNameByScript(def.Command.Script); err != nil {
+			return err
+		}
 	}
 	// params 校验
 	for i, p := range def.Params {
