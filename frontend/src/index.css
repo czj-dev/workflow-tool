@@ -333,4 +333,10 @@
       background: color-mix(in oklch, var(--primary) 30%, transparent) !important;
     }
   }
+
+  /* 文件拖拽悬停：Wails 自动在命中的 drop target（body，见 index.html）上加摘这个类。
+     只表示「可以松手」，落到哪个输入框由鼠标位置本身表达，故做整窗口内描边而非单框高亮。 */
+  body.file-drop-target-active {
+    box-shadow: inset 0 0 0 2px color-mix(in oklch, var(--primary) 60%, transparent);
+  }
 }

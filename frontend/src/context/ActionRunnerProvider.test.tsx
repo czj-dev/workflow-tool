@@ -708,3 +708,52 @@ describe("ActionRunnerProvider", () => {
     expect("a2" in result.current.lastRunParams).toBe(false);
   });
 });
+
+// 落点判定与取值规则本身在 lib/filedrop.test.ts 里全覆盖，这里只验接线：
+// Provider 确实订阅了 file:dropped，并把 payload 交给了那套规则。
+describe("窗口文件拖拽接线", () => {
+  beforeEach(() => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+  });
+
+  it("按松手坐标写入目标输入框并聚焦", async () => {
+    document.body.innerHTML = `<div data-slot="field"><label id="lbl">路径</label><input id="t" /></div>`;
+    const input = document.getElementById("t") as HTMLInputElement;
+    // 命中标签而非控件：验证 Field 兜底这条路真的接上了
+    document.elementFromPoint = (() =>
+      document.getElementById("lbl")) as typeof document.elementFromPoint;
+
+    renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+
+    act(() => {
+      listeners["file:dropped"]({
+        data: { paths: ["/a/x.txt", "/b/My Docs/y.txt"], x: 1, y: 1 },
+      });
+    });
+
+    expect(input.value).toBe('/a/x.txt "/b/My Docs/y.txt"');
+    expect(document.activeElement).toBe(input);
+
+    Reflect.deleteProperty(document, "elementFromPoint");
+    document.body.innerHTML = "";
+  });
+
+  it("缺坐标时不写入（Wails 未给落点信息则整次拖拽忽略）", async () => {
+    document.body.innerHTML = `<input id="t" value="原值" />`;
+    const input = document.getElementById("t") as HTMLInputElement;
+    document.elementFromPoint = (() => input) as typeof document.elementFromPoint;
+
+    renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+
+    act(() => {
+      listeners["file:dropped"]({ data: { paths: ["/a/x.txt"] } });
+    });
+
+    expect(input.value).toBe("原值");
+
+    Reflect.deleteProperty(document, "elementFromPoint");
+    document.body.innerHTML = "";
+  });
+});

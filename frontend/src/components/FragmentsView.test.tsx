@@ -1,13 +1,17 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import i18n from "../i18n";
 
-const { mockGetFragments, mockSetFragments, mockWriteText } = vi.hoisted(() => ({
-  mockGetFragments: vi.fn(),
-  mockSetFragments: vi.fn(() => Promise.resolve()),
-  mockWriteText: vi.fn(() => Promise.resolve()),
-}));
+const { mockGetFragments, mockSetFragments, mockWriteText, listeners } = vi.hoisted(
+  () => ({
+    mockGetFragments: vi.fn(),
+    mockSetFragments: vi.fn(() => Promise.resolve()),
+    mockWriteText: vi.fn(() => Promise.resolve()),
+    // 同名事件可能有多个订阅者（Provider 写输入框、FragmentsList 写变量 pill），故按名存数组
+    listeners: {} as Record<string, Array<(e: unknown) => void>>,
+  }),
+);
 
 vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   ListActions: vi.fn().mockResolvedValue({ actions: [], errors: [] }),
@@ -23,7 +27,14 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   RunWorkflow: vi.fn().mockResolvedValue(undefined),
   CancelWorkflow: vi.fn(),
 }));
-vi.mock("@wailsio/runtime", () => ({ Events: { On: () => () => ({}) } }));
+vi.mock("@wailsio/runtime", () => ({
+  Events: {
+    On: (name: string, cb: (e: unknown) => void) => {
+      (listeners[name] ??= []).push(cb);
+      return () => {};
+    },
+  },
+}));
 
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { ActionRunnerProvider } from "../context/ActionRunnerProvider";
@@ -48,6 +59,7 @@ beforeEach(async () => {
   mockGetFragments.mockReset().mockResolvedValue(sample);
   mockSetFragments.mockReset().mockResolvedValue(undefined);
   mockWriteText.mockReset().mockResolvedValue(undefined);
+  Reflect.ownKeys(listeners).forEach((k) => Reflect.deleteProperty(listeners, k));
   stubClipboard();
   await i18n.changeLanguage("zh");
 });
@@ -329,5 +341,57 @@ describe("FragmentsView - 缺失变量就地填写", () => {
     // x 仍在，但它的临时值应已被清空（索引语义已变，安全起见整体清空）
     expect(await screen.findByText("NOPE")).toBeInTheDocument();
     expect(screen.queryByText("filled")).not.toBeInTheDocument();
+  });
+});
+
+describe("FragmentsView - 变量 pill 拖拽赋值", () => {
+  // 落点由坐标决定，jsdom 没有布局也没实现 elementFromPoint，直接替身成「命中指定元素」
+  const dropOn = (el: Element, paths: string[]) => {
+    document.elementFromPoint = (() => el) as typeof document.elementFromPoint;
+    act(() => {
+      // Provider 与 FragmentsList 都订阅了 file:dropped，全部触发以还原真实运行时
+      (listeners["file:dropped"] ?? []).forEach((cb) =>
+        cb({ data: { paths, x: 1, y: 1 } }),
+      );
+    });
+  };
+
+  it("拖到未定义变量 pill 上 → 直接填入并提交，不经过编辑态", async () => {
+    mockGetFragments.mockResolvedValue([
+      { title: "装包", content: "adb install ${APK}", tags: [] },
+    ]);
+    renderView();
+    const pill = await screen.findByText("APK");
+
+    dropOn(pill, ["/a/app.apk"]);
+
+    // 红框变琥珀：pill 直接显示填入的值
+    expect(screen.getByText("/a/app.apk")).toBeInTheDocument();
+    expect(screen.queryByText("APK")).not.toBeInTheDocument();
+    // 未进编辑态：没有出现该变量对应的输入框
+    expect(screen.queryByRole("textbox", { name: "APK" })).not.toBeInTheDocument();
+  });
+
+  it("多路径按文本规则拼接，含空格的加引号", async () => {
+    mockGetFragments.mockResolvedValue([
+      { title: "推文件", content: "adb push ${SRC} /sdcard/", tags: [] },
+    ]);
+    renderView();
+    const pill = await screen.findByText("SRC");
+
+    dropOn(pill, ["/a/x.txt", "/b/My Docs/y.txt"]);
+
+    expect(screen.getByText('/a/x.txt "/b/My Docs/y.txt"')).toBeInTheDocument();
+  });
+
+  it("落在全局配置已定义的只读 pill 上 → 不接收，值不变", async () => {
+    renderView();
+    // LOGS_DIR 已在全局配置定义，渲染为只读 span，没有 data-drop-var
+    const readonlyPill = await screen.findByText("LOGS_DIR");
+
+    dropOn(readonlyPill, ["/tmp/hijack"]);
+
+    expect(screen.getByText("LOGS_DIR")).toBeInTheDocument();
+    expect(screen.queryByText("/tmp/hijack")).not.toBeInTheDocument();
   });
 });

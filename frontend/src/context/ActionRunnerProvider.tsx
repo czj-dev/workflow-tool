@@ -8,6 +8,12 @@ import {
 import { Events } from "@wailsio/runtime";
 import { useTranslation } from "react-i18next";
 import {
+  findDropInput,
+  valueForInput,
+  writeToInput,
+  type FileDropPayload,
+} from "@/lib/filedrop";
+import {
   ListActions,
   RunAction,
   CancelAction,
@@ -416,23 +422,18 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const lastRunParamsRef = useRef<Record<string, Record<string, string>>>({});
   lastRunParamsRef.current = lastRunParams;
 
-  // 整窗口文件拖拽（Wails EnableFileDrop，见 main.go）：拖入文件/文件夹只取第一个路径，
-  // 写入当前聚焦的 input/textarea；未聚焦任何输入框时静默忽略。覆盖 action 参数表单、
-  // 全局配置、指令片段等所有文本输入，不需要每个组件单独接 HTML5 drop（那套读不到真实路径）。
+  // 整窗口文件拖拽（Wails EnableFileDrop，见 main.go）：按松手坐标定位目标输入框写入，
+  // 不再依赖当前焦点。多路径空格拼接（path/file 字段只取首个），整体覆盖原值。落点不是可写
+  // 输入框时静默忽略。覆盖 action 参数表单、全局配置、片段编辑等所有文本输入，不需要每个组件
+  // 单独接 HTML5 drop（那套读不到真实路径，且 macOS 上原生 overlay 会吞掉整个拖拽会话）。
+  // 片段变量 pill 是 <button> 不在 Field 内，这里必然落空，由 FragmentsList 自己订阅处理。
   useEffect(() => {
-    return Events.On("file:dropped", (e: { data: { paths?: string[] } }) => {
-      const path = e.data?.paths?.[0];
-      if (!path) return;
-      const el = document.activeElement;
-      if (!(el instanceof HTMLInputElement) && !(el instanceof HTMLTextAreaElement)) return;
-      // React 受控组件：直接赋值不会触发 onChange，需用原生 setter + dispatchEvent
-      const proto =
-        el instanceof HTMLTextAreaElement
-          ? window.HTMLTextAreaElement.prototype
-          : window.HTMLInputElement.prototype;
-      const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-      setter?.call(el, path);
-      el.dispatchEvent(new Event("input", { bubbles: true }));
+    return Events.On("file:dropped", (e: { data: FileDropPayload }) => {
+      const { paths, x, y } = e.data ?? {};
+      if (!paths?.length || x === undefined || y === undefined) return;
+      const el = findDropInput(x, y);
+      if (!el) return;
+      writeToInput(el, valueForInput(el, paths));
     });
   }, []);
 

@@ -72,15 +72,24 @@ func main() {
 		EnableFileDrop: true,
 	})
 
-	// 整窗口拖拽落地路径（frontend/index.html 的 body 标 data-file-drop-target）：
-	// 只取第一个拖入路径，转发给前端写入当前聚焦输入框，语义对齐原先 HTML5
-	// dataTransfer.files[0] 的单文件取用方式。
+	// 整窗口拖拽落地路径：全部路径 + 松手坐标转发给前端，由前端按坐标定位目标输入框
+	// 写入（见 frontend/src/lib/filedrop.ts）。
+	// 前提：frontend/index.html 的 body 必须带 data-file-drop-target——Wails 用
+	// elementFromPoint(x,y).closest('[data-file-drop-target]') 找落点，祖先没有这个属性时
+	// 事件根本不会发到 Go，且完全静默。删掉它整个拖拽功能失效且无从排查。
 	window.OnWindowEvent(events.Common.WindowFilesDropped, func(event *application.WindowEvent) {
-		files := event.Context().DroppedFiles()
+		ctx := event.Context()
+		files := ctx.DroppedFiles()
 		if len(files) == 0 {
 			return
 		}
-		app.Event.Emit("file:dropped", map[string]any{"paths": files})
+		payload := map[string]any{"paths": files}
+		// 坐标随命中信息一起来；理论上必有，判空只为不 panic（缺坐标时前端自然忽略本次拖拽）
+		if d := ctx.DropTargetDetails(); d != nil {
+			payload["x"] = d.X
+			payload["y"] = d.Y
+		}
+		app.Event.Emit("file:dropped", payload)
 	})
 
 	if err := app.Run(); err != nil {

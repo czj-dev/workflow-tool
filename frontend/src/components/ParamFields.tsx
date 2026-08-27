@@ -91,6 +91,8 @@ export function ParamFields({ params, values, setValue }: ParamFieldsProps) {
               <ButtonGroup>
                 <Input
                   id={p.id}
+                  // 值语义是单个路径，多选拖入时只取首个（拼一串路径进来必然是坏值）
+                  data-drop-single
                   value={values[p.id] ?? p.default ?? ""}
                   onChange={(e) => setValue(p.id, e.target.value)}
                 />

@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { Events } from "@wailsio/runtime";
 import {
   Item,
   ItemActions,
@@ -28,6 +29,7 @@ import { IconButton } from "./IconButton";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { expandVars, extractVars } from "@/lib/vars";
+import { joinDroppedPaths, type FileDropPayload } from "@/lib/filedrop";
 import { FragmentDialog, type FragmentRow } from "./FragmentDialog";
 import { cn } from "@/lib/utils";
 
@@ -40,12 +42,15 @@ const VAR_SPLIT_RE = /(\$\{[A-Za-z0-9_]+\})/g;
 // EditableVarPill：缺失变量的可点击 pill。未填时显示变量名（红框），
 // 点击后原地变 input，Enter/失焦提交，Esc 取消。已填时显示填入的值
 // （琥珀 + 虚线下边框，区别于全局定义的实心琥珀），仍可再点重新编辑。
+// data-drop-var/-frag 让拖入的文件路径能直接落到这个 pill 上（见下方 useEffect）。
 function EditableVarPill({
   name,
+  fragIndex,
   value,
   onSubmit,
 }: {
   name: string;
+  fragIndex: number;
   value?: string;
   onSubmit: (name: string, value: string) => void;
 }) {
@@ -57,6 +62,8 @@ function EditableVarPill({
       <input
         aria-label={name}
         autoFocus
+        // 编辑态刻意不标 data-drop-var：此时它已是真 input，拖拽由 Provider 的通用管道
+        // 直接写入；两边都标会造成同一次拖拽被写两遍。
         // 预览段落宽度有限（卡片右侧被操作按钮占走），故占满整行而非按比例，
         // 编辑态本身是临时的，独占一行不影响浏览。
         className="my-px inline-block w-full rounded-sm border border-primary/50 bg-background px-1 py-px font-mono text-[11px] outline-none"
@@ -83,6 +90,8 @@ function EditableVarPill({
   return (
     <button
       type="button"
+      data-drop-var={name}
+      data-drop-frag={fragIndex}
       onClick={() => {
         setDraft(value ?? "");
         setEditing(true);
@@ -104,11 +113,13 @@ function EditableVarPill({
 // 红框=全局配置缺失（可点击就地填临时值）。复制走 expandVars 输出纯文本。
 function ContentPreview({
   content,
+  fragIndex,
   vars,
   overrides,
   onSetVar,
 }: {
   content: string;
+  fragIndex: number;
   vars: Record<string, string>;
   overrides: Record<string, string>;
   onSetVar: (name: string, value: string) => void;
@@ -141,6 +152,7 @@ function ContentPreview({
           <EditableVarPill
             key={i}
             name={name}
+            fragIndex={fragIndex}
             value={overrides[name]}
             onSubmit={onSetVar}
           />
@@ -196,12 +208,30 @@ export function FragmentsList() {
   const [overrides, setOverrides] = useState<Record<number, Record<string, string>>>({});
   const query = q.trim().toLowerCase();
 
-  const setVarOverride = (i: number, name: string, value: string) => {
+  // useCallback：拖拽订阅 effect 要拿它做依赖又不能每次渲染重新订阅（只用到稳定的 setOverrides）
+  const setVarOverride = useCallback((i: number, name: string, value: string) => {
     setOverrides((cur) => ({
       ...cur,
       [i]: { ...(cur[i] ?? {}), [name]: value },
     }));
-  };
+  }, []);
+
+  // 片段变量 pill 的拖拽赋值：pill 是 <button> 且不在任何 Field 内，Provider 那条通用落点
+  // 管道对它必然落空静默，故这里独立订阅同一事件，两条路径互不干扰、无需额外通道。
+  // 落下即写入 overrides（不经编辑态）——编辑态存在的目的就是输入值，拖拽已经把值给了。
+  useEffect(() => {
+    return Events.On("file:dropped", (e: { data: FileDropPayload }) => {
+      const { paths, x, y } = e.data ?? {};
+      if (!paths?.length || x === undefined || y === undefined) return;
+      // 只有「未定义变量」的 pill 带 data-drop-var；全局配置已定义的是只读 span，不接收
+      const pill = document.elementFromPoint(x, y)?.closest("[data-drop-var]");
+      if (!(pill instanceof HTMLElement)) return;
+      const name = pill.dataset.dropVar;
+      const frag = pill.dataset.dropFrag;
+      if (!name || frag === undefined) return;
+      setVarOverride(Number(frag), name, joinDroppedPaths(paths));
+    });
+  }, [setVarOverride]);
 
   const tagCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -364,6 +394,7 @@ export function FragmentsList() {
                         <ItemDescription className="line-clamp-3 whitespace-pre-wrap break-all font-mono text-xs leading-relaxed group-hover/item:line-clamp-none">
                           <ContentPreview
                             content={f.content}
+                            fragIndex={i}
                             vars={globalConfig}
                             overrides={overrides[i] ?? {}}
                             onSetVar={(name, value) => setVarOverride(i, name, value)}
