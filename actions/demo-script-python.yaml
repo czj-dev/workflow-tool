@@ -1,4 +1,4 @@
-id: test-script-python
+id: demo-script-python
 title: "验收: script .py 路由"
 icon: hi:test
 description: "script: ./scripts/test/hello.py——按 .py 扩展名路由到 python（-u 无缓冲）"

@@ -1,4 +1,4 @@
-id: test-script-node
+id: demo-script-node
 title: "验收: script .js 路由"
 icon: hi:test
 description: "script: ./scripts/test/hello.js——按 .js 扩展名路由到 node"

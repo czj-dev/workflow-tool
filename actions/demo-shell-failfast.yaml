@@ -1,4 +1,4 @@
-id: test-shell-failfast
+id: demo-shell-failfast
 title: "验收: -eo pipefail 快速失败"
 icon: hi:test
 description: "预期失败：第 2 行 exit 3，-e 生效后续行不执行、exit_code=3（用于验证错误处理语义统一）"

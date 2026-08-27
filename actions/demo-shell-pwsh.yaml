@@ -1,4 +1,4 @@
-id: test-shell-pwsh
+id: demo-shell-pwsh
 title: "验收: pwsh 退出码传播"
 icon: hi:test
 description: "显式 shell: pwsh；原生命令(cmd /c exit 5)非零退出码应经 WrapTail 传播为脚本退出码（预期 exit_code=5；无 pwsh 的环境会报错属预期）"

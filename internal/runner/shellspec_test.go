@@ -50,7 +50,7 @@ func TestLookupShellSpec_PwshWrapping(t *testing.T) {
 	}
 	// 必须用 -File 而非 -Command 执行脚本路径：-Command <path> 会吞掉
 	// 脚本内 exit $LASTEXITCODE 的退出码（恒为 1），退出码传播语义依赖 -File
-	//（真机验收 test-shell-pwsh 抓住的回归，见 spec 验收记录）。
+	//（真机验收 demo-shell-pwsh 抓住的回归，见 spec 验收记录，spec 里旧名为 test-shell-pwsh）。
 	foundFile := false
 	for _, a := range spec.Template {
 		if a == "-File" {
