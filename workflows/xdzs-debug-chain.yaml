@@ -2,6 +2,8 @@ id: xdzs-debug-chain
 title: 调试一键链
 icon: hi:flash
 description: "设备初始化 → 编译 Debug → 安装 APK → 拉起测试页面"
+env:
+  EXEC_ID: "展示语音链路悬框"
 steps:
   - id: device-init
     name: 设备初始化
