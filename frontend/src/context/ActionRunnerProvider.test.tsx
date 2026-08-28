@@ -757,3 +757,93 @@ describe("窗口文件拖拽接线", () => {
     document.body.innerHTML = "";
   });
 });
+
+// 计数收敛到 runAction / runWorkflow 单点后由形态自动分桶：UI 调用点不再各记一次，
+// 漏接一个入口就静默失真的问题（llm 桶零写者、ParamSheet action 分支漏记）不再可能。
+describe("使用频次分桶", () => {
+  const readBucket = (key: string): Record<string, number> =>
+    JSON.parse(localStorage.getItem(key) ?? "{}");
+
+  beforeEach(() => {
+    localStorage.clear();
+    mockListActions.mockResolvedValue({
+      actions: [
+        {
+          id: "ai-chat",
+          title: "AI",
+          icon: "",
+          description: "",
+          llm: { promptParam: "TASK" },
+        },
+        { id: "adb-devices", title: "Devices", icon: "", description: "" },
+      ],
+      errors: [],
+    });
+    mockListWorkflows.mockResolvedValue({
+      workflows: [{ id: "w1", title: "W1" }],
+      errors: [],
+    });
+  });
+
+  it("运行 llm 动作只记入 llm-usage", async () => {
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+
+    await act(() => result.current.runAction("ai-chat", { TASK: "hi" }));
+
+    expect(readBucket("llm-usage")["ai-chat"]).toBeGreaterThan(0);
+    expect(readBucket("action-usage")).toEqual({});
+    expect(readBucket("workflow-usage")).toEqual({});
+  });
+
+  it("运行 shell 动作只记入 action-usage", async () => {
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+
+    await act(() => result.current.runAction("adb-devices", {}));
+
+    expect(readBucket("action-usage")["adb-devices"]).toBeGreaterThan(0);
+    expect(readBucket("llm-usage")).toEqual({});
+  });
+
+  it("运行 workflow 只记入 workflow-usage", async () => {
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+
+    await act(() => result.current.runWorkflow("w1"));
+
+    expect(readBucket("workflow-usage")["w1"]).toBeGreaterThan(0);
+    expect(readBucket("action-usage")).toEqual({});
+  });
+
+  it("background 运行同样计数（grid 卡片静默跑也算一次使用）", async () => {
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+
+    await act(() => result.current.runAction("adb-devices", {}, true));
+
+    expect(readBucket("action-usage")["adb-devices"]).toBeGreaterThan(0);
+  });
+
+  it("同一 llm 动作每次发送都累加（一次会话 N 条消息 = N 次使用）", async () => {
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+
+    await act(() => result.current.runAction("ai-chat", { TASK: "1" }));
+    const first = readBucket("llm-usage")["ai-chat"];
+    await act(() => result.current.runAction("ai-chat", { TASK: "2" }));
+
+    expect(readBucket("llm-usage")["ai-chat"]).toBeGreaterThan(first);
+  });
+
+  it("分数经 context 暴露，同一 Provider 下所有读者取到同一份", async () => {
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+
+    await act(() => result.current.runAction("adb-devices", {}));
+
+    expect(
+      result.current.usage["action-usage"]["adb-devices"],
+    ).toBeGreaterThan(0);
+  });
+});

@@ -13,7 +13,7 @@ import { FieldGroup } from "@/components/ui/field";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon, PlayIcon } from "@hugeicons/core-free-icons";
 import { useActionRunner } from "../hooks/useActionRunner";
-import { groupLabel, useActionUsage, MISC_KEY } from "../hooks/useActionUsage";
+import { groupLabel, MISC_KEY } from "../hooks/useActionUsage";
 import { ActionIcon } from "./ActionIcon";
 import { IconButton } from "./IconButton";
 import { ParamFields } from "./ParamFields";
@@ -53,7 +53,6 @@ export function ParamSheet() {
     selectPreset,
     setView,
   } = useActionRunner();
-  const { recordUsage } = useActionUsage("workflow-usage");
   const [saveOpen, setSaveOpen] = useState(false);
 
   // 侧栏右缘位置（expanded / collapsed 字面量）：left 与下方 right 的 calc 共用
@@ -93,7 +92,6 @@ export function ParamSheet() {
     if (!isWorkflow && formValues.FILTER) vals.FILTER = formValues.FILTER;
     if (isWorkflow) {
       runWorkflow(item.id, vals);
-      recordUsage(item.id);
     } else {
       runAction(item.id, vals);
     }

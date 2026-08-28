@@ -50,6 +50,14 @@ import {
 } from "../components/llm/reduceStream";
 import { foldOutputLine } from "../lib/outputFold";
 import { expandVars } from "../lib/vars";
+import {
+  BUCKETS,
+  decayAndBump,
+  readUsage,
+  writeUsage,
+  type Bucket,
+  type UsageByBucket,
+} from "../lib/usage";
 import { ruleFromParams, sortHistogram } from "../lib/logcatRule";
 import type {
   OutputEventData,
@@ -150,6 +158,10 @@ export interface RunnerContextValue {
   wfStartedAt: number | null;
   workflowFormValues: Record<string, string>;
   runningWorkflowId: string | null;
+  // 使用频次（三桶：action-usage / workflow-usage / llm-usage）。写入只在 runAction /
+  // runWorkflow 单点发生，读取经 useActionUsage(bucket)——各视图与侧栏共用这一份，
+  // 跑一次即所有排序同步刷新。
+  usage: UsageByBucket;
   runAction: (id: string, params?: Record<string, any>, background?: boolean) => Promise<void>;
   // 上次运行时实际使用的 params（按 id 索引，action / workflow 共用）。空对象表示无参运行过。
   // 存在即代表"跑过至少一次"，OutputToolbar / WorkflowView 据此显示再跑入口。
@@ -210,6 +222,21 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   // 当前选中的预设名（属于 currentId 动作）；为 null 时父动作高亮，非空时对应 preset 子项高亮
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
   const [lines, setLines] = useState<string[]>([]);
+  // 使用频次三桶：初始从各自 localStorage key 读入（key 不变，已有数据零迁移）。
+  const [usage, setUsage] = useState<UsageByBucket>(
+    () =>
+      Object.fromEntries(BUCKETS.map((b) => [b, readUsage(b)])) as UsageByBucket,
+  );
+
+  // 计数唯一写入口。桶由运行对象形态决定，调用点只有 runAction / runWorkflow 两处——
+  // 挂在 UI 事件上时漏一个入口就静默失真（llm 桶曾零写者、表单跑 action 曾不计数）。
+  const recordUsage = (bucket: Bucket, id: string) => {
+    setUsage((prev) => {
+      const next = decayAndBump(prev[bucket], id);
+      writeUsage(bucket, next);
+      return { ...prev, [bucket]: next };
+    });
+  };
   const [status, setStatus] = useState<Status>("idle");
   const [exitInfo, setExitInfo] = useState<ExitInfo | null>(null);
   const [globalConfig, setGlobalConfig] = useState<Record<string, string>>({});
@@ -749,6 +776,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setLastRunParams((prev) => ({ ...prev, [id]: params as Record<string, string> }));
     setRunningIds((prev) => new Set(prev).add(id));
     const action = actions.find((a) => a.id === id);
+    recordUsage(action?.llm ? "llm-usage" : "action-usage", id);
     // 用 spec.default 回填未提供的参数：双击 / rerun / grid 静默运行等绕过表单的路径也带上默认值，
     // 避免命令里的 ${VAR} 被后端展开成空（后端不读 ParamSpec.Default，回填责任在前端）。
     // 仅补 undefined 的 key——表单路径已逐项写入值（含空串），不覆盖用户清空的意图。
@@ -949,6 +977,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     });
     setLastRunParams((prev) => ({ ...prev, [id]: params as Record<string, string> }));
     setRunningWorkflowId(id);
+    recordUsage("workflow-usage", id);
     if (!background) {
       setWorkflowSteps([]);
       setWfStartedAt(Date.now());
@@ -1206,6 +1235,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     wfStartedAt,
     workflowFormValues,
     runningWorkflowId,
+    usage,
     runAction,
     lastRunParams,
     rerun,

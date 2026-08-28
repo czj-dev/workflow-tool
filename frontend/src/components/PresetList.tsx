@@ -8,7 +8,6 @@ import {
 } from "@/components/ui/sidebar";
 import type { ActionItem } from "../../bindings/workflow-tool/internal/api/models.js";
 import { useActionRunner } from "../hooks/useActionRunner";
-import { useActionUsage } from "../hooks/useActionUsage";
 
 const DOUBLE_CLICK_DELAY = 250; // ms
 
@@ -17,7 +16,6 @@ const DOUBLE_CLICK_DELAY = 250; // ms
 export function PresetList({ action }: { action: ActionItem }) {
   const { selectPreset, runAction, currentId, selectedPreset } =
     useActionRunner();
-  const { recordUsage } = useActionUsage();
   const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   if (!action.presets || action.presets.length === 0) return null;
@@ -36,7 +34,6 @@ export function PresetList({ action }: { action: ActionItem }) {
       clickTimer.current = null;
     }
     runAction(action.id, values);
-    recordUsage(action.id);
   };
 
   return (

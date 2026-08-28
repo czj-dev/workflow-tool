@@ -8,7 +8,6 @@ import {
 } from "@/components/ui/sidebar";
 import type { ActionItem as ActionItemType } from "../../bindings/workflow-tool/internal/api/models.js";
 import { useActionRunner } from "../hooks/useActionRunner";
-import { useActionUsage } from "../hooks/useActionUsage";
 import { hasFormFields } from "../lib/params";
 import { PresetList } from "./PresetList";
 import { ActionIcon } from "./ActionIcon";
@@ -22,7 +21,6 @@ const DOUBLE_CLICK_DELAY = 250; // ms
 export function ActionItem({ action }: { action: ActionItemType }) {
   const { currentId, status, isRunning, focusRunning, selectedPreset, runAction, selectPreset } =
     useActionRunner();
-  const { recordUsage } = useActionUsage();
   const [expanded, setExpanded] = useState(false);
   const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -62,7 +60,6 @@ export function ActionItem({ action }: { action: ActionItemType }) {
         selectPreset(action.id, "");
       } else {
         runAction(action.id, {});
-        recordUsage(action.id);
       }
     }, DOUBLE_CLICK_DELAY);
   };
@@ -77,7 +74,6 @@ export function ActionItem({ action }: { action: ActionItemType }) {
       return;
     }
     runAction(action.id, {});
-    recordUsage(action.id);
   };
 
   // 运行状态徽标：呼吸点（运行中，不看 currentId）/ 完成 / 失败（仅 current）

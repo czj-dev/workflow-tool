@@ -8,7 +8,6 @@ import {
 } from "@/components/ui/sidebar";
 import type { WorkflowItem as WorkflowItemType } from "../../bindings/workflow-tool/internal/api/models.js";
 import { useActionRunner } from "../hooks/useActionRunner";
-import { useActionUsage } from "../hooks/useActionUsage";
 import { hasFormFields } from "../lib/params";
 import { ActionIcon } from "./ActionIcon";
 
@@ -21,7 +20,6 @@ const DOUBLE_CLICK_DELAY = 250; // ms
 export function WorkflowItem({ workflow }: { workflow: WorkflowItemType }) {
   const { currentId, status, view, runningWorkflowId, runWorkflow, selectWorkflow, focusWorkflow, formSheetOpen } =
     useActionRunner();
-  const { recordUsage } = useActionUsage("workflow-usage");
   const clickTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   // 是否「值得进表单」：有必填且无默认值的项。否则单击直接运行（不弹空表单）。
   const showForm = hasFormFields(workflow.params);
@@ -44,7 +42,6 @@ export function WorkflowItem({ workflow }: { workflow: WorkflowItemType }) {
         selectWorkflow(workflow.id); // 打开表单抽屉（主区视图原地不动）
       } else {
         runWorkflow(workflow.id, {});
-        recordUsage(workflow.id);
       }
     }, DOUBLE_CLICK_DELAY);
   };
@@ -59,7 +56,6 @@ export function WorkflowItem({ workflow }: { workflow: WorkflowItemType }) {
       return;
     }
     runWorkflow(workflow.id, {});
-    recordUsage(workflow.id);
   };
 
   const statusNode = isRunning ? (

@@ -33,7 +33,7 @@ const FLIP = "transition-[transform,opacity] duration-[180ms] ease-[cubic-bezier
 export function ActionsGridView() {
   const { t } = useTranslation();
   const { actions, runAction, selectPreset, isRunning, focusRunning } = useActionRunner();
-  const { groupByPrefix, footprintLevel, getScore, recordUsage, topActions } = useActionUsage();
+  const { groupByPrefix, footprintLevel, getScore, topActions } = useActionUsage();
 
   const shellActions = actions.filter((a) => !a.llm);
   const groups = groupByPrefix(shellActions);
@@ -93,7 +93,6 @@ export function ActionsGridView() {
                     score={getScore(action.id)}
                     onRun={(params, background) => {
                       runAction(action.id, params, background);
-                      recordUsage(action.id);
                     }}
                     onEdit={() => selectPreset(action.id, "")}
                     onFocus={() =>
@@ -104,7 +103,6 @@ export function ActionsGridView() {
                     }
                     onPresetRun={(values) => {
                       runAction(action.id, values);
-                      recordUsage(action.id);
                     }}
                     onPresetEdit={(name) => selectPreset(action.id, name)}
                   />

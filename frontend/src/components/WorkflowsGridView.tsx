@@ -23,7 +23,7 @@ export function WorkflowsGridView() {
   const { t } = useTranslation();
   const { workflows, runWorkflow, selectWorkflow, runningWorkflowId } =
     useActionRunner();
-  const { groupByPrefix, footprintLevel, getScore, recordUsage, topActions } =
+  const { groupByPrefix, footprintLevel, getScore, topActions } =
     useActionUsage("workflow-usage");
 
   const groups = groupByPrefix(workflows);
@@ -72,7 +72,6 @@ export function WorkflowsGridView() {
                     score={getScore(wf.id)}
                     onRun={(params, background) => {
                       runWorkflow(wf.id, params, background);
-                      recordUsage(wf.id);
                     }}
                     onEdit={() => selectWorkflow(wf.id)}
                   />
