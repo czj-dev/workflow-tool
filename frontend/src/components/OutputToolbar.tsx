@@ -33,6 +33,7 @@ export function OutputToolbar() {
     editRerun,
   } = useActionRunner();
   const [copied, setCopied] = useState(false);
+  const [copyErr, setCopyErr] = useState("");
   const current = actions.find((a) => a.id === currentId);
   const running = status === "running";
   // 跑过至少一次（有记录）且当前不在运行 → 显示再跑入口
@@ -40,7 +41,15 @@ export function OutputToolbar() {
   const hasParams = (current?.params?.length ?? 0) > 0;
 
   const onCopy = async () => {
-    await copyOutput();
+    try {
+      await copyOutput();
+    } catch (e: unknown) {
+      // 剪贴板被系统/浏览器拒绝时给出可见反馈（同 LogcatView.onCopy）：
+      // 不 catch 则 promise 未处理拒绝 + setCopied 不执行 = 按钮毫无反应、零线索。
+      setCopyErr(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    setCopyErr("");
     setCopied(true);
     setTimeout(() => setCopied(false), 1200);
   };
@@ -89,6 +98,16 @@ export function OutputToolbar() {
           )}
         </button>
         {statusNode}
+        {/* 复制失败：与本视图既有的错误展示同一处（状态位的 destructive 文本），
+            不另起气泡/Toast——output 视图没有其它错误展示位。 */}
+        {copyErr && (
+          <span
+            className="max-w-[40ch] truncate font-mono text-xs text-destructive"
+            title={copyErr}
+          >
+            {copyErr}
+          </span>
+        )}
       </div>
       <ButtonGroup>
         {canRerun && (

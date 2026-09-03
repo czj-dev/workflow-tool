@@ -19,8 +19,15 @@ import (
 //
 // 顺序协议（前端契约）：Wails 的 Event.Emit 每次调用都各自起一个 goroutine 投递
 // （application/events.go），事件到达前端的顺序无保证。action 是单一输出桶，
-// 每条 output 自带递增 seq，done 事件带 seq+1 延续同一序号空间，前端按 seq 排序
-// 还原真实产出顺序——done 若抢跑到还没到达的 output 前面，退出码行会被插错位置。
+// 每条 output 自带递增 seq，前端按 seq 排序还原真实产出顺序——done 若抢跑到还没
+// 到达的 output 前面，退出码行会被插错位置。
+//
+// 序号只保证「唯一递增」，不保证「output 号段连续」：done 事件独占一个号（见 Done），
+// 该号在 output 号段里就是一个永久空洞。消费侧义务：
+//   - 严格逐号 drain 的队列必须把 done 的号登记为已消耗并跨过，否则 done 之后到达的
+//     迟到 emit 全部卡死在洞后面（前端 ActionRunnerProvider 的 seqGate consumed 集合）。
+//   - 序号是「每次 run 一个实例」的，run 中途重置消费侧队列不能打回 1（后端序号已到
+//     几千），必须以首个到达的 seq 为基线重新对齐。
 type actionEvents struct {
 	app *application.App
 	id  string
@@ -46,10 +53,11 @@ func (e *actionEvents) EmitFunc() runner.EmitFunc {
 	}
 }
 
-// Done 发送结束事件，seq 接续最后一条 output（+1），前端按序应用退出码行。
-// 用 nextSeq 而非 Load()+1：取号必须独占——logcat-stream 的控制协程与 pidRefresher
-// 未被 join，其告警/重放帧可能在 Done 之后才 emit，若 Done 只读不占号，那条迟到
-// emit 会拿到同一个号，前端 seqGate 依赖 seq 唯一，撞号会丢事件。
+// Done 发送结束事件，seq **独占**一个号（用 nextSeq 而非 Load()+1）：取号必须独占——
+// logcat-stream 的控制协程与 pidRefresher 未被 join，其告警/重放帧可能在 Done 之后才
+// emit，若 Done 只读不占号，那条迟到 emit 会拿到同一个号，前端 seqGate 依赖 seq 唯一，
+// 撞号会丢事件。代价是 output 号段从此有一个洞：消费侧必须跨过这个号才能继续出队
+// （见 actionEvents 的顺序协议）。前端按序把退出码行落在所有 output 行之后。
 func (e *actionEvents) Done(exitCode int, errMsg string, d time.Duration, readout map[string]any) {
 	e.emitDone(exitCode, errMsg, d, readout, e.nextSeq())
 }

@@ -86,9 +86,12 @@ export interface DoneEventData {
   err: string;
   duration: string;
   readout?: LlmReadoutData;
-  // action done 事件专有：延续 output 事件的 seq 序号空间（见 api.emitDoneSeq）。
+  // action done 事件专有：与 output 事件共享同一序号空间，但**独占**一个号
+  // （后端 api.actionEvents.Done），output 号段因此有一个永久空洞。
   // done 事件同样各起独立 goroutine 投递，可能抢跑在还没到达的 output 行前面；
-  // 用它接入 outputFold 的重排队列，确保退出码行落在所有 output 行之后。
+  // 用它接入 outputFold 的重排队列，确保退出码行落在所有 output 行之后；
+  // 同时必须把该号在帧门里登记为已消耗（见 ActionRunnerProvider 的 seqGate.consumed），
+  // 否则 done 之后到达的迟到 emit 会永久卡在空洞后面。
   seq?: number;
 }
 
