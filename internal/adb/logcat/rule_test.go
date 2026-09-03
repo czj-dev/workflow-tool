@@ -165,11 +165,11 @@ func TestCompileRuleMinLevel(t *testing.T) {
 
 func TestCompileRuleInvalid(t *testing.T) {
 	cases := []Rule{
-		{Tokens: []Token{{Key: "app", Value: "x"}}},                              // 未知 key
-		{Tokens: []Token{{Key: "tag", Op: "fuzzy", Value: "x"}}},                 // 未知 op
-		{Tokens: []Token{{Key: "message", Op: "regex", Value: "("}}},             // 非法正则
-		{Tokens: []Token{{Key: "pid", Value: "abc"}}},                            // pid 非整数
-		{MinLevel: "X"},                                                          // 非法等级
+		{Tokens: []Token{{Key: "app", Value: "x"}}},                  // 未知 key
+		{Tokens: []Token{{Key: "tag", Op: "fuzzy", Value: "x"}}},     // 未知 op
+		{Tokens: []Token{{Key: "message", Op: "regex", Value: "("}}}, // 非法正则
+		{Tokens: []Token{{Key: "pid", Value: "abc"}}},                // pid 非整数
+		{MinLevel: "X"}, // 非法等级
 	}
 	for i, r := range cases {
 		if _, err := CompileRule(r); err == nil {
@@ -288,9 +288,9 @@ func TestRuleFromParamsExt(t *testing.T) {
 		Tokens: []Token{
 			{Key: "tag", Op: "regex", Value: "^DVR_"},
 			{Key: "pid", Op: "exact", Value: "4321"},
-		{Key: "message", Op: "contains", Negated: true, Value: "chatty"},
-		{Key: "tag", Op: "contains", Value: "Audio", Link: "or"},
-	},
+			{Key: "message", Op: "contains", Negated: true, Value: "chatty"},
+			{Key: "tag", Op: "contains", Value: "Audio", Link: "or"},
+		},
 	}
 	if !reflect.DeepEqual(r, want) {
 		t.Fatalf("FILTER 优先映射不符:\n got %+v\nwant %+v", r, want)

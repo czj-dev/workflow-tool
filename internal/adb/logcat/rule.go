@@ -75,7 +75,7 @@ type cToken struct {
 
 // combo 是一个条件组：桶内同 key（OR），桶间跨 key（AND）。
 type combo struct {
-	buckets [][]cToken
+	buckets  [][]cToken
 	bucketAt map[string]int // key → buckets 下标
 }
 
@@ -236,7 +236,7 @@ func (cr *CompiledRule) Allow(e *Entry) bool {
 			for i := range b {
 				if b[i].hit(e) {
 					hit = true
-				break
+					break
 				}
 			}
 			if !hit {
@@ -259,7 +259,7 @@ const ParamFilter = "FILTER"
 // RuleFromParamsExt 在 RuleFromParams 之上优先解析 FILTER 参数：JSON 可解析即整体
 // 采用（与前端 ruleFromParams 同构）；不可解析（手改 yaml 写坏）退化 legacy 映射。
 // 注意：JSON 合法但规则非法（未知 key/非法正则）不在此处拦，由 CompileRule 硬失败
-//（spec 错误处理：不静默降级）。
+// （spec 错误处理：不静默降级）。
 func RuleFromParamsExt(levelRaw, tagRaw, includeRaw, excludeRaw, pkg, filterRaw string) Rule {
 	if s := strings.TrimSpace(filterRaw); s != "" {
 		var r Rule

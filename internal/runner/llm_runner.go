@@ -15,6 +15,7 @@ import (
 //   - --thinking enabled：附带思考过程增量
 //   - --permission-mode bypassPermissions：headless 没有交互通道，遇工具/权限询问会直接失败退出，
 //     必须启动时声明「不问」。纯问答 action 加了无害；需调工具的 action 才能真正跑通。
+//
 // 作者在 YAML 里不写任何 CLI flag，全部由 Runner 兜住（与 ADBRunner 内部拼 adb flag 同理）。
 var llmFixedArgs = []string{
 	"-p", "--output-format=stream-json", "--verbose",

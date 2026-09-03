@@ -26,11 +26,11 @@ type DeviceResolver interface {
 
 // Deps 是跨动作共享的执行依赖，由 api.Service 构造一次、全程复用。
 type Deps struct {
-	BaseDir   string                 // exe 目录，解析相对 script 路径
-	ADBPaths  func() binary.Paths    // 二进制路径解析（config 覆盖 → PATH → 常见路径），唯一实现是 api.binPaths
-	ADBDevice DeviceResolver         // 设备解析（serial 校验与回退）
-	Builtins  *builtinvars.Registry  // 内置变量注册表（CURRENT_DATE/CURRENT_TIME/ADB_SERIAL）
-	BashPath  func() string          // config.yaml BASH_PATH 惰性读取（bash/sh 解析级联第一优先），nil = 无覆盖
+	BaseDir   string                // exe 目录，解析相对 script 路径
+	ADBPaths  func() binary.Paths   // 二进制路径解析（config 覆盖 → PATH → 常见路径），唯一实现是 api.binPaths
+	ADBDevice DeviceResolver        // 设备解析（serial 校验与回退）
+	Builtins  *builtinvars.Registry // 内置变量注册表（CURRENT_DATE/CURRENT_TIME/ADB_SERIAL）
+	BashPath  func() string         // config.yaml BASH_PATH 惰性读取（bash/sh 解析级联第一优先），nil = 无覆盖
 }
 
 // Options 是一次构造的可变输入：直接运行与 workflow step 运行的差异全部在这里。

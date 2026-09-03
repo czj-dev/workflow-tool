@@ -94,9 +94,9 @@ func TestSetWorkflowYamlValidWritesAndReloads(t *testing.T) {
 func TestSetWorkflowYamlRejectsBadInput(t *testing.T) {
 	orig := "id: w\ntitle: W\nsteps:\n  - sleep: 1\n"
 	cases := map[string]string{
-		"非法 yaml":   "id: w\n  : : :\n",
+		"非法 yaml":       "id: w\n  : : :\n",
 		"校验失败（无 steps）": "id: w\ntitle: W\n",
-		"改 id":      "id: other\ntitle: W\nsteps:\n  - sleep: 1\n",
+		"改 id":          "id: other\ntitle: W\nsteps:\n  - sleep: 1\n",
 	}
 	for name, text := range cases {
 		t.Run(name, func(t *testing.T) {

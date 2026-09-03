@@ -8,8 +8,8 @@ import (
 
 // fakeDev 实现 deviceResolver，按预设值返回，便于测试 resolveSerial 的决策逻辑。
 type fakeDev struct {
-	ready   map[string]bool // serial -> 是否在线 ready
-	resolve string          // ResolveActive 返回值
+	ready      map[string]bool // serial -> 是否在线 ready
+	resolve    string          // ResolveActive 返回值
 	resolveErr error
 }
 

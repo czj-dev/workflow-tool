@@ -96,9 +96,10 @@ func formatTree(t *UITree, maxDepth int) []string {
 }
 
 // renderNode 递归渲染一个节点及其子树（两行风格：语义行 + 几何属性行）。
-//   prefix     本节点行前缀（已含所有祖先缩进）
-//   connector  本节点树形连接线（"" 为根，"├─ "/"└─ "）
-//   depth      根为 0
+//
+//	prefix     本节点行前缀（已含所有祖先缩进）
+//	connector  本节点树形连接线（"" 为根，"├─ "/"└─ "）
+//	depth      根为 0
 func renderNode(lines *[]string, n *UINode, prefix, connector string, depth, maxDepth int) {
 	var b strings.Builder
 	b.WriteString(prefix + connector + n.Class)

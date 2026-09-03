@@ -17,9 +17,9 @@ type llmStreamEvent struct {
 			Thinking  string          `json:"thinking"`
 			ID        string          `json:"id"` // tool_use 的调用 id
 			Name      string          `json:"name"`
-			Input     json.RawMessage `json:"input"`  // tool_use 入参（原样透传，不拆）
+			Input     json.RawMessage `json:"input"`       // tool_use 入参（原样透传，不拆）
 			ToolUseID string          `json:"tool_use_id"` // tool_result 对应的调用 id
-			Content   json.RawMessage `json:"content"` // tool_result 内容（string 或 text 块数组）
+			Content   json.RawMessage `json:"content"`     // tool_result 内容（string 或 text 块数组）
 			IsError   bool            `json:"is_error"`
 		} `json:"content"`
 	} `json:"message"`

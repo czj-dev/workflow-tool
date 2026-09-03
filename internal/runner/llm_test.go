@@ -65,8 +65,8 @@ func TestParseLLMLineToolUse(t *testing.T) {
 		t.Fatalf("want kind=tool_use，got (%q,%v)", kind, ok)
 	}
 	var p struct {
-		ID    string          `json:"id"`
-		Name  string          `json:"name"`
+		ID    string            `json:"id"`
+		Name  string            `json:"name"`
 		Input map[string]string `json:"input"`
 	}
 	if err := json.Unmarshal([]byte(delta), &p); err != nil {
@@ -134,4 +134,3 @@ func TestRecordStructuredFieldsResultTokens(t *testing.T) {
 		t.Fatalf("分项 tokens = %q / %q", outputs["input_tokens"], outputs["output_tokens"])
 	}
 }
-
