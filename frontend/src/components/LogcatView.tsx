@@ -228,8 +228,15 @@ export function LogcatView() {
     () => logcatRule.tokens.filter((tk) => !tk.draft),
     [logcatRule],
   );
+  // 草稿 token（onInputChange 派生，恒在 tokens 尾部）。setTokens 必须把它们带回，
+  // 否则任何走 committed 的编辑（行内 toggle / 快捷条 / chip 菜单 / Backspace）
+  // 都会把正在输入的条件静默丢掉：输入框文字还在，过滤却已放宽。
+  const drafts = useMemo(
+    () => logcatRule.tokens.filter((tk) => tk.draft),
+    [logcatRule],
+  );
   const setTokens = (next: LogcatToken[]) =>
-    setLogcatRule({ ...logcatRule, tokens: next });
+    setLogcatRule({ ...logcatRule, tokens: [...next, ...drafts] });
 
   // 渲染窗口：仅渲染末尾 RENDER_CAP 行（过滤在后端完成，entries 已是命中集）。
   const visible = useMemo(
@@ -287,8 +294,13 @@ export function LogcatView() {
       return;
     }
     setRegexErr("");
+    // 这批 token 正是当前草稿的固化形态，整体晋升为 committed，故绕开 setTokens
+    // （它会把 drafts 追加回去，同一条件重复进规则、白跑一次整体重放）。
     if (toks.length)
-      setTokens([...committed, ...toks.map((tk) => ({ ...tk, draft: false }))]);
+      setLogcatRule({
+        ...logcatRule,
+        tokens: [...committed, ...toks.map((tk) => ({ ...tk, draft: false }))],
+      });
     setInput("");
   };
 
