@@ -274,7 +274,8 @@ export function LogcatView() {
 
   // ——— 控制台编辑 ———
 
-  // 草稿即时并入规则（末段 parseInput 标 draft，后端不区分，仅 chip 虚框展示用）
+  // 草稿即时并入规则（末段 parseInput 标 draft，后端不区分；draft 仅用于区分
+  // 固化/未固化——虚线态由输入框自身承担，见行 2 控制台）
   const onInputChange = (v: string) => {
     setInput(v);
     const drafts = parseInput(v).filter((tk) => tk.value);
@@ -643,7 +644,8 @@ export function LogcatView() {
           );
         })}
         {/* 草稿态（spec:78）：未固化文本本身就是那个虚线 chip——虚线同时表达
-            「已参与过滤」与「未定稿」；不另画 Chip，避免同一段文本渲染两遍。 */}
+            「已参与过滤」与「未定稿」；不另画 Chip，避免同一段文本渲染两遍。
+            本文件里虚线有两义，靠边框颜色区分：主题色虚框=条件组，中性色虚框=草稿。 */}
         <span
           className={`flex min-w-40 flex-1 items-center rounded border px-1 ${
             input.trim()
