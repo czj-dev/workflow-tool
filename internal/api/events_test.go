@@ -9,6 +9,10 @@ import (
 // flush ticker 协程、控制协程的拒绝告警、pidRefresher 的包未运行告警），
 // 「runner.OnLine 串行回调」这个前提在该 operation 下不成立。前端 seqGate
 // 依赖 seq 唯一有序，重号会让 logcat-replace 的 head 帧错序。
+//
+// 边界：本测试只覆盖 nextSeq 自身的原子性，不覆盖「EmitFunc/Done 确实调用了
+// nextSeq」这条接线——那两者会解引用 e.app.Event，本包内没有可用的真实
+// *application.App。
 func TestActionEventsSeqIsAtomic(t *testing.T) {
 	const goroutines, perG = 8, 500
 	ev := &actionEvents{}

@@ -32,9 +32,9 @@ func newActionEvents(app *application.App, id string) *actionEvents {
 }
 
 // nextSeq 取下一个事件序号。必须原子：emit 并非总是串行回调——logcat-stream 从
-// flush ticker 协程、控制协程（规则拒绝告警）、pidRefresher（包未运行告警）三处
-// 并发 emit（internal/adb/logcat/stream.go:90/189/408），后两处在 core.mu 之外。
-// 前端 seqGate 依赖 seq 唯一有序来定 logcat-replace 帧与增量帧的先后。
+// flush ticker 协程、控制协程（applyUpdate 的规则拒绝告警）、pidRefresher.start
+// （包未运行告警）三处并发 emit（internal/adb/logcat/stream.go），后两处在 core.mu
+// 之外。前端 seqGate 依赖 seq 唯一有序来定 logcat-replace 帧与增量帧的先后。
 func (e *actionEvents) nextSeq() int64 { return e.seq.Add(1) }
 
 // EmitFunc 返回 runner 用的 emit：每行 output 自带递增 seq。
@@ -46,9 +46,12 @@ func (e *actionEvents) EmitFunc() runner.EmitFunc {
 	}
 }
 
-// Done 发送结束事件，seq 接续最后一条 output（seq+1），前端按序应用退出码行。
+// Done 发送结束事件，seq 接续最后一条 output（+1），前端按序应用退出码行。
+// 用 nextSeq 而非 Load()+1：取号必须独占——logcat-stream 的控制协程与 pidRefresher
+// 未被 join，其告警/重放帧可能在 Done 之后才 emit，若 Done 只读不占号，那条迟到
+// emit 会拿到同一个号，前端 seqGate 依赖 seq 唯一，撞号会丢事件。
 func (e *actionEvents) Done(exitCode int, errMsg string, d time.Duration, readout map[string]any) {
-	e.emitDone(exitCode, errMsg, d, readout, e.seq.Load()+1)
+	e.emitDone(exitCode, errMsg, d, readout, e.nextSeq())
 }
 
 // DoneUnordered 发送不参与排序的结束事件（payload 不带 seq，前端直接应用）。
