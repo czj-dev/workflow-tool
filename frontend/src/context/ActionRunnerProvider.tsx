@@ -302,7 +302,11 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   //   1 —— 新一轮运行，后端序号必从 1 起（乱序到达的首帧仍正确挂 pending，不丢行）。
   //   0 —— 哨兵「以首个到达的 seq 为基线」：切回/清屏发生在 run 中途，后端 actionEvents
   //        实例的序号已到几千，打回 1 会让此后所有事件永久挂 pending 且无自愈路径
-  //        （面板彻底停止渲染）。代价是切回瞬间可能错序一条，远优于整条通道死掉。
+  //        （面板彻底停止渲染）。代价是「基线之前的号全部丢失」，不是固定一条：首帧
+  //        seq=52 对齐后，随后补到的 50/51 都低于 nextSeq，挂上 pending 再也不会出队。
+  //        丢几条取决于 Wails 的乱序投递窗口有多宽。可见后果的天花板：被丢的若是一次
+  //        logcat 重放的 head 帧而 chunk 仍被应用，日志列表照常出行，只是 matched/total
+  //        与 tag 直方图停在旧值；下一次改规则或清空触发新重放即自愈——不破坏事件协议。
   const resetSeqState = (nextSeq = 0) => {
     seqStateRef.current = { nextSeq, pending: new Map() };
     seqGateRef.current = { nextSeq, pending: new Map(), consumed: new Set() };

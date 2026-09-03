@@ -60,4 +60,16 @@ describe("foldOutputLine", () => {
     state = foldOutputLine(state, { stream: "progress", line: "100%", seq: 3 }, opts);
     expect(state.lines).toEqual(["100%"]);
   });
+
+  it("nextSeq=0 哨兵：以首个到达的 seq 为基线，不把中途重置后的输出挂死在 pending", () => {
+    // run 中途重置（切回/清屏）时调用方置 0，此时后端序号已跑到 100 号段
+    let state = foldOutputLine({ ...emptyFoldState(), nextSeq: 0 }, line(100), opts);
+    expect(state.lines).toEqual(["line100"]);
+    expect(state.nextSeq).toBe(101);
+    // 对齐后继续按序推进，与常规重排行为一致
+    state = foldOutputLine(state, line(102), opts);
+    expect(state.lines).toEqual(["line100"]); // 102 还没轮到，缓存住
+    state = foldOutputLine(state, line(101), opts);
+    expect(state.lines).toEqual(["line100", "line101", "line102"]);
+  });
 });
