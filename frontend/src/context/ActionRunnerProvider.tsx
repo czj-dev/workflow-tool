@@ -925,6 +925,9 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       const rule = ruleFromParams(lastRunParamsRef.current[id]);
       logcatRuleSyncedRef.current = rule;
       setLogcatRuleState(rule);
+      // 切到另一个 logcat 动作时立刻清掉上一个动作的拒绝原因，否则它会挂在新动作
+      // 的过滤条上直到下面那次 UpdateLogcatFilter 往返完成（不落地则长期错误归属）。
+      setLogcatFilterError("");
       // 用恢复的规则触发一次后端整体重放：把切走期间丢失的单缓冲条目从 raw ring 找回。
       UpdateLogcatFilter(id, toApiRule(rule), false)
         .then(() => setLogcatFilterError(""))

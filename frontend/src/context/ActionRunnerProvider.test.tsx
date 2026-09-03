@@ -591,6 +591,55 @@ describe("ActionRunnerProvider", () => {
     }
   });
 
+  // 回归：focusRunning 切到另一个 logcat 动作时必须**同步**清掉上一个动作的拒绝原因。
+  // 否则前一个动作的错误会挂在新动作的过滤条上，直到 focusRunning 里那次
+  // UpdateLogcatFilter 往返落地才消失（不落地则长期错误归属）。
+  it("focusRunning 切换 logcat 动作时同步清空 logcatFilterError", async () => {
+    vi.useFakeTimers();
+    try {
+      mockListActions.mockResolvedValue({
+        actions: [
+          { id: "a1", title: "A", icon: "", description: "", params: [], presets: [], stream: "logcat" },
+          { id: "a2", title: "B", icon: "", description: "", params: [], presets: [], stream: "logcat" },
+        ],
+        errors: [],
+      });
+      const { result } = renderHook(() => useActionRunner(), { wrapper });
+      await act(() => Promise.resolve());
+      // 两个 logcat 动作都在运行：focusRunning 才是「切回后台运行动作」的场景
+      await act(async () => {
+        await result.current.runAction("a1", { LEVEL: "W" });
+      });
+      await act(async () => {
+        await result.current.runAction("a2", { LEVEL: "E" });
+      });
+
+      // a2 的规则下发被后端拒绝 → logcatFilterError 记下原因（挂在 a2 名下）
+      mockUpdateLogcatFilter.mockRejectedValueOnce(
+        new Error('非法过滤规则: token[0]: pid value must be an integer, got "abc"'),
+      );
+      act(() => {
+        result.current.setLogcatRule({
+          tokens: [{ key: "pid", op: "exact", negated: false, value: "abc" }],
+          minLevel: "E",
+          package: "",
+        });
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+      });
+      expect(result.current.logcatFilterError).toContain("must be an integer");
+
+      // focusRunning 里那次重放请求永不落地：清空只能来自同步的那一行
+      mockUpdateLogcatFilter.mockReturnValueOnce(new Promise<void>(() => {}));
+      act(() => result.current.focusRunning("a1", "logcat"));
+      // 不 await、不推进定时器：断言清空是同步发生的，不依赖 IPC 往返
+      expect(result.current.logcatFilterError).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("挂载时拉取 workflow 列表", async () => {
     mockListActions.mockResolvedValue({ actions: [], errors: [] });
     mockListWorkflows.mockResolvedValue({

@@ -396,12 +396,14 @@ export function LogcatView() {
     setInput("");
     setMenuIdx(null);
     setRegexErr("");
+    setCopyErr("");
     setLogcatRule(ruleFromParams(values));
   };
   const resetRule = () => {
     setInput("");
     setMenuIdx(null);
     setRegexErr("");
+    setCopyErr("");
     setLogcatRule({ tokens: [], minLevel: "V", package: "" });
   };
 
