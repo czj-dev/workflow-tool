@@ -207,6 +207,7 @@
   "logcat.zeroMatch": "0 matches",
   "logcat.zeroHint": "Remove a condition to widen, or click ⟲ reset",
   "logcat.regexError": "Invalid regex: {{value}}",
+  "logcat.filterRejected": "Rule rejected by backend: {{reason}}",
   "logcat.onlyThisProcess": "Click: only this process",
   "logcat.onlyThisTag": "Click: only this tag",
   "logcat.quickTag": "Click to add/remove exact tag",

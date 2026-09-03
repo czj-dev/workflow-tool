@@ -540,6 +540,57 @@ describe("ActionRunnerProvider", () => {
     }
   });
 
+  // 回归：后端拒绝非法规则时必须暴露原因。原先 .catch 静默吞掉、logcat 视图又不
+  // 渲染 stderr，表现为 chip 在、过滤停在旧规则、零反馈（pid:abc、Go RE2 不支持
+  // 的正则如 (?=x)、手写 FILTER 的未知 key 都走这一条出口）。
+  it("UpdateLogcatFilter 被拒时暴露 logcatFilterError，下一次成功下发后清空", async () => {
+    vi.useFakeTimers();
+    try {
+      mockListActions.mockResolvedValue({
+        actions: [
+          { id: "a1", title: "A", icon: "", description: "", params: [], presets: [], stream: "logcat" },
+        ],
+        errors: [],
+      });
+      mockUpdateLogcatFilter.mockRejectedValueOnce(
+        new Error('非法过滤规则: token[0]: pid value must be an integer, got "abc"'),
+      );
+      const { result } = renderHook(() => useActionRunner(), { wrapper });
+      await act(() => Promise.resolve());
+      await act(async () => {
+        await result.current.runAction("a1", {});
+      });
+      expect(result.current.logcatFilterError).toBe("");
+
+      act(() => {
+        result.current.setLogcatRule({
+          tokens: [{ key: "pid", op: "exact", negated: false, value: "abc" }],
+          minLevel: "V",
+          package: "",
+        });
+      });
+      // advanceTimersByTimeAsync：既要跑掉 300ms 防抖，也要让被拒的 promise 落地
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+      });
+      expect(result.current.logcatFilterError).toContain("must be an integer");
+
+      act(() => {
+        result.current.setLogcatRule({
+          tokens: [{ key: "pid", op: "exact", negated: false, value: "1234" }],
+          minLevel: "V",
+          package: "",
+        });
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(300);
+      });
+      expect(result.current.logcatFilterError).toBe("");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("挂载时拉取 workflow 列表", async () => {
     mockListActions.mockResolvedValue({ actions: [], errors: [] });
     mockListWorkflows.mockResolvedValue({

@@ -193,6 +193,7 @@ export function LogcatView() {
     logcatStats,
     logcatTagHist,
     logcatReplaceSeq,
+    logcatFilterError,
     clearLogcat,
     status,
     exitInfo,
@@ -204,6 +205,7 @@ export function LogcatView() {
   const [input, setInput] = useState(""); // 控制台未固化文本（草稿）
   const [menuIdx, setMenuIdx] = useState<number | null>(null); // 打开菜单的 chip（committed 索引）
   const [regexErr, setRegexErr] = useState("");
+  const [copyErr, setCopyErr] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
   const atBottomRef = useRef(true);
   const [showJump, setShowJump] = useState(false);
@@ -405,7 +407,14 @@ export function LogcatView() {
 
   const onCopy = async () => {
     const text = logcatEntries.map(entryToText).join("\n");
-    await navigator.clipboard.writeText(text);
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch (e: unknown) {
+      // 剪贴板被系统/浏览器拒绝时给出可见反馈（气泡位共用，文案独立）
+      setCopyErr(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    setCopyErr("");
     setCopied(true);
     setTimeout(() => setCopied(false), 1200);
   };
@@ -675,9 +684,11 @@ export function LogcatView() {
             </button>
           ))}
         </span>
-        {regexErr && (
-          <span className="absolute bottom-full right-3 mb-1 rounded bg-destructive px-1.5 py-0.5 text-[10px] text-white">
-            {regexErr}
+        {/* 错误气泡三源：前端固化闸门的非法正则、剪贴板失败、后端拒绝规则的原因
+            （最后一条是 pid 非整数 / RE2 不支持的正则 / 手写 FILTER 未知 key 的唯一可见出口）。 */}
+        {(regexErr || copyErr || logcatFilterError) && (
+          <span className="absolute bottom-full right-3 mb-1 max-w-[70%] truncate rounded bg-destructive px-1.5 py-0.5 text-[10px] text-white">
+            {regexErr || copyErr || t("logcat.filterRejected", { reason: logcatFilterError })}
           </span>
         )}
       </div>

@@ -207,6 +207,7 @@
   "logcat.zeroMatch": "0 命中",
   "logcat.zeroHint": "删除一个条件放宽，或点 ⟲ 重置",
   "logcat.regexError": "非法正则: {{value}}",
+  "logcat.filterRejected": "规则被后端拒绝: {{reason}}",
   "logcat.onlyThisProcess": "点击：只看此进程",
   "logcat.onlyThisTag": "点击：只看此 tag",
   "logcat.quickTag": "点击加入/移除精确 tag",

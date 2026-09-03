@@ -136,6 +136,10 @@ export interface RunnerContextValue {
   logcatTagHist: Array<[string, number]>;
   // 重放首帧序号（递增）：视图用它的变化触发 240ms 读数脉冲
   logcatReplaceSeq: number;
+  // 后端最近一次拒绝过滤规则的原因（空串 = 无错误）。非法正则由前端固化闸门拦，
+  // 但 pid 非整数 / Go RE2 不支持的正则 / 手写 FILTER 的未知 key 只有后端能判，
+  // 拒绝原因必须回到甲板，否则用户看到 chip 在、过滤不变、毫无线索。
+  logcatFilterError: string;
   clearLogcat: () => void;
   fragments: Fragment[];
   // 片段抽屉（非模态）：开合态与开关。会话内有效不落盘；⌘/Ctrl+K 热键在 Provider 内接，
@@ -272,6 +276,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [logcatStats, setLogcatStats] = useState({ matched: 0, total: 0 });
   const [logcatTagHist, setLogcatTagHist] = useState<Array<[string, number]>>([]);
   const [logcatReplaceSeq, setLogcatReplaceSeq] = useState(0);
+  const [logcatFilterError, setLogcatFilterError] = useState("");
   const setLogcatRule = (r: LogcatRule) => setLogcatRuleState(r);
   // logcat 入站缓冲：onOutput 高频回调只往 ref 压，不触发渲染；由下面的定时器批量并入 state。
   const logcatBufferRef = useRef<LogcatEntry[]>([]);
@@ -387,12 +392,15 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     if (logcatRuleSyncedRef.current === logcatRule) return;
     const timer = setTimeout(() => {
       logcatRuleSyncedRef.current = logcatRule;
-      UpdateLogcatFilter(id, toApiRule(logcatRule), false).catch(() => {
-        // 下发失败（非法规则被后端拒 / 控制通道积压）：撤回 synced 登记，否则该规则
-        // 被永久当作「已同步」，用户必须改成另一个规则才会再下发（表现为改了不生效）。
-        if (logcatRuleSyncedRef.current === logcatRule)
-          logcatRuleSyncedRef.current = null;
-      });
+      UpdateLogcatFilter(id, toApiRule(logcatRule), false)
+        .then(() => setLogcatFilterError(""))
+        .catch((e: unknown) => {
+          // 下发失败（非法规则被后端拒 / 控制通道积压）：撤回 synced 登记，否则该规则
+          // 被永久当作「已同步」，用户必须改成另一个规则才会再下发（表现为改了不生效）。
+          if (logcatRuleSyncedRef.current === logcatRule)
+            logcatRuleSyncedRef.current = null;
+          setLogcatFilterError(e instanceof Error ? e.message : String(e));
+        });
     }, 300);
     return () => clearTimeout(timer);
   }, [logcatRule, currentId]);
@@ -816,6 +824,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         setLogcatStats({ matched: 0, total: 0 });
         setLogcatTagHist([]);
         setLogcatReplaceSeq(0);
+        setLogcatFilterError("");
         setView("logcat");
       } else {
         setView("output");
@@ -917,7 +926,11 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       logcatRuleSyncedRef.current = rule;
       setLogcatRuleState(rule);
       // 用恢复的规则触发一次后端整体重放：把切走期间丢失的单缓冲条目从 raw ring 找回。
-      UpdateLogcatFilter(id, toApiRule(rule), false).catch(() => {});
+      UpdateLogcatFilter(id, toApiRule(rule), false)
+        .then(() => setLogcatFilterError(""))
+        .catch((e: unknown) =>
+          setLogcatFilterError(e instanceof Error ? e.message : String(e)),
+        );
     } else {
       setLines([]); // output 视图：单缓冲已被覆盖，保留会误导
       resetSeqState();
@@ -952,6 +965,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setLogcatStats({ matched: 0, total: 0 });
     setLogcatTagHist([]);
     setLogcatReplaceSeq(0);
+    setLogcatFilterError("");
     setStatus("idle");
     setExitInfo(null);
     setFormSheetOpen(false); // 进聊天页：表单抽屉关闭
@@ -1187,8 +1201,11 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setLogcatStats({ matched: 0, total: 0 });
     setLogcatTagHist([]);
     setLogcatReplaceSeq(0);
+    setLogcatFilterError("");
     if (currentId && runningIdsRef.current.has(currentId)) {
-      UpdateLogcatFilter(currentId, toApiRule(logcatRule), true).catch(() => {});
+      UpdateLogcatFilter(currentId, toApiRule(logcatRule), true).catch((e: unknown) =>
+        setLogcatFilterError(e instanceof Error ? e.message : String(e)),
+      );
     }
   };
 
@@ -1222,6 +1239,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     logcatStats,
     logcatTagHist,
     logcatReplaceSeq,
+    logcatFilterError,
     clearLogcat,
     fragments,
     fragmentsOpen,
