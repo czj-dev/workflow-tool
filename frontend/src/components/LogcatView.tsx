@@ -83,7 +83,7 @@ function entryToText(e: LogcatEntry): string {
 
 // 固化 chip：文本即语法，点击开菜单，× 删除。菜单锚定在本 chip 正下方
 // （relative 包裹层 + absolute top-full），不再锚到行首。菜单项数组驱动（link 项
-// 仅正向非首个 chip 出现），保持 negate/regex/link/delete 顺序。
+// 仅正向非首个 chip 出现），保持 negate/regex/link/delete 顺序；只处理固化 token。
 type MenuKind = "negate" | "regex" | "link" | "delete";
 function Chip({
   tok,
@@ -106,11 +106,8 @@ function Chip({
 }) {
   return (
     <span className="relative inline-flex">
-      <span
-        className={`inline-flex max-w-64 items-center gap-0.5 rounded border bg-secondary/60 px-1.5 py-0.5 ${
-          tok.draft ? "border-dashed border-border opacity-80" : "border-border"
-        }`}
-      >
+      {/* 只渲染固化 token：草稿不进 segs，虚线态由输入框自身承担（见行 2 控制台） */}
+      <span className="inline-flex max-w-64 items-center gap-0.5 rounded border border-border bg-secondary/60 px-1.5 py-0.5">
         <button
           type="button"
           className="font-mono hover:opacity-80"
@@ -645,7 +642,15 @@ export function LogcatView() {
             </span>
           );
         })}
-        <span className="flex min-w-40 flex-1 items-center">
+        {/* 草稿态（spec:78）：未固化文本本身就是那个虚线 chip——虚线同时表达
+            「已参与过滤」与「未定稿」；不另画 Chip，避免同一段文本渲染两遍。 */}
+        <span
+          className={`flex min-w-40 flex-1 items-center rounded border px-1 ${
+            input.trim()
+              ? "border-dashed border-border bg-secondary/60"
+              : "border-transparent"
+          }`}
+        >
           <input
             value={input}
             onChange={(e) => onInputChange(e.target.value)}

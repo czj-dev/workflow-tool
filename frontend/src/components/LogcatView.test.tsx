@@ -169,4 +169,19 @@ describe("LogcatView 控制甲板", () => {
       { timeout: 2000 },
     );
   });
+
+  // spec:78 草稿态：未固化文本要以虚线边框 chip 形态呈现。输入框本身就是那个
+  // 虚线 chip——不另画 Chip，避免同一段文本渲染两遍。
+  it("有未固化文本时输入框呈虚线 chip 形态", async () => {
+    const user = userEvent.setup();
+    await startWithEntries([entry()]);
+
+    const input = screen.getByPlaceholderText(/裸词/);
+    const shell = input.parentElement!;
+    expect(shell.className).toContain("border-transparent");
+    expect(shell.className).not.toContain("border-dashed");
+
+    await user.type(input, "tag:foo");
+    expect(shell.className).toContain("border-dashed");
+  });
 });
