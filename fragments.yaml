@@ -45,3 +45,9 @@ fragments:
       content: https://portal.auto-pai.com/spm-data/#/browse?path=autopai-tlc%2Fplatform%2FC5181%2Flog%2Flog_${LOG_FILE}
       tags:
         - Link
+    - title: 车辆信号
+      content: |-
+        VehicleContextManager
+        DVR_UploadAgentSignalRequest
+      tags:
+        - Log
