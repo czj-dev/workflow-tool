@@ -289,11 +289,23 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   // 统一 seq 排序门（logcat/logcat-replace/stdout 共享同一序号空间）：乱序到达先挂
   // pending，轮到 nextSeq 再按序应用。replace 帧的正确性依赖它——head 帧清空必须
   // 晚于所有旧增量帧、早于自己的 chunk，而 Wails 事件到达顺序无保证。
+  // consumed：后端 done 事件独占一个号（events.go 的 Done 用 nextSeq 取号），output
+  // 号段因此必然有洞；onDone 把该号登记进 consumed，drain 遇到即跨过，否则 done 之后
+  // 到达的任何迟到 emit（logcat 控制协程/pidRefresher 未被 join）会永久卡在洞后面。
   // 与 seqStateRef 同步重置（见 resetSeqState）。
-  const seqGateRef = useRef({ nextSeq: 1, pending: new Map<number, OutputEventData>() });
-  const resetSeqState = () => {
-    seqStateRef.current = { nextSeq: 1, pending: new Map() };
-    seqGateRef.current = { nextSeq: 1, pending: new Map() };
+  const seqGateRef = useRef({
+    nextSeq: 1,
+    pending: new Map<number, OutputEventData>(),
+    consumed: new Set<number>(),
+  });
+  // 重置两套 seq 队列。nextSeq 语义：
+  //   1 —— 新一轮运行，后端序号必从 1 起（乱序到达的首帧仍正确挂 pending，不丢行）。
+  //   0 —— 哨兵「以首个到达的 seq 为基线」：切回/清屏发生在 run 中途，后端 actionEvents
+  //        实例的序号已到几千，打回 1 会让此后所有事件永久挂 pending 且无自愈路径
+  //        （面板彻底停止渲染）。代价是切回瞬间可能错序一条，远优于整条通道死掉。
+  const resetSeqState = (nextSeq = 0) => {
+    seqStateRef.current = { nextSeq, pending: new Map() };
+    seqGateRef.current = { nextSeq, pending: new Map(), consumed: new Set() };
   };
   // 每 ~120ms 把缓冲批量并入 logcatEntries（截断到 MAX_LOGCAT），空缓冲跳过。
   // logcat 启动常先倾倒整个 ring buffer（万级行），逐行 setState 会冻结 UI。
@@ -624,73 +636,93 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     if (!currentId) return;
     const unsubs: Array<() => void> = [];
 
-    const onOutput = (e: unknown) => {
-      const d = (((e as { data?: unknown })?.data) || {}) as OutputEventData;
-      // 统一 seq 排序门后再分派：replace 帧的正确性依赖严格的到达顺序（见 seqGateRef
-      // 注释）。无 seq（异常场景）直接应用，与旧行为一致。
-      const apply = (d: OutputEventData) => {
-        // LLM 三通道共用归约器维护面板工序段；atMs 用到达时刻相对运行起点
-        const llmApply = (ev: ReturnType<typeof parseToolEvent>) => {
-          if (ev)
-            setLlmPanel((prev) =>
-              applyEvent(prev, ev, Math.max(0, Date.now() - llmRunStartRef.current)),
-            );
-        };
-        if (d.stream === "llm") {
-          setLlmText((prev) => prev + (d.line || ""));
-          llmApply({ kind: "text", delta: d.line || "" });
-          return;
-        }
-        if (d.stream === "llm-thinking") {
-          setThinkingText((prev) => prev + (d.line || ""));
-          llmApply({ kind: "thinking", delta: d.line || "" });
-          return;
-        }
-        if (d.stream === "llm-tool") {
-          llmApply(parseToolEvent(d.line || ""));
-          return;
-        }
-        if (d.stream === "logcat") {
-          pushLogcatBatch(d.line || "");
-          return;
-        }
-        if (d.stream === "logcat-replace") {
-          applyLogcatReplace(d.line || "");
-          return;
-        }
-        // stdout/stderr/progress：走共享的 foldOutputLine（progress 原地刷新语义与 workflow step 一致）。
-        // seq 重排态存在 ref 里跨事件持续，lines/lastWasProgress 才进 state 驱动渲染。
-        setLines((prev) => {
-          const folded = foldOutputLine(
-            {
-              lines: prev,
-              lastWasProgress: lastWasProgressRef.current,
-              nextSeq: seqStateRef.current.nextSeq,
-              pending: seqStateRef.current.pending,
-            },
-            d,
-            { stderrPrefix: t("output.stderrPrefix") },
+    // 统一 seq 排序门后再分派：replace 帧的正确性依赖严格的到达顺序（见 seqGateRef
+    // 注释）。无 seq（异常场景）直接应用，与旧行为一致。
+    const apply = (d: OutputEventData) => {
+      // LLM 三通道共用归约器维护面板工序段；atMs 用到达时刻相对运行起点
+      const llmApply = (ev: ReturnType<typeof parseToolEvent>) => {
+        if (ev)
+          setLlmPanel((prev) =>
+            applyEvent(prev, ev, Math.max(0, Date.now() - llmRunStartRef.current)),
           );
-          lastWasProgressRef.current = folded.lastWasProgress;
-          seqStateRef.current = {
-            nextSeq: folded.nextSeq ?? 1,
-            pending: folded.pending ?? new Map(),
-          };
-          return folded.lines;
-        });
       };
-      if (d.seq == null) {
-        apply(d);
+      if (d.stream === "llm") {
+        setLlmText((prev) => prev + (d.line || ""));
+        llmApply({ kind: "text", delta: d.line || "" });
         return;
       }
+      if (d.stream === "llm-thinking") {
+        setThinkingText((prev) => prev + (d.line || ""));
+        llmApply({ kind: "thinking", delta: d.line || "" });
+        return;
+      }
+      if (d.stream === "llm-tool") {
+        llmApply(parseToolEvent(d.line || ""));
+        return;
+      }
+      if (d.stream === "logcat") {
+        pushLogcatBatch(d.line || "");
+        return;
+      }
+      if (d.stream === "logcat-replace") {
+        applyLogcatReplace(d.line || "");
+        return;
+      }
+      // stdout/stderr/progress：走共享的 foldOutputLine（progress 原地刷新语义与 workflow step 一致）。
+      // seq 重排态存在 ref 里跨事件持续，lines/lastWasProgress 才进 state 驱动渲染。
+      setLines((prev) => {
+        const folded = foldOutputLine(
+          {
+            lines: prev,
+            lastWasProgress: lastWasProgressRef.current,
+            nextSeq: seqStateRef.current.nextSeq,
+            pending: seqStateRef.current.pending,
+          },
+          d,
+          { stderrPrefix: t("output.stderrPrefix") },
+        );
+        lastWasProgressRef.current = folded.lastWasProgress;
+        seqStateRef.current = {
+          nextSeq: folded.nextSeq ?? 1,
+          pending: folded.pending ?? new Map(),
+        };
+        return folded.lines;
+      });
+    };
+
+    // 帧门 drain：从 nextSeq 起逐号出队应用；consumed 里的号（done 独占号）直接跨过。
+    // 严格逐号是 replace 帧正确性的前提，跳号会让 head 帧的清空与 chunk 错位。
+    const drainGate = () => {
       const gate = seqGateRef.current;
-      gate.pending.set(d.seq, d);
-      while (gate.pending.has(gate.nextSeq)) {
-        const ev = gate.pending.get(gate.nextSeq)!;
+      for (;;) {
+        if (gate.consumed.delete(gate.nextSeq)) {
+          gate.nextSeq++;
+          continue;
+        }
+        const ev = gate.pending.get(gate.nextSeq);
+        if (!ev) return;
         gate.pending.delete(gate.nextSeq);
         gate.nextSeq++;
         apply(ev);
       }
+    };
+
+    // 哨兵 0（resetSeqState 中途重置留下的）：以首个到达的 seq 为基线重新对齐，
+    // 否则 run 已跑到几千号的事件会全部挂 pending 永不出队。
+    const syncGateBaseline = (seq: number) => {
+      const gate = seqGateRef.current;
+      if (gate.nextSeq === 0) gate.nextSeq = seq;
+    };
+
+    const onOutput = (e: unknown) => {
+      const d = (((e as { data?: unknown })?.data) || {}) as OutputEventData;
+      if (d.seq == null) {
+        apply(d);
+        return;
+      }
+      syncGateBaseline(d.seq);
+      seqGateRef.current.pending.set(d.seq, d);
+      drainGate();
     };
     const onDone = (e: unknown) => {
       const d = (((e as { data?: unknown })?.data) || {}) as DoneEventData;
@@ -720,6 +752,14 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         });
       } else {
         setLines((prev) => [...prev, exitLine]);
+      }
+      // done 独占一个 seq（后端 events.go 的 Done 用 nextSeq 取号），帧门那侧没有对应
+      // 事件可出队——必须把该号登记为已消耗并 drain 一次，否则 done 之后到达的任何
+      // 迟到 emit（logcat 控制协程 / pidRefresher 未被 join）永久卡在这个洞后面。
+      if (d.seq != null) {
+        syncGateBaseline(d.seq);
+        seqGateRef.current.consumed.add(d.seq);
+        drainGate();
       }
       setStatus(d.exitCode === 0 ? "done" : "error");
       setExitInfo(d);
@@ -795,7 +835,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     // 用户留在 grid 继续操作；要看输出就点卡片本体走前台路径（单缓冲不恢复是已知限制）。
     if (!background) {
       setLines([]);
-      resetSeqState();
+      resetSeqState(1); // 新一轮运行：后端序号从 1 起，不用哨兵（乱序首帧仍正确挂 pending）
       setCurrentId(id);
       setStatus("running");
       setExitInfo(null);

@@ -640,6 +640,89 @@ describe("ActionRunnerProvider", () => {
     }
   });
 
+  // 回归（Critical）：focusRunning 无条件重置两套 seq 队列。run 中途后端序号已到几千，
+  // 把 nextSeq 打回 1 会让此后所有事件永久挂 pending 且无自愈路径——面板永远停在空、
+  // 状态却仍显示「运行中」。修法是重置成哨兵 0，「以首个到达的 seq 为基线」重新对齐。
+  it("focusRunning 切回运行中的动作后帧门以首帧重同步（大 seq 事件仍能渲染）", async () => {
+    mockListActions.mockResolvedValue({
+      actions: [
+        { id: "a1", title: "A", icon: "", description: "", params: [], presets: [], stream: "logcat" },
+      ],
+      errors: [],
+    });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.runAction("a1", {});
+    });
+    const ent = (tag: string): LogcatEntry => ({
+      date: "08-18", time: "09:00:00.000", pid: 1, tid: 1, level: "I", tag, message: "m",
+    });
+    const headFrame = (tag: string) =>
+      JSON.stringify({ head: true, entries: [ent(tag)], matched: 1, total: 1, tagHistogram: { [tag]: 1 } });
+    // run 已跑一段时间：序号从 1 起递增（这里只喂前两个号，其余同理已被消费）
+    act(() => {
+      _emitForTest("action:a1:output", { data: { stream: "logcat-replace", line: headFrame("A"), seq: 1 } });
+      _emitForTest("action:a1:output", { data: { stream: "stdout", line: "x", seq: 2 } });
+    });
+    expect(result.current.logcatEntries.map((e) => e.tag)).toEqual(["A"]);
+
+    // 点左上返回箭头回 grid、再点回同一张卡：走 focusRunning → 两套队列被重置
+    act(() => result.current.setView("actions-grid"));
+    act(() => result.current.focusRunning("a1", "logcat"));
+    expect(result.current.logcatEntries).toEqual([]); // focusRunning 清缓冲，等后端重放
+
+    // 后端序号早已走远（这里 100），修前它会永久挂 pending → entries 停在空
+    act(() => {
+      _emitForTest("action:a1:output", { data: { stream: "logcat-replace", line: headFrame("R"), seq: 100 } });
+    });
+    expect(result.current.logcatEntries.map((e) => e.tag)).toEqual(["R"]);
+    // 基线对齐后继续逐号推进
+    act(() => {
+      _emitForTest("action:a1:output", {
+        data: { stream: "logcat-replace", line: JSON.stringify({ head: false, entries: [ent("S")] }), seq: 101 },
+      });
+    });
+    expect(result.current.logcatEntries.map((e) => e.tag)).toEqual(["R", "S"]);
+  });
+
+  // 回归（Important）：done 事件独占一个 seq（events.go 的 Done 用 nextSeq 取号），
+  // 帧门那侧没有对应事件可出队 → output 号段有个永久空洞，done 之后到达的 emit
+  // 全部卡死。修法是 onDone 把该号登记为已消耗（consumed）再 drain。
+  it("done 独占的 seq 被跨过：done 之后到达的迟到帧仍能渲染", async () => {
+    mockListActions.mockResolvedValue({
+      actions: [
+        { id: "a1", title: "A", icon: "", description: "", params: [], presets: [], stream: "logcat" },
+      ],
+      errors: [],
+    });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.runAction("a1", {});
+    });
+    const ent = (tag: string): LogcatEntry => ({
+      date: "08-18", time: "09:00:00.000", pid: 1, tid: 1, level: "I", tag, message: "m",
+    });
+    act(() => {
+      _emitForTest("action:a1:output", { data: { stream: "stdout", line: "x", seq: 1 } });
+    });
+    act(() => {
+      _emitForTest("action:a1:done", { data: { exitCode: 0, err: "", duration: "1s", seq: 2 } });
+    });
+    // logcat-stream 的控制协程 / pidRefresher 未被 join：Run 返回后仍可能 emit
+    act(() => {
+      _emitForTest("action:a1:output", {
+        data: {
+          stream: "logcat-replace",
+          line: JSON.stringify({ head: true, entries: [ent("L")], matched: 1, total: 1, tagHistogram: { L: 1 } }),
+          seq: 3,
+        },
+      });
+    });
+    expect(result.current.logcatEntries.map((e) => e.tag)).toEqual(["L"]);
+  });
+
   it("挂载时拉取 workflow 列表", async () => {
     mockListActions.mockResolvedValue({ actions: [], errors: [] });
     mockListWorkflows.mockResolvedValue({

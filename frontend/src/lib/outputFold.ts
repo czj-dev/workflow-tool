@@ -10,6 +10,7 @@ import type { OutputEventData } from "../types/events";
 // 归属清晰（action 一桶 / 每个 workflow step 各一桶）。
 // nextSeq/pending 只有 action 桶用（重排 seq，见下）；workflow 按 step 索引落桶已规避
 // 乱序问题，调用时可不传，此时退化为原样按到达顺序应用。
+// nextSeq === 0 是哨兵，语义「以首个到达的 seq 为基线」（run 中途重置队列时用）。
 export interface FoldState {
   lines: string[];
   lastWasProgress: boolean;
@@ -57,15 +58,19 @@ export function foldOutputLine(
   if (d.seq == null || state.nextSeq == null) {
     return applyOne(state, d, opts);
   }
+  // nextSeq === 0 是哨兵：「以首个到达的 seq 为基线」。切回运行中的动作时后端序号已到
+  // 几千，把队列打回 1 会让此后所有事件永久挂 pending（面板彻底不再出行）；由调用方
+  // 置 0、这里在首个事件上对齐。纯函数性质不变：基线仍只由入参决定。
+  const expected = state.nextSeq === 0 ? d.seq : state.nextSeq;
   const pending = state.pending ?? new Map<number, OutputEventData>();
-  if (d.seq !== state.nextSeq) {
+  if (d.seq !== expected) {
     // 还没轮到它：先缓存，等空洞补齐再回放。
     const next = new Map(pending);
     next.set(d.seq, d);
     return { ...state, pending: next };
   }
   let next = applyOne(state, d, opts);
-  let expect = state.nextSeq + 1;
+  let expect = expected + 1;
   const rest = new Map(pending);
   while (rest.has(expect)) {
     const queued = rest.get(expect)!;
