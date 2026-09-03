@@ -3,6 +3,7 @@ package api
 import (
 	"fmt"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -23,28 +24,31 @@ import (
 type actionEvents struct {
 	app *application.App
 	id  string
-	seq int64
+	seq atomic.Int64
 }
 
 func newActionEvents(app *application.App, id string) *actionEvents {
 	return &actionEvents{app: app, id: id}
 }
 
+// nextSeq 取下一个事件序号。必须原子：emit 并非总是串行回调——logcat-stream 从
+// flush ticker 协程、控制协程（规则拒绝告警）、pidRefresher（包未运行告警）三处
+// 并发 emit（internal/adb/logcat/stream.go:90/189/408），后两处在 core.mu 之外。
+// 前端 seqGate 依赖 seq 唯一有序来定 logcat-replace 帧与增量帧的先后。
+func (e *actionEvents) nextSeq() int64 { return e.seq.Add(1) }
+
 // EmitFunc 返回 runner 用的 emit：每行 output 自带递增 seq。
-// 并发安全依赖 runner.Run 的串行回调契约（runner.OnLine 注释：同一时刻只有一个
-// goroutine 调用 onLine），seq 递增无需自行加锁。
 func (e *actionEvents) EmitFunc() runner.EmitFunc {
 	return func(stream, line string) {
-		e.seq++
 		e.app.Event.Emit(eventName(e.id, "output"), map[string]any{
-			"stream": stream, "line": line, "seq": e.seq,
+			"stream": stream, "line": line, "seq": e.nextSeq(),
 		})
 	}
 }
 
 // Done 发送结束事件，seq 接续最后一条 output（seq+1），前端按序应用退出码行。
 func (e *actionEvents) Done(exitCode int, errMsg string, d time.Duration, readout map[string]any) {
-	e.emitDone(exitCode, errMsg, d, readout, e.seq+1)
+	e.emitDone(exitCode, errMsg, d, readout, e.seq.Load()+1)
 }
 
 // DoneUnordered 发送不参与排序的结束事件（payload 不带 seq，前端直接应用）。
