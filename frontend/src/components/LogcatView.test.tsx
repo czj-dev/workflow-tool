@@ -3,19 +3,14 @@ import { render, screen, act } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const { mockListActions, mockRunAction, mockUpdateLogcatFilter, mockOn } = vi.hoisted(() => {
-  const listeners: Record<string, (e: unknown) => void> = {};
   return {
     mockListActions: vi.fn(),
     mockRunAction: vi.fn(() => Promise.resolve()),
     mockUpdateLogcatFilter: vi.fn(
       (_id: string, _rule: unknown, _reset: boolean) => Promise.resolve(),
     ),
-    mockOn: vi.fn((name: string, cb: (e: unknown) => void) => {
-      listeners[name] = cb;
-      return () => {
-        delete listeners[name];
-      };
-    }),
+    // 事件注入走 Provider 的 _emitForTest，这里只需返回一个 unsubscribe。
+    mockOn: vi.fn(() => () => {}),
   };
 });
 
@@ -119,20 +114,28 @@ describe("LogcatView 控制甲板", () => {
     await user.type(input, "tag:foo");
     await user.click(screen.getByTitle("点击：只看此进程"));
 
+    // 把 300ms 防抖窗口 + 随后的 UpdateLogcatFilter promise 落地一起纳入 act，
+    // 否则 Provider 的 setLogcatFilterError 会在 act 外触发 React 警告。
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 350));
+    });
+
     expect(input).toHaveValue("tag:foo");
-    await vi.waitFor(() =>
-      expect(mockUpdateLogcatFilter).toHaveBeenLastCalledWith(
-        "a1",
-        {
-          tokens: [
-            { key: "pid", op: "exact", negated: false, value: "4321", link: "" },
-            { key: "tag", op: "contains", negated: false, value: "foo", link: "" },
-          ],
-          minLevel: "V",
-          package: "",
-        },
-        false,
-      ),
+    await vi.waitFor(
+      () =>
+        expect(mockUpdateLogcatFilter).toHaveBeenLastCalledWith(
+          "a1",
+          {
+            tokens: [
+              { key: "pid", op: "exact", negated: false, value: "4321", link: "" },
+              { key: "tag", op: "contains", negated: false, value: "foo", link: "" },
+            ],
+            minLevel: "V",
+            package: "",
+          },
+          false,
+        ),
+      { timeout: 2000 },
     );
   });
 
@@ -145,19 +148,25 @@ describe("LogcatView 控制甲板", () => {
     const input = screen.getByPlaceholderText(/裸词/);
     await user.type(input, "tag:foo ");
 
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 350));
+    });
+
     expect(input).toHaveValue("");
-    await vi.waitFor(() =>
-      expect(mockUpdateLogcatFilter).toHaveBeenLastCalledWith(
-        "a1",
-        {
-          tokens: [
-            { key: "tag", op: "contains", negated: false, value: "foo", link: "" },
-          ],
-          minLevel: "V",
-          package: "",
-        },
-        false,
-      ),
+    await vi.waitFor(
+      () =>
+        expect(mockUpdateLogcatFilter).toHaveBeenLastCalledWith(
+          "a1",
+          {
+            tokens: [
+              { key: "tag", op: "contains", negated: false, value: "foo", link: "" },
+            ],
+            minLevel: "V",
+            package: "",
+          },
+          false,
+        ),
+      { timeout: 2000 },
     );
   });
 });

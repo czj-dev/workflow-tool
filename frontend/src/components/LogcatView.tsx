@@ -235,6 +235,7 @@ export function LogcatView() {
     () => logcatRule.tokens.filter((tk) => tk.draft),
     [logcatRule],
   );
+  // 契约：next 只传 committed；drafts 自动带回，故「草稿整体晋升」路径不能走这里（见 commitInput）。
   const setTokens = (next: LogcatToken[]) =>
     setLogcatRule({ ...logcatRule, tokens: [...next, ...drafts] });
 
