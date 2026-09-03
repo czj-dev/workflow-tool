@@ -32,8 +32,6 @@ command:
 presets:
   - name: 云端响应
     values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: com.baidu.che.codriver, TAG: DVR_InitService DVR_TinnoveIpc}
-  - name: 测试表单
-    values: {FILTER: '{"tokens":[{"key":"tag","op":"contains","negated":false,"value":"DVR_CarControlOpenBot"},{"key":"tag","op":"contains","negated":false,"value":"DVR_WtNluBot"},{"key":"tag","op":"contains","negated":true,"value":"DVR_MultiRoundRuleRegistrar","link":"or"},{"key":"tag","op":"contains","negated":false,"value":"DVR_InitService","link":"or"},{"key":"message","op":"regex","negated":true,"value":"XX"},{"key":"message","op":"contains","negated":false,"value":"test","link":"or"}],"minLevel":"V","package":""}', INCLUDE: test, LEVEL: V}
   - name: 对话改写
     values: {FILTER: '{"tokens":[{"key":"tag","op":"contains","negated":false,"value":"DVR_CarControlOpenBot"},{"key":"tag","op":"contains","negated":false,"value":"DVR_WtNluBot"},{"key":"tag","op":"contains","negated":false,"value":"DVR_MultiRoundRuleRegistrar"},{"key":"tag","op":"contains","negated":false,"value":"DVR_InitService"}],"minLevel":"V","package":""}', LEVEL: V, TAG: DVR_CarControlOpenBot DVR_WtNluBot DVR_MultiRoundRuleRegistrar DVR_InitService}
   - name: 指令分发
