@@ -205,14 +205,15 @@ function ActionCard({
         ${running ? "border-primary" : "border-border"}
       `}
     >
-      {running && <RunningFlow className="rounded-t-xl" />}
-
       {/* ——— 正面：识别面（StatusRail + 图标 + 短名 + preset 暗示点） ——— */}
       <div
         className={`absolute inset-0 flex flex-col items-center rounded-[11px]
           bg-gradient-to-b from-card to-background/70 p-1.5
           [backface-visibility:hidden] motion-reduce:transform-none ${FLIP} ${flipFront}`}
       >
+        {/* 运行中流光：挂正面（键面）顶沿而非卡片根——根级会被不透明的正面盖住（翻转卡 z 序），
+            也随翻面一起转走，与 Llm/Workflows grid 的「流光贴卡片表面」一致 */}
+        {running && <RunningFlow className="rounded-t-[11px]" />}
         {/* 顶部仪表 rail（compact）：状态点 + 使用足迹，靠左无计数（与其他 Grid 视图共用组件） */}
         <StatusRail level={level} score={score} compact />
 
