@@ -56,8 +56,9 @@ for d in $SCRIPT_DIRS; do
   fi
 done
 
-# 校验：确认 bundle 内所有 script 引用至少有 .sh 或 .ps1 之一存在。
-# macOS runtime 只用 .sh，Windows 只用 .ps1，两者缺一是可接受的（只跨平台脚本才需两者都有）。
+# 校验：bundle 内所有 script 引用就位。两种引用形态（与 runner/registry 的校验口径一致）：
+#   1) 无扩展名基名 + 平台后缀：macOS runtime 用 .sh，Windows 用 .ps1，两者缺一可接受；
+#   2) 带扩展名直引（.sh/.ps1/.py/.js，如 scripts/spm-download.py）：文件本身存在即就位。
 echo "→ 校验 bundle 完整性"
 MISSING=0
 for yaml in "$MACOS"/actions/*.yaml; do
@@ -65,8 +66,12 @@ for yaml in "$MACOS"/actions/*.yaml; do
     | sed 's/.*script:[[:space:]]*//' | sed 's/#.*//' )
   for s in $scripts; do
     s="${s#./}"
+    case "$s" in
+      *.sh|*.ps1|*.py|*.js)
+        [ -f "$MACOS/$s" ] && continue ;;
+    esac
     if [ ! -f "$MACOS/$s.sh" ] && [ ! -f "$MACOS/$s.ps1" ]; then
-      echo "   ✗ 缺失: $s.{sh,ps1}（引用自 $(basename "$yaml")，两个后缀均无）" >&2
+      echo "   ✗ 缺失: $s（引用自 $(basename "$yaml")，直引文件与 .sh/.ps1 均无）" >&2
       MISSING=1
     fi
   done
