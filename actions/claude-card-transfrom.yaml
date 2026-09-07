@@ -48,4 +48,6 @@ command:
     system: ROLE
     prompt: TASK
     resume: SESSION_ID
-  timeout: 5m
+  # 多步流转（查卡→规划→逐级流转→评论→校验）实测可达 4-8 分钟，5m 会在中途被杀
+  # 导致卡片停在中间态；会话记录证实多次中断均发生在 ~300s（见 2026-09 排查）。
+  timeout: 30m

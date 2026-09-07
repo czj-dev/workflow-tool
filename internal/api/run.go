@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 
@@ -117,5 +118,11 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 	if la.Def.Command.LLM.Prompt != "" {
 		readout = llmReadout(res.Outputs, res.Duration)
 	}
-	ev.Done(res.ExitCode, errStr(res.Err), res.Duration, readout)
+	errMsg := errStr(res.Err)
+	// LLM 超时被杀时把裸的 context deadline exceeded 换成可行动的提示：
+	// 会话 id 已在 readout 里，用户可填入 SESSION_ID 参数续接重跑而非从头再来。
+	if errors.Is(res.Err, context.DeadlineExceeded) && la.Def.Command.LLM.Prompt != "" {
+		errMsg = fmt.Sprintf("LLM 调用超时（上限 %s），进程已终止；可将 readout 中的 sessionId 填入 SESSION_ID 参数续接会话重跑", la.Timeout)
+	}
+	ev.Done(res.ExitCode, errMsg, res.Duration, readout)
 }
