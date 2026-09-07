@@ -19,8 +19,10 @@ command:
     DIR="${REMOTE_PATH}"
     TMP=$(mktemp -d)
     trap 'rm -rf "$TMP"' EXIT
-    # APK 本质是 zip，直接解压取 lib
-    unzip -o "$APK" -d "$TMP" >/dev/null
+    # APK 本质是 zip，只解 lib/：整包解压会撞上 APK 内非 UTF-8 文件名（GBK 命名的 .md）,
+    # macOS 上报 "Illegal byte sequence" 并让 unzip 返回非零码，默认 -e 下直接中断整个动作。
+    # 无 lib 时 unzip 返回 11（no matching files），交给下面的目录检查兜底，故 || true。
+    unzip -o "$APK" 'lib/*' -d "$TMP" >/dev/null || true
     if [ ! -d "$TMP/lib" ]; then
       echo "APK 无 lib 目录，跳过"
       exit 0
