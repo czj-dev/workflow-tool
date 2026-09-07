@@ -24,7 +24,7 @@ presets:
     description: setprop persist.log.tag I
     values: {MODE: set, PROP: persist.log.tag, VALUE: I}
   - name: aiBox
-    values: {MODE: set, PROP: persist.evs.aibox.switch, VALUE: I}
+    values: {MODE: set, PROP: persist.evs.aibox.switch, VALUE: "1"}
 command:
   run: |
     S="${ADB_SERIAL}"

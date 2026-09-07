@@ -25,3 +25,5 @@ command:
 presets:
   - name: 语音内置文件目录
     values: {ALLOW_PROTECTED: "true", LOCAL_PATH: "", REMOTE_PATH: /data/data/com.baidu.che.codriver/files}
+  - name: 语音 APk
+    values: {ALLOW_PROTECTED: "true", LOCAL_PATH: "", REMOTE_PATH: system/app/DuerOSAutoVr/}

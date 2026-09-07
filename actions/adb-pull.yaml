@@ -16,3 +16,10 @@ command:
   adb:
     operation: pull
   timeout: 10m
+presets:
+  - name: 抓取日志
+    description: 深蓝全日志抓入
+    values: {LOCAL_PATH: /Users/v_chenzhaojun/Documents/Logs, REMOTE_PATH: resources/debuglogger/mobilelog}
+  - name: 抓取日志-ALL
+    description: 包括 AI BOX 等应用的日志
+    values: {LOCAL_PATH: /Users/v_chenzhaojun/Documents/Logs, REMOTE_PATH: resources/debuglogger/}

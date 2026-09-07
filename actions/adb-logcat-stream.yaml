@@ -30,9 +30,18 @@ command:
   timeout: 24h
   capture_output: false # 流式持续输出，禁止内存累积
 presets:
-  - name: 云端响应
-    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: com.baidu.che.codriver, TAG: DVR_InitService DVR_TinnoveIpc}
-  - name: 对话改写
-    values: {FILTER: '{"tokens":[{"key":"tag","op":"contains","negated":false,"value":"DVR_CarControlOpenBot"},{"key":"tag","op":"contains","negated":false,"value":"DVR_WtNluBot"},{"key":"tag","op":"contains","negated":false,"value":"DVR_MultiRoundRuleRegistrar"},{"key":"tag","op":"contains","negated":false,"value":"DVR_InitService"}],"minLevel":"V","package":""}', LEVEL: V, TAG: DVR_CarControlOpenBot DVR_WtNluBot DVR_MultiRoundRuleRegistrar DVR_InitService}
-  - name: 指令分发
-    values: {FILTER: '{"tokens":[{"key":"tag","op":"contains","negated":false,"value":"DVR_InitService","link":"or"},{"key":"message","op":"contains","negated":false,"value":"name\":\"Nlu"},{"key":"tag","op":"exact","negated":false,"value":"DVR_WtNluBot","link":"or"},{"key":"message","op":"regex","negated":false,"value":"handleNluResultByCarType"},{"key":"tag","op":"regex","negated":false,"value":"DVR_TinnoveIpc","link":"or"}],"minLevel":"V","package":""}', INCLUDE: 'name":"Nlu', LEVEL: V}
+  - name: 指令下发
+    description: 指令主链——InitService 仅保留 >==>> 指令行，WtNluBot/MixNlu/TinnoveIpc/SemanticDispatcher 全量；PACKAGE 留空以覆盖跨进程 TAG
+    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: "", TAG: "DVR_InitService DVR_WtNluBot DVR_MixNluArbiterImpl DVR_TinnoveIpc DVR_SemanticDispatcher", FILTER: '{"tokens":[{"key":"tag","op":"contains","negated":false,"value":"DVR_InitService"},{"key":"message","op":"contains","negated":false,"value":">==>>"},{"key":"tag","op":"contains","negated":false,"value":"DVR_WtNluBot","link":"or"},{"key":"tag","op":"contains","negated":false,"value":"DVR_MixNluArbiterImpl","link":"or"},{"key":"tag","op":"contains","negated":false,"value":"DVR_TinnoveIpc","link":"or"},{"key":"tag","op":"contains","negated":false,"value":"DVR_SemanticDispatcher","link":"or"}],"minLevel":"V","package":""}'}
+  - name: AI BOX
+    description: AI BOX 仲裁链（R4 四件套 + 最终指令下发 TinnoveIpc）
+    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: "", TAG: "DVR_R4Arbiter DVR_R4ArbiterState DVR_R4SequentialSender DVR_MixNluArbiterImpl DVR_TinnoveIpc"}
+  - name: 手车互联
+    description: 手车互联（PhoneLink 仲裁/路由/兜底 + 最终指令下发）
+    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: "", TAG: "DVR_PhoneLinkArb DVR_ThirdAppAgentDeviceModule DVR_PhoneLinkFallbackContextProvider DVR_TinnoveIpc"}
+  - name: 多轮对话
+    description: 多轮改写链（注册 MultiRoundRuleRegistrar → 派发 WtNluBot → DST 改写 NluModifyDeduceUnit → 转换 ProtocolConverterManager）
+    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: "", TAG: "DVR_MultiRoundRuleRegistrar DVR_WtNluBot DVR_NluModifyDeduceUnit DVR_ProtocolConverterManager"}
+  - name: 用车 Agent
+    description: 用车 Agent（SSE 投递 + TopQuery 入口拦截 + ComplexTask 主链路）
+    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: "", TAG: "DVR_SseAgentStreamRouter DVR_SseAgentBridge DVR_TopQueryInterceptor DVR_TopQueryInjection DVR_TopQueryUtil ernie_ComplexTaskDeviceModule ernie_CarManualStreamAgentVM"}
