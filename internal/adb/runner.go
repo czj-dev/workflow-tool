@@ -44,14 +44,7 @@ func (r *ADBRunner) Run(ctx context.Context, params map[string]any, emit runner.
 
 	handler, ok := lookupHandler(r.Operation)
 	if !ok {
-		msg := fmt.Sprintf("未知 adb operation: %s", r.Operation)
-		if emit != nil {
-			emit("stderr", msg)
-		}
-		return runner.Result{
-			ExitCode: -1, Err: fmt.Errorf("%s", msg), Duration: time.Since(start),
-			Outputs: map[string]string{"exit_code": "-1", "success": "false"},
-		}
+		return failResult(start, emit, fmt.Sprintf("未知 adb operation: %s", r.Operation))
 	}
 
 	// 解析 serial：优先 params 里的 ${ADB_SERIAL}（config.yaml 显式覆盖时经此路径），
@@ -59,6 +52,13 @@ func (r *ADBRunner) Run(ctx context.Context, params map[string]any, emit runner.
 	// 设备（尤其车载/网络 ADB）重连后 transport serial 可能变化，缓存的 ADB_SERIAL 会失效；
 	// 若盲目把失效 serial 传给 adb，会得到 "- waiting for device -" 并悬挂到超时。
 	serial := resolveSerial(ctx, r.Dev, r.Builtins, strParam(params, "ADB_SERIAL"))
+
+	// 无可用设备时立刻失败：全部 operation 都以某台设备为目标，缺设备的 adb 命令不会报错
+	// 退出，而是打印 "- waiting for device -" 挂到 timeout（logcat 类动作 24h），
+	// 界面上只剩一个停不下来的「运行中」。
+	if serial == "" {
+		return failResult(start, emit, "未检测到可用的 adb 设备：请连接设备（adb devices 显示为 device 状态）后重试")
+	}
 
 	// 解析二进制路径：调用方注入的 ResolvePaths 是唯一实现（config 覆盖 -> PATH -> 常见路径）。
 	var paths binary.Paths
@@ -85,6 +85,19 @@ func (r *ADBRunner) Run(ctx context.Context, params map[string]any, emit runner.
 			"exit_code": fmt.Sprint(exitCode),
 			"success":   fmt.Sprint(success),
 		},
+	}
+}
+
+// failResult 构造「还没进 handler 就失败」的结果（未知 operation / 无可用设备）：
+// emit 一行 stderr 让用户看到原因，并按失败语义填 outputs。
+func failResult(start time.Time, emit runner.EmitFunc, msg string) runner.Result {
+	if emit != nil {
+		emit("stderr", msg)
+	}
+	return runner.Result{
+		ExitCode: -1, Err: fmt.Errorf("%s", msg), Duration: time.Since(start),
+		Stderr:  msg,
+		Outputs: map[string]string{"exit_code": "-1", "success": "false"},
 	}
 }
 

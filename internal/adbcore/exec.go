@@ -25,15 +25,30 @@ type ExecResult struct {
 	Duration time.Duration `json:"duration"`
 }
 
+// newCommand 构造受 ctx 控制的子进程：取消/超时时杀掉整个进程组。
+// 必须用 CommandContext 而非 Command——后者完全无视 ctx，无设备时 adb 会挂在
+// "- waiting for device -" 上永不退出，动作便永远停在「运行中」且停止按钮无效。
+func newCommand(ctx context.Context, req ExecRequest) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, req.Command, req.Args...)
+	configureChild(cmd)
+	// 与 RunStreaming 的取消路径一致：杀整组而非只杀直接子进程
+	// （adb 客户端可能已 fork 出子进程，只杀父进程会留下孤儿并卡住管道）。
+	cmd.Cancel = func() error {
+		killGroup(cmd)
+		return nil
+	}
+	return cmd
+}
+
 // RunCommand 执行进程并捕获全部 stdout/stderr（超时由 req.Timeout 控制）。
+// ctx 取消或超时时返回 (nil, ctx.Err())，与 RunStreaming 语义一致。
 func RunCommand(ctx context.Context, req ExecRequest) (*ExecResult, error) {
 	if req.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, req.Timeout)
 		defer cancel()
 	}
-	cmd := exec.Command(req.Command, req.Args...)
-	configureChild(cmd)
+	cmd := newCommand(ctx, req)
 
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
@@ -42,6 +57,9 @@ func RunCommand(ctx context.Context, req ExecRequest) (*ExecResult, error) {
 	start := time.Now()
 	err := cmd.Run()
 	duration := time.Since(start)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 
 	exitCode := 0
 	if err != nil {
@@ -59,15 +77,14 @@ func RunCommand(ctx context.Context, req ExecRequest) (*ExecResult, error) {
 	}, err
 }
 
-// RunCommandWithStdin 执行一个需要 stdin 输入的进程。
+// RunCommandWithStdin 执行一个需要 stdin 输入的进程（取消语义同 RunCommand）。
 func RunCommandWithStdin(ctx context.Context, req ExecRequest, stdin string) (*ExecResult, error) {
 	if req.Timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, req.Timeout)
 		defer cancel()
 	}
-	cmd := exec.Command(req.Command, req.Args...)
-	configureChild(cmd)
+	cmd := newCommand(ctx, req)
 	cmd.Stdin = bytes.NewBufferString(stdin)
 
 	var stdout, stderr bytes.Buffer
@@ -77,6 +94,9 @@ func RunCommandWithStdin(ctx context.Context, req ExecRequest, stdin string) (*E
 	start := time.Now()
 	err := cmd.Run()
 	duration := time.Since(start)
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return nil, ctxErr
+	}
 
 	exitCode := 0
 	if err != nil {

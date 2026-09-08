@@ -111,3 +111,35 @@ func TestResolveSerialParamStillWinsOverBuiltins(t *testing.T) {
 		t.Fatalf("在线 paramSerial 应优先于 builtins，got %q", got)
 	}
 }
+
+// 无设备（serial 解析为空）时必须立刻失败，不能把 handler 跑起来——
+// adb 在没有目标设备时会挂在 "- waiting for device -" 直到 timeout（logcat 类动作 24h），
+// 用户只看到「运行中」却没有任何反馈。
+func TestRunFailsFastWithoutDevice(t *testing.T) {
+	called := false
+	RegisterOperation("test-no-device", func(op *OpContext) OpResult {
+		called = true
+		return OpResult{}
+	})
+
+	var stderr []string
+	r := &ADBRunner{
+		Dev:       &fakeDev{ready: map[string]bool{}, resolve: ""},
+		Operation: "test-no-device",
+	}
+	res := r.Run(context.Background(), map[string]any{}, func(stream, line string) {
+		if stream == "stderr" {
+			stderr = append(stderr, line)
+		}
+	})
+
+	if called {
+		t.Fatal("无设备时不应调用 handler")
+	}
+	if res.ExitCode == 0 || res.Err == nil {
+		t.Fatalf("无设备应失败，got exitCode=%d err=%v", res.ExitCode, res.Err)
+	}
+	if len(stderr) == 0 {
+		t.Fatal("无设备应 emit 可读的 stderr 提示")
+	}
+}
