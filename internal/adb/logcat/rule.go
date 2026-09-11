@@ -272,7 +272,7 @@ func RuleFromParamsExt(levelRaw, tagRaw, includeRaw, excludeRaw, pkg, filterRaw 
 
 // RuleFromParams 把 adb-logcat-stream 的传统启动参数映射为统一规则（spec 启动映射）。
 // TAG 按空白拆分为多个 tag contains token；INCLUDE/EXCLUDE 映射 message 正/负 token。
-// 参数宽松（不合法的 LEVEL 归 V），因为 RunAction 侧已有必填校验，这里只做兑底。
+// 参数宽松（不合法的 LEVEL 归 V），因为 RunAction 侧已有必填校验，这里只做兜底。
 func RuleFromParams(levelRaw, tagRaw, includeRaw, excludeRaw, pkg string) Rule {
 	r := Rule{Package: pkg}
 	lvl, ok := normalizeLevel(levelRaw)

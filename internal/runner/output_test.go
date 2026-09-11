@@ -34,6 +34,36 @@ func TestParseOutputLine(t *testing.T) {
 	}
 }
 
+func TestParseTreeLine(t *testing.T) {
+	cases := []struct {
+		name     string
+		line     string
+		wantJSON string
+		wantOK   bool
+	}{
+		{"标准协议行", `##[tree {"title":"t","nodes":[{"label":"a"}]}]`, `{"title":"t","nodes":[{"label":"a"}]}`, true},
+		{"JSON 内含方括号", `##[tree {"nodes":[{"label":"a[b]"}]}]`, `{"nodes":[{"label":"a[b]"}]}`, true},
+		{"空格分隔后非对象", `##[tree [1,2]]`, "", false},
+		{"普通 JSON 行不匹配", `{"nodes":[]}`, "", false},
+		{"缺右括号", `##[tree {"nodes":[]}`, "", false},
+		{"缺空格分隔", `##[tree{"nodes":[]}]`, "", false},
+		{"前后有空格", `  ##[tree {"nodes":[]}]  `, `{"nodes":[]}`, true},
+		{"不与 progress 混淆", `##[progress x]`, "", false},
+		{"不与 output 混淆", `##[output foo=bar]`, "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			jsonStr, ok := parseTreeLine(c.line)
+			if ok != c.wantOK {
+				t.Fatalf("ok = %v, want %v", ok, c.wantOK)
+			}
+			if ok && jsonStr != c.wantJSON {
+				t.Fatalf("json = %q, want %q", jsonStr, c.wantJSON)
+			}
+		})
+	}
+}
+
 func TestParseProgressLine(t *testing.T) {
 	cases := []struct {
 		name     string

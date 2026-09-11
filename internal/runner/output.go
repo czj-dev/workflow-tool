@@ -36,3 +36,21 @@ func parseProgressLine(line string) (text string, ok bool) {
 	}
 	return line[len("##[progress ") : len(line)-1], true
 }
+
+// parseTreeLine 解析一行是否匹配 ##[tree <json>] 协议（树帧，schema 见
+// docs/action.md 输出协议：顶层 {title?, nodes:[TreeNode]}，仅 label 必填）。
+// 命中的行不进 stdout 捕获、不以文本行显示（同 ##[progress] 待遇），改以 "tree"
+// 流 emit——payload 为树 JSON 原文，前端 JSON.parse 后在输出控制台原地渲染
+// 内联树块；解析失败由前端降级为单行错误节点，不炸渲染。Go 域（internal/adb）
+// 不走本文本协议，直接 OpContext.EmitTree 发同一 "tree" 流。
+func parseTreeLine(line string) (jsonStr string, ok bool) {
+	line = strings.TrimSpace(line)
+	if !strings.HasPrefix(line, "##[tree ") || !strings.HasSuffix(line, "]") {
+		return "", false
+	}
+	body := line[len("##[tree ") : len(line)-1]
+	if !strings.HasPrefix(body, "{") {
+		return "", false
+	}
+	return body, true
+}

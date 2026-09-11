@@ -2,10 +2,12 @@ package foreground
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"testing"
 	"time"
 
+	"workflow-tool/internal/adb"
 	"workflow-tool/internal/adbcore"
 )
 
@@ -158,17 +160,6 @@ func TestParseUITreeInvalid(t *testing.T) {
 	}
 }
 
-func TestCountDescendants(t *testing.T) {
-	tree, _ := parseUITree(uiTreeFixture)
-	// root -> container -> button：root 后代 = 2
-	if got := countDescendants(&tree.Node); got != 2 {
-		t.Fatalf("got %d, want 2", got)
-	}
-	if got := countDescendants(&tree.Node.Nodes[0].Nodes[0]); got != 0 {
-		t.Fatalf("leaf got %d", got)
-	}
-}
-
 // TestLiveForegroundParse 真机验证（默认 skip）：设 FOREGROUND_LIVE_SERIAL（可选
 // FOREGROUND_LIVE_ADB 覆盖 adb 路径）后运行，直接跑三条真实命令并走完整
 // 解析+排版链路。OpContext 未导出字段无法在域包外构造，故绕过 handler、
@@ -218,9 +209,12 @@ func TestLiveForegroundParse(t *testing.T) {
 	if tree, err := parseUITree(xmlData); err != nil {
 		t.Errorf("live: parse xml: %v", err)
 	} else {
-		for _, l := range formatTree(tree, 3) {
-			t.Log(l)
+		// 树帧形态：打印协议行（前端渲染同款 JSON），确认全量转换不 panic
+		root := uiTreeNode(&tree.Node)
+		b, err := json.Marshal(adb.TreeFrame{Title: "live View 树", Nodes: []adb.TreeNode{root}})
+		if err != nil {
+			t.Fatal(err)
 		}
-		_ = formatTree(tree, 0) // 不限深度版同时跑一遍（确认全量渲染不 panic）
+		t.Log("##[tree " + string(b) + "]")
 	}
 }

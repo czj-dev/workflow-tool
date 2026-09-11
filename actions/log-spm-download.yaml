@@ -11,9 +11,8 @@ params:
   - id: INNER_PATH
     label: zip 内路径片段
     type: text
-    required: true
     default: resources/debuglogger/mobilelog/
-    description: 精确路径优先，否则按子串匹配（大小写不敏感），命中多个则全部下载。如 170216 或 main_log_8__2026_0905_170216.gz
+    description: 精确路径优先，否则按子串匹配（大小写不敏感），命中多个则全部下载；留空 = 浏览模式，列出 zip 内全部条目树，复制目标路径回填重跑即可
   - id: OUT_DIR
     label: 输出目录
     type: path

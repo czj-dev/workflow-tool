@@ -72,15 +72,17 @@ beforeEach(async () => {
 });
 
 describe("ActionYamlEditor", () => {
+  // 初始加载链（ListActions → currentId → GetActionYaml → CM 赋值）在并发满负载下
+  // 可能超过 waitFor 默认 1s 超时（单跑 <1s、全量偶发红），放宽到 4s
   it("进入时加载首个 action 原文到编辑区", async () => {
     renderEditor();
-    await waitFor(() => expect(getCmValue()).toContain("# 注释"));
+    await waitFor(() => expect(getCmValue()).toContain("# 注释"), { timeout: 4000 });
   });
 
   it("编辑后保存调用 saveActionYaml 并清 dirty", async () => {
     const user = userEvent.setup();
     renderEditor();
-    await waitFor(() => expect(getCmValue()).toContain("echo hi"));
+    await waitFor(() => expect(getCmValue()).toContain("echo hi"), { timeout: 4000 });
     const saveBtn = screen.getByRole("button", { name: "保存" });
     expect(saveBtn).toBeDisabled();
     typeIntoCm("\n# 新行");
@@ -100,7 +102,7 @@ describe("ActionYamlEditor", () => {
     mockSetActionYaml.mockRejectedValueOnce("YAML 解析失败: line 1");
     const user = userEvent.setup();
     renderEditor();
-    await waitFor(() => expect(getCmValue()).toContain("echo hi"));
+    await waitFor(() => expect(getCmValue()).toContain("echo hi"), { timeout: 4000 });
     typeIntoCm("x");
     const saveBtn = screen.getByRole("button", { name: "保存" });
     await waitFor(() => expect(saveBtn).not.toBeDisabled());
@@ -125,7 +127,7 @@ describe("ActionYamlEditor", () => {
         </SidebarProvider>
       </ThemeProvider>
     );
-    await waitFor(() => expect(getCmValue()).toContain("echo hi"));
+    await waitFor(() => expect(getCmValue()).toContain("echo hi"), { timeout: 4000 });
     typeIntoCm("x");
     const edited = getCmValue();
     expect(edited).not.toBe(ORIGINAL_YAML);

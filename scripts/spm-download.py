@@ -2,11 +2,14 @@
 """SPM 数据平台：按片段匹配并下载 zip 内文件（无认证直连）
 
 用法:
-    python3 spm-download.py <zip文件名> <zip内路径片段> [输出目录]   # 输出目录默认当前目录
+    python3 spm-download.py <zip文件名> [zip内路径片段] [输出目录]   # 输出目录默认当前目录
 
 <zip内路径片段> 先按 zip 内完整路径精确匹配；不中则按大小写不敏感的子串筛，
 命中多个时全部下载。示例片段：170216 / main_log_8__2026_0905_170216.gz /
 resources/debuglogger/mobilelog/
+
+片段留空 = 浏览模式：打印 zip 内全部条目的 ##[tree 树帧（workflow-tool 输出
+控制台渲染为可交互树块）后退出，从树里复制文件路径回填片段重跑即可下载。
 
 落盘位置为 <输出目录>/<zip名去后缀>/<zip内相对路径>，保留 zip 内层级以免同名文件互相覆盖。
 已存在且大小与 zip 内记录一致的文件直接跳过，所以取消后重跑只补未完成的部分。
@@ -51,14 +54,15 @@ def post(path: str, body: dict) -> dict:
 
 
 def resolve_args(argv: list[str], env: Mapping[str, str]) -> list[str]:
-    """解析实参，返回 [zip名, zip内片段] 或 [zip名, zip内片段, 输出目录]；不修改入参。
+    """解析实参，返回 [zip名, zip内片段(空=浏览模式), 输出目录?]；不修改入参。
 
-    script 形态直挂时无薄壳传参，参数从环境变量读（action params 会注入子进程 env）。
+    script 形态直挂时无薄壳传参，参数从环境变量读（action params 会注入子进程 env，
+    表单清空的参数以空串注入——空 INNER_PATH 即浏览模式入口）。
     """
-    if len(argv) in (3, 4):
+    if len(argv) in (2, 3, 4):
         return list(argv[1:])
-    if len(argv) == 1 and env.get("ZIP_NAME") and env.get("INNER_PATH"):
-        args = [env["ZIP_NAME"], env["INNER_PATH"]]
+    if len(argv) == 1 and env.get("ZIP_NAME"):
+        args = [env["ZIP_NAME"], env.get("INNER_PATH", "")]
         out_dir = env.get("OUT_DIR", "")
         if out_dir:
             args.append(out_dir)
@@ -194,10 +198,72 @@ def no_match_message(entries: list[dict], fragment: str, total: int) -> str:
     return "\n".join(lines)
 
 
+# ---- 浏览树（##[tree 协议行，schema 对齐 internal/adb/tree.go）-----------------
+
+def human_size(n: int) -> str:
+    """字节 → 人类可读，与 list-files 的 formatFileSize 同风格（1.4 MB / 356 B）。"""
+    if n < 1024:
+        return f"{n} B"
+    value = float(n)
+    for unit in ("KB", "MB", "GB", "TB"):
+        value /= 1024
+        if value < 1024 or unit == "TB":
+            return f"{value:.1f} {unit}"
+
+
+def build_entry_tree(zip_name: str, entries: list[dict]) -> dict:
+    """条目清单 → 树帧根节点（root=zip 名；label=文件名、kind=dir/file、
+    detail=大小、path=zip 内完整路径——叶子复制回填 INNER_PATH 即精确命中）。"""
+    root = {"label": zip_name, "kind": "dir", "children": []}
+    dir_nodes = {"": root}  # zip 内目录路径（无首尾斜杠）→ 对应节点
+
+    def ensure_dir(dir_path: str) -> dict:
+        # 条目清单未必显式含目录条目，中间目录按需补建（父先于子，递归一层即达）。
+        node = dir_nodes.get(dir_path)
+        if node is None:
+            parent_path, _, name = dir_path.rpartition("/")
+            node = {"label": name, "kind": "dir", "children": []}
+            ensure_dir(parent_path)["children"].append(node)
+            dir_nodes[dir_path] = node
+        return node
+
+    for e in sorted(entries, key=lambda e: e["path"]):
+        entry_path = e["path"].strip("/")
+        if not entry_path:
+            continue
+        parent_path, _, name = entry_path.rpartition("/")
+        if e.get("is_directory"):
+            ensure_dir(entry_path)  # 已作为中间目录建过则幂等
+            continue
+        ensure_dir(parent_path)["children"].append(
+            {
+                "label": name,
+                "kind": "file",
+                "detail": human_size(e.get("size", 0)),
+                "path": e["path"],
+            }
+        )
+    return root
+
+
+def entry_tree_frame(zip_name: str, entries: list[dict], total: int) -> dict:
+    """组装全量浏览树帧；条目被 MAX_ENTRIES 截断时警告进 title。"""
+    title = f"{zip_name} · 共 {total} 个条目"
+    if total > len(entries):
+        title += f"，仅列出前 {len(entries)} 个（MAX_ENTRIES={MAX_ENTRIES}）"
+    return {"title": title, "nodes": [build_entry_tree(zip_name, entries)]}
+
+
+def emit_tree(frame: dict) -> None:
+    """树帧打印为单行 ##[tree 协议行（紧凑 JSON，无换行；host 解析见 docs/action.md）。"""
+    print("##[tree " + json.dumps(frame, ensure_ascii=False, separators=(",", ":")) + "]", flush=True)
+
+
 def main() -> None:
     args = resolve_args(sys.argv, os.environ)
-    zip_name, fragment = args[0], args[1]
-    out_dir = args[2] if len(args) == 3 else os.getcwd()
+    zip_name = args[0]
+    fragment = args[1] if len(args) > 1 else ""
+    out_dir = args[2] if len(args) > 2 else os.getcwd()
     zip_path = ZIP_PREFIX + zip_name
 
     try:
@@ -206,8 +272,15 @@ def main() -> None:
     except SpmError as e:
         sys.exit(str(e))
 
+    # 片段留空 = 浏览模式：只发全量树帧，不进入下载流程。
+    if not fragment.strip():
+        emit_tree(entry_tree_frame(zip_name, entries, total))
+        return
+
     targets = match_entries(entries, fragment)
     if not targets:
+        # 零命中：退让提示与 exit 非零照旧，追加全量树帧让用户直接选目标回填重跑。
+        emit_tree(entry_tree_frame(zip_name, entries, total))
         sys.exit(no_match_message(entries, fragment, total))
 
     total_bytes = sum(e["size"] for e in targets)

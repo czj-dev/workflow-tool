@@ -49,6 +49,7 @@ import {
   type LlmPanelState,
 } from "../components/llm/reduceStream";
 import { foldOutputLine } from "../lib/outputFold";
+import { treeFrameToText } from "../lib/treeFrame";
 import { expandVars } from "../lib/vars";
 import {
   BUCKETS,
@@ -61,6 +62,7 @@ import {
 import { ruleFromParams, sortHistogram } from "../lib/logcatRule";
 import type {
   OutputEventData,
+  OutputLineItem,
   DoneEventData,
   WorkflowStepState,
   LogcatEntry,
@@ -104,7 +106,8 @@ export interface RunnerContextValue {
   errors: string[];
   currentId: string | null;
   selectedPreset: string | null;
-  lines: string[];
+  // 输出桶行项：文本/进度/树帧（stream=tree 的协议行），见 types/events.ts
+  lines: OutputLineItem[];
   status: Status;
   // 是否有任何后台正在运行的 id（供 sidebar 各 item 判断徽标）
   isRunning: (id: string) => boolean;
@@ -225,7 +228,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [currentId, setCurrentId] = useState<string | null>(null);
   // 当前选中的预设名（属于 currentId 动作）；为 null 时父动作高亮，非空时对应 preset 子项高亮
   const [selectedPreset, setSelectedPreset] = useState<string | null>(null);
-  const [lines, setLines] = useState<string[]>([]);
+  const [lines, setLines] = useState<OutputLineItem[]>([]);
   // 使用频次三桶：初始从各自 localStorage key 读入（key 不变，已有数据零迁移）。
   const [usage, setUsage] = useState<UsageByBucket>(
     () =>
@@ -282,6 +285,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const logcatBufferRef = useRef<LogcatEntry[]>([]);
   // progress 原地刷新标记：上一条是 progress → 覆盖该行而非追加，模拟终端 \r 效果
   const lastWasProgressRef = useRef(false);
+  // 树帧 id 计数（同 seqStateRef 理由：跨事件持续、不进 state，见 outputFold 的 treeSeq）
+  const treeSeqRef = useRef(0);
   // action 输出的 seq 重排态（见 outputFold 备注：Wails Event.Emit 到达顺序无保证，
   // 需要 nextSeq/pending 跨事件持续，故用 ref 而非随 lines 一起进 state）。
   // 每次开跑新 action 必须重置，否则残留的 nextSeq 会把新一轮输出全部误判为「还没轮到」。
@@ -310,6 +315,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const resetSeqState = (nextSeq = 0) => {
     seqStateRef.current = { nextSeq, pending: new Map() };
     seqGateRef.current = { nextSeq, pending: new Map(), consumed: new Set() };
+    // 行桶已清/将清，树帧 id 从头计（与 lines 状态同步重置，避免 key 冲突隐患）
+    treeSeqRef.current = 0;
   };
   // 每 ~120ms 把缓冲批量并入 logcatEntries（截断到 MAX_LOGCAT），空缓冲跳过。
   // logcat 启动常先倾倒整个 ring buffer（万级行），逐行 setState 会冻结 UI。
@@ -448,7 +455,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [workflowFormValues, setWorkflowFormValues] = useState<
     Record<string, string>
   >({});
-  const linesRef = useRef<string[]>([]);
+  const linesRef = useRef<OutputLineItem[]>([]);
   linesRef.current = lines;
   // 当前查看的 id（供持久 done 回调判断是否该更新可见 UI，不触发重渲染）
   const currentIdRef = useRef<string | null>(null);
@@ -602,13 +609,22 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         }
         if (!target) return prev;
         const folded = foldOutputLine(
-          { lines: target.lines, lastWasProgress: target.lastWasProgress ?? false },
+          {
+            lines: target.lines,
+            lastWasProgress: target.lastWasProgress ?? false,
+            treeSeq: target.treeSeq,
+          },
           d,
-          { stderrPrefix: t("output.stderrPrefix") },
+          { stderrPrefix: t("output.stderrPrefix"), treeErrLabel: t("tree.parseError") },
         );
         return list.map((s) =>
           s.index === target!.index
-            ? { ...s, lines: folded.lines, lastWasProgress: folded.lastWasProgress }
+            ? {
+                ...s,
+                lines: folded.lines,
+                lastWasProgress: folded.lastWasProgress,
+                treeSeq: folded.treeSeq,
+              }
             : s,
         );
       });
@@ -681,10 +697,12 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
             lastWasProgress: lastWasProgressRef.current,
             nextSeq: seqStateRef.current.nextSeq,
             pending: seqStateRef.current.pending,
+            treeSeq: treeSeqRef.current,
           },
           d,
-          { stderrPrefix: t("output.stderrPrefix") },
+          { stderrPrefix: t("output.stderrPrefix"), treeErrLabel: t("tree.parseError") },
         );
+        treeSeqRef.current = folded.treeSeq ?? 0;
         lastWasProgressRef.current = folded.lastWasProgress;
         seqStateRef.current = {
           nextSeq: folded.nextSeq ?? 1,
@@ -745,7 +763,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
               pending: seqStateRef.current.pending,
             },
             { stream: "stdout", line: exitLine, seq: d.seq },
-            { stderrPrefix: t("output.stderrPrefix") },
+            { stderrPrefix: t("output.stderrPrefix"), treeErrLabel: t("tree.parseError") },
           );
           lastWasProgressRef.current = folded.lastWasProgress;
           seqStateRef.current = {
@@ -755,7 +773,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
           return folded.lines;
         });
       } else {
-        setLines((prev) => [...prev, exitLine]);
+        setLines((prev) => [...prev, { kind: "text", text: exitLine }]);
       }
       // done 独占一个 seq（后端 events.go 的 Done 用 nextSeq 取号），帧门那侧没有对应
       // 事件可出队——必须把该号登记为已消耗并 drain 一次，否则 done 之后到达的任何
@@ -888,7 +906,10 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         return;
       }
       if (!background) {
-        setLines((prev) => [...prev, t("error.startFailed") + ": " + e]);
+        setLines((prev) => [
+          ...prev,
+          { kind: "text", text: t("error.startFailed") + ": " + e },
+        ]);
         setStatus("error");
       }
       setRunningIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
@@ -1256,8 +1277,12 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // 整段复制：文本/进度行照旧，树块展开为缩进文本形态（title + │├└ 连接线行）
   const copyOutput = async () => {
-    await navigator.clipboard.writeText(linesRef.current.join("\n"));
+    const text = linesRef.current
+      .map((item) => (item.kind === "tree" ? treeFrameToText(item.frame) : item.text))
+      .join("\n");
+    await navigator.clipboard.writeText(text);
   };
 
   const value: RunnerContextValue = {

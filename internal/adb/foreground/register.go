@@ -29,27 +29,12 @@ func paramBoolDefaultTrue(op *adb.OpContext, key string) bool {
 	return true
 }
 
-// parseMaxDepth 解析 TREE_MAX_DEPTH：空=不限(0)；非正整数视为不限并 warning。
-func parseMaxDepth(op *adb.OpContext) int {
-	s := op.ParamStr("TREE_MAX_DEPTH")
-	if s == "" {
-		return 0
-	}
-	n, err := strconv.Atoi(s)
-	if err != nil || n <= 0 {
-		op.EmitStdout("warning: TREE_MAX_DEPTH=" + s + " 不是正整数，视为不限")
-		return 0
-	}
-	return n
-}
-
 // handleForegroundInfo 编排三段：按勾选采集 → 解析 → 格式化 emit。
 // 段级失败只 emit warning 继续其余段；全部勾选段失败才非 0。
 func handleForegroundInfo(op *adb.OpContext) adb.OpResult {
 	wantActivity := paramBoolDefaultTrue(op, "ACTIVITY")
 	wantWindows := paramBoolDefaultTrue(op, "WINDOWS")
 	wantTree := paramBoolDefaultTrue(op, "VIEW_TREE")
-	maxDepth := parseMaxDepth(op)
 
 	sections, failed := 0, 0
 	first := true
@@ -98,7 +83,11 @@ func handleForegroundInfo(op *adb.OpContext) adb.OpResult {
 		} else if tree, err := parseUITree(xmlData); err != nil {
 			fail("解析 uiautomator XML 失败: " + err.Error())
 		} else {
-			emitSection(formatTree(tree, maxDepth))
+			if !first {
+				op.EmitStdout("")
+			}
+			first = false
+			emitUITree(op, tree)
 		}
 	}
 

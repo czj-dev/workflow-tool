@@ -206,6 +206,168 @@
   padding-bottom: 4rem;
 }
 
+/* —— ##[tree] 内联树块（v2.4 定稿视觉）——
+   配色全部走主题 token（亮暗自适应）：容器节点徽标=主题色、叶子=灰；
+   徽标文案由节点 kind 原样渲染，前端无映射。 */
+.treeblock {
+  display: block;
+  margin: 8px 0;
+  border: 1px solid var(--border);
+  border-radius: calc(var(--radius) * 0.8);
+  background: color-mix(in oklch, var(--foreground) 3%, transparent);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.8;
+  /* 输出区的 <pre> 不换行白上下文里自己恢复换行 */
+  white-space: normal;
+  overflow: hidden;
+}
+.treeblock-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in oklch, var(--foreground) 4%, transparent);
+}
+.treeblock-title {
+  flex: 1;
+  min-width: 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted-foreground);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.treeblock-search {
+  width: 170px;
+  flex: none;
+  background: transparent;
+  border: 1px solid var(--input);
+  border-radius: calc(var(--radius) * 0.6);
+  padding: 3px 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--foreground);
+}
+.treeblock-search::placeholder {
+  color: var(--muted-foreground);
+}
+.treeblock-search:focus {
+  outline: none;
+  border-color: color-mix(in oklch, var(--primary) 55%, transparent);
+}
+.tree-mini-btn {
+  flex: none;
+  background: transparent;
+  border: 1px solid var(--input);
+  border-radius: calc(var(--radius) * 0.6);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 3px 7px;
+  color: var(--muted-foreground);
+  cursor: pointer;
+}
+.tree-mini-btn:hover {
+  color: var(--foreground);
+  border-color: color-mix(in oklch, var(--foreground) 25%, transparent);
+}
+.treeblock-body {
+  padding: 6px 12px 8px;
+}
+.tree-row {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  border-radius: 4px;
+  padding: 0 2px;
+}
+.tree-row.branch {
+  cursor: pointer;
+}
+.tree-row.leaf {
+  cursor: copy;
+}
+.tree-row.leaf:hover .tree-label {
+  color: var(--primary);
+  text-decoration: underline dotted;
+}
+.tree-rail {
+  flex: none;
+  color: color-mix(in oklch, var(--muted-foreground) 72%, transparent);
+}
+.tree-caret {
+  flex: none;
+  width: 14px;
+  color: var(--muted-foreground);
+}
+.tree-badge {
+  flex: none;
+  font-size: 9px;
+  line-height: 1.4;
+  padding: 1px 6px;
+  margin: 0 6px 0 12px;
+  border-radius: 3px;
+  border: 1px solid var(--border);
+  color: var(--muted-foreground);
+  background: transparent;
+}
+.tree-row.branch .tree-badge {
+  color: var(--primary);
+  border-color: color-mix(in oklch, var(--primary) 35%, transparent);
+  background: color-mix(in oklch, var(--primary) 8%, transparent);
+}
+.tree-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--foreground);
+}
+.tree-detail {
+  flex: none;
+  margin-left: 8px;
+  font-size: 11px;
+  color: var(--muted-foreground);
+}
+/* 搜索时仅 detail 命中的节点：内容降透明但保留结构可读 */
+.tree-row.dimmed .tree-rail,
+.tree-row.dimmed .tree-label,
+.tree-row.dimmed .tree-detail {
+  opacity: 0.55;
+}
+.tree-mark {
+  background: color-mix(in oklch, var(--primary) 22%, transparent);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+/* 复制反馈 toast：视口底部居中胶囊，不占块内布局 */
+.tree-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  background: var(--card);
+  color: var(--card-foreground);
+  border: 1px solid var(--border);
+  border-radius: 9999px;
+  font-size: 12px;
+  box-shadow: var(--card-sh-hover);
+  pointer-events: none;
+  z-index: 60;
+}
+.tree-toast .ok {
+  color: var(--success);
+}
+
 @source "../node_modules/streamdown/dist/index.js";
 
 @source "../node_modules/@streamdown/code/dist/*.js";

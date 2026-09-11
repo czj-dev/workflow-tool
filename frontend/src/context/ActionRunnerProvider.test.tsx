@@ -131,7 +131,38 @@ describe("ActionRunnerProvider", () => {
       _emitForTest("action:a1:output", { data: { stream: "stderr", line: "boom" } });
       _emitForTest("action:a1:output", { data: { stream: "stdout", line: "hi" } });
     });
-    expect(result.current.lines).toEqual(["[stderr] boom", "hi"]);
+    expect(result.current.lines).toEqual([
+      { kind: "text", text: "[stderr] boom" },
+      { kind: "text", text: "hi" },
+    ]);
+  });
+
+  // ##[tree] 协议行：stream=tree 解析为树帧行项入桶，不落文本行
+  it("收到 tree 流追加树帧行项（id 从 0 递增）", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.runAction("a1");
+    });
+    act(() => {
+      _emitForTest("action:a1:output", {
+        data: {
+          stream: "tree",
+          line: JSON.stringify({ title: "T", nodes: [{ label: "n", kind: "dir" }] }),
+        },
+      });
+      _emitForTest("action:a1:output", {
+        data: {
+          stream: "tree",
+          line: JSON.stringify({ nodes: [{ label: "m" }] }),
+        },
+      });
+    });
+    const trees = result.current.lines.filter((it) => it.kind === "tree");
+    expect(trees).toHaveLength(2);
+    expect(trees[0]).toMatchObject({ kind: "tree", id: 0 });
+    expect(trees[1]).toMatchObject({ kind: "tree", id: 1 });
   });
 
   it("收到 done 事件（exitCode 0）置 status=done", async () => {
@@ -769,8 +800,8 @@ describe("ActionRunnerProvider", () => {
       _emitForTest("workflow:w1:output", { data: { stream: "step-done", line: "1:1" } });
     });
     expect(result.current.workflowSteps).toEqual([
-      { index: 0, status: "done", exitCode: 0, lines: ["hi", "[stderr] boom"], lastWasProgress: false, startedAt: expect.any(Number), endedAt: expect.any(Number) },
-      { index: 1, status: "error", exitCode: 1, lines: ["second"], lastWasProgress: false, startedAt: expect.any(Number), endedAt: expect.any(Number) },
+      { index: 0, status: "done", exitCode: 0, lines: [{ kind: "text", text: "hi" }, { kind: "text", text: "[stderr] boom" }], lastWasProgress: false, startedAt: expect.any(Number), endedAt: expect.any(Number) },
+      { index: 1, status: "error", exitCode: 1, lines: [{ kind: "text", text: "second" }], lastWasProgress: false, startedAt: expect.any(Number), endedAt: expect.any(Number) },
     ]);
   });
 
@@ -791,8 +822,8 @@ describe("ActionRunnerProvider", () => {
       _emitForTest("workflow:w1:output", { data: { stream: "stdout", line: "chmod ok", step: "1" } });
     });
     expect(result.current.workflowSteps).toEqual([
-      { index: 0, status: "done", exitCode: 0, lines: ["push a: 100%"], lastWasProgress: true, startedAt: expect.any(Number), endedAt: expect.any(Number) },
-      { index: 1, status: "running", lines: ["chmod ok"], lastWasProgress: false, startedAt: expect.any(Number) },
+      { index: 0, status: "done", exitCode: 0, lines: [{ kind: "progress", text: "push a: 100%" }], lastWasProgress: true, startedAt: expect.any(Number), endedAt: expect.any(Number) },
+      { index: 1, status: "running", lines: [{ kind: "text", text: "chmod ok" }], lastWasProgress: false, startedAt: expect.any(Number) },
     ]);
   });
 

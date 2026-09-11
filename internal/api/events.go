@@ -45,6 +45,10 @@ func newActionEvents(app *application.App, id string) *actionEvents {
 func (e *actionEvents) nextSeq() int64 { return e.seq.Add(1) }
 
 // EmitFunc 返回 runner 用的 emit：每行 output 自带递增 seq。
+// stream 契约：stdout/stderr=文本行；progress=单行进度（前端原地覆盖上一条）；
+// tree=树帧（line=树 JSON 原文，前端 JSON.parse 后原地渲染内联树块；Go 域经
+// adb.OpContext.EmitTree 直发，script 动作经 runner.parseTreeLine 的 ##[tree ...]
+// 协议行转入同一流）。
 func (e *actionEvents) EmitFunc() runner.EmitFunc {
 	return func(stream, line string) {
 		e.app.Event.Emit(eventName(e.id, "output"), map[string]any{

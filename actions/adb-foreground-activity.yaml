@@ -15,9 +15,6 @@ params:
     label: View 树
     type: bool
     default: "true"
-  - id: TREE_MAX_DEPTH
-    label: 树深度上限（空=不限）
-    type: text
 presets:
   - name: 全部
     description: Activity + 焦点窗口 + View 树

@@ -14,7 +14,7 @@ import { SidebarTrigger } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { fmtDuration } from "../lib/duration";
-import type { WorkflowStepState } from "../types/events";
+import type { OutputLineItem, WorkflowStepState } from "../types/events";
 import { ActionIcon } from "./ActionIcon";
 import { IconButton } from "./IconButton";
 import { OutputLines } from "./OutputLines";
@@ -49,7 +49,7 @@ interface StepView {
   name: string;
   status: WorkflowStepState["status"];
   exitCode?: number;
-  lines: string[];
+  lines: OutputLineItem[];
   startedAt?: number;
   endedAt?: number;
 }

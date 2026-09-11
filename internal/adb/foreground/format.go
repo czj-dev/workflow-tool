@@ -4,13 +4,12 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"workflow-tool/internal/adb"
 )
 
 // sectionWidth 是段落标题分隔线总显示宽度。
 const sectionWidth = 50
-
-// attrIndent 是树节点属性行相对节点前缀的缩进（6 空格）。
-const attrIndent = "      "
 
 // displayWidth 按等宽终端惯例估算显示宽度：CJK 等宽字符算 2 列，其余 1 列。
 func displayWidth(s string) int {
@@ -86,64 +85,64 @@ func formatWindows(ws []WindowDisplay) []string {
 	return lines
 }
 
-// formatTree 输出 View 树段。maxDepth ≤ 0 表示不限；>0 为允许显示的最大层号
-// （根=0），children 层号超出时该子树整棵折叠为 `└─ … (+N 子节点)`。
-func formatTree(t *UITree, maxDepth int) []string {
-	total := countDescendants(&t.Node) + 1
-	lines := []string{sectionTitle(fmt.Sprintf("View 树 · uiautomator · 共 %d 节点", total))}
-	renderNode(&lines, &t.Node, "  ", "", 0, maxDepth)
-	return lines
+// shortClass 取 View class 短名：android.widget.TextView → TextView（无点原样）。
+// 无障碍树的 class 恒为全限定名（几乎都是 android.widget.* 前缀），短名足够
+// 区分且省列宽；作 kind（类型徽标）与匿名节点标签兜底。
+func shortClass(class string) string {
+	if i := strings.LastIndex(class, "."); i >= 0 {
+		return class[i+1:]
+	}
+	return class
 }
 
-// renderNode 递归渲染一个节点及其子树（两行风格：语义行 + 几何属性行）。
-//
-//	prefix     本节点行前缀（已含所有祖先缩进）
-//	connector  本节点树形连接线（"" 为根，"├─ "/"└─ "）
-//	depth      根为 0
-func renderNode(lines *[]string, n *UINode, prefix, connector string, depth, maxDepth int) {
-	var b strings.Builder
-	b.WriteString(prefix + connector + n.Class)
-	if n.Text != "" {
-		b.WriteString(" " + strconv.Quote(truncateDisplay(n.Text, 40)))
+// uiTreeNode 把 UINode 转为树协议节点（mockup v2.4 定稿）。字段映射：
+//   - kind   = class 短名（前端原样渲染为类型徽标，无 kind→文案映射）
+//   - label  = 身份：文本 > resource-id > class 短名兜底（与 kind 相同时前端不重复显示）
+//   - detail = 剩余属性单行拼接 `id=… · clickable · [bounds]`
+//     （id 仅在 label 取了文本时出现，避免与 label 重复）
+func uiTreeNode(n *UINode) adb.TreeNode {
+	short := shortClass(n.Class)
+	tn := adb.TreeNode{Kind: short, Label: short}
+	var parts []string
+	switch {
+	case n.Text != "":
+		tn.Label = strconv.Quote(truncateDisplay(n.Text, 40))
+		if n.ResourceID != "" {
+			parts = append(parts, "id="+n.ResourceID)
+		}
+	case n.ResourceID != "":
+		tn.Label = n.ResourceID
 	}
-	if n.ResourceID != "" {
-		b.WriteString(" id=" + n.ResourceID)
+	if n.Clickable {
+		parts = append(parts, "clickable")
 	}
-	*lines = append(*lines, b.String())
 	if n.Bounds != "" {
-		attr := n.Bounds
-		if n.Clickable {
-			attr = "[clickable] " + attr
+		parts = append(parts, n.Bounds)
+	}
+	tn.Detail = strings.Join(parts, " · ")
+	if len(n.Nodes) > 0 {
+		tn.Children = make([]adb.TreeNode, 0, len(n.Nodes))
+		for i := range n.Nodes {
+			tn.Children = append(tn.Children, uiTreeNode(&n.Nodes[i]))
 		}
-		*lines = append(*lines, prefix+attrIndent+attr)
 	}
-	// 深度截断：children 所在层（depth+1）超出 maxDepth 时整棵折叠。
-	if maxDepth > 0 && depth+1 > maxDepth && len(n.Nodes) > 0 {
-		foldPrefix := childPrefix(prefix, connector)
-		*lines = append(*lines, foldPrefix+"└─ … (+"+fmt.Sprint(countDescendants(n))+" 子节点)")
-		return
-	}
-	for i := range n.Nodes {
-		child := &n.Nodes[i]
-		conn := "├─ "
-		if i == len(n.Nodes)-1 {
-			conn = "└─ "
-		}
-		renderNode(lines, child, childPrefix(prefix, connector), conn, depth+1, maxDepth)
-	}
+	return tn
 }
 
-// childPrefix 由本节点的连接线推子节点前缀：根保持 prefix 不变；
-// "└─ "（末位）后续空白缩进；"├─ " 竖线延续。
-func childPrefix(prefix, connector string) string {
-	switch connector {
-	case "":
-		return prefix
-	case "└─ ":
-		return prefix + "   "
-	default:
-		return prefix + "│  "
+// emitUITree 发射 View 树段：小节标题文本行 + 一帧树（"tree" 流，前端原地
+// 渲染可交互树块——替代原 formatTree 缩进文本树，深度折叠由前端接管）。
+// 硬护栏：总节点数超 adb.MaxTreeNodes 时深度优先截断，警告进树块 title 与 … 节点。
+func emitUITree(op *adb.OpContext, t *UITree) {
+	root := uiTreeNode(&t.Node)
+	total := adb.CountTreeNodes([]adb.TreeNode{root})
+	title := fmt.Sprintf("uiautomator · 共 %d 节点", total)
+	nodes := []adb.TreeNode{root}
+	if total > adb.MaxTreeNodes {
+		nodes, _ = adb.TruncateNodes(nodes, adb.MaxTreeNodes)
+		title += fmt.Sprintf(" · 超上限已截断 %d", total-adb.MaxTreeNodes)
 	}
+	op.EmitStdout(sectionTitle("View 树"))
+	op.EmitTree(adb.TreeFrame{Title: title, Nodes: nodes})
 }
 
 // truncateDisplay 按显示宽度截断（返回串显示宽度 ≤ width+省略号），超出时以 "…" 结尾。

@@ -1,3 +1,12 @@
+import type { TreeFrame } from "../lib/treeFrame";
+
+// 输出桶的行项：文本/进度行之外，stream="tree" 的协议行进桶后不是字符串而是解析好的
+// 树帧（见 lib/treeFrame.ts），OutputLines 按项分派渲染（内联树块）。
+export type OutputLineItem =
+  | { kind: "text"; text: string }
+  | { kind: "progress"; text: string }
+  | { kind: "tree"; id: number; frame: TreeFrame };
+
 // 后端 emit 的 output 事件 payload
 // workflow 的 output 事件复用同一结构，但 stream 额外允许协议帧 step-start/step-done
 export interface OutputEventData {
@@ -12,7 +21,8 @@ export interface OutputEventData {
     | "step-start"
     | "step-done"
     | "step-skip"
-    | "progress";
+    | "progress"
+    | "tree";
   line: string;
   // workflow output 事件专有：该行归属的 step 索引（后端下发，见 api.executeWorkflow）。
   // 有它就按索引落桶，规避 Wails 事件乱序把 100% 折进下一个 step。action 事件无此字段。
@@ -100,9 +110,11 @@ export interface WorkflowStepState {
   index: number;
   status: "pending" | "running" | "done" | "error" | "skipped";
   exitCode?: number;
-  lines: string[];
+  lines: OutputLineItem[];
   // 上一行是否是 progress——决定下一条 progress 覆盖还是追加（同 action 的 lines 语义）
   lastWasProgress?: boolean;
+  // 树帧 id 计数（同 action 桶的 FoldState.treeSeq；跨事件持续，防同桶两帧撞 id）
+  treeSeq?: number;
   // 帧到达时间戳（前端打点，非后端下发）：running 起 / 终态止，供耗时读数
   startedAt?: number;
   endedAt?: number;

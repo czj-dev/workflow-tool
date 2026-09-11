@@ -128,12 +128,3 @@ func parseUITree(data string) (*UITree, error) {
 	}
 	return &t, nil
 }
-
-// countDescendants 统计节点全部后代数（不含自身），深度截断折叠计数用。
-func countDescendants(n *UINode) int {
-	c := 0
-	for i := range n.Nodes {
-		c += 1 + countDescendants(&n.Nodes[i])
-	}
-	return c
-}

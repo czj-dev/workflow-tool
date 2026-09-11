@@ -82,6 +82,11 @@ func (r *ShellRunner) Run(ctx context.Context, params map[string]any, emit EmitF
 				emit("progress", text)
 				return
 			}
+			// ##[tree {...}] 改走 tree 流（前端原地渲染内联树块），不进 stdout 捕获
+			if frame, ok := parseTreeLine(line); ok {
+				emit("tree", frame)
+				return
+			}
 		}
 		emit(stream, line)
 		if stream == "stdout" {

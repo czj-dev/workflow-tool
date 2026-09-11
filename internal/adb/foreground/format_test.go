@@ -68,59 +68,60 @@ func TestFormatWindows(t *testing.T) {
 	}
 }
 
-func TestFormatTreeNoLimit(t *testing.T) {
+func TestShortClass(t *testing.T) {
+	if shortClass("android.widget.TextView") != "TextView" {
+		t.Fatal("qualified class")
+	}
+	if shortClass("Button") != "Button" {
+		t.Fatal("plain class")
+	}
+}
+
+func TestUITreeNodeConversion(t *testing.T) {
 	tree, err := parseUITree(uiTreeFixture)
 	if err != nil {
 		t.Fatal(err)
 	}
-	lines := formatTree(tree, 0)
-	joined := strings.Join(lines, "\n")
-	// 标题含总节点数（root + container + button = 3 节点）
-	if !strings.Contains(lines[0], "共 3 节点") {
-		t.Fatalf("title = %q", lines[0])
+	root := uiTreeNode(&tree.Node)
+	// 根：无文本 → label=resource-id 身份；kind=class 短名；不可点 → detail 仅 bounds
+	if root.Kind != "FrameLayout" || root.Label != "com.tinnove.aiassistant:id/root_view" {
+		t.Fatalf("root = %+v", root)
 	}
-	for _, want := range []string{
-		// 根：prefix="  "、无 connector
-		"  android.widget.FrameLayout",
-		// 根的 bounds 第二行（prefix + 6 空格）
-		"        [932,180][1984,1228]",
-		// container：prefix="  " + "└─ "
-		"  └─ android.widget.FrameLayout",
-		// button：prefix="     "（"  "+"   "）+ "└─ "，text 带 %q，id 全量
-		`     └─ android.widget.Button "登录" id=com.example.app:id/login`,
-		// button 属性行：prefix + 6 空格 + [clickable] + bounds
-		"           [clickable] [100,800][300,880]",
-	} {
-		if !strings.Contains(joined, want) {
-			t.Fatalf("missing %q in:\n%s", want, joined)
-		}
+	if root.Detail != "[932,180][1984,1228]" {
+		t.Fatalf("root detail = %q", root.Detail)
 	}
-}
-
-func TestFormatTreeDepthLimit(t *testing.T) {
-	tree, _ := parseUITree(uiTreeFixture)
-	lines := formatTree(tree, 1) // 显示到层 1（root+container），button（层 2）折叠
-	joined := strings.Join(lines, "\n")
-	if strings.Contains(joined, "android.widget.Button") {
-		t.Fatalf("button should be folded:\n%s", joined)
+	c := root.Children[0]
+	if c.Kind != "FrameLayout" || c.Label != "com.tinnove.aiassistant:id/ai_cui_card_container" {
+		t.Fatalf("container = %+v", c)
 	}
-	// 折叠行出现在 container 的 children 位置：prefix="     " + "└─ …"，N=1
-	if !strings.Contains(joined, "     └─ … (+1 子节点)") {
-		t.Fatalf("fold marker missing:\n%s", joined)
+	// 按钮：文本身份（%q 包裹）；id/clickable/bounds 依序进 detail
+	btn := c.Children[0]
+	if btn.Kind != "Button" || btn.Label != `"登录"` {
+		t.Fatalf("button = %+v", btn)
+	}
+	if btn.Detail != "id=com.example.app:id/login · clickable · [100,800][300,880]" {
+		t.Fatalf("button detail = %q", btn.Detail)
+	}
+	if len(btn.Children) != 0 {
+		t.Fatalf("button should be leaf: %+v", btn.Children)
 	}
 }
 
-func TestFormatTreeTruncatesText(t *testing.T) {
+func TestUITreeNodeAnonymousFallback(t *testing.T) {
+	// 无文本无 id：label 兜底 class 短名（与 kind 相同，前端不重复显示标签）
+	n := uiTreeNode(&UINode{Class: "android.widget.LinearLayout", Bounds: "[0,0][1920,96]"})
+	if n.Kind != "LinearLayout" || n.Label != "LinearLayout" {
+		t.Fatalf("n = %+v", n)
+	}
+	if n.Detail != "[0,0][1920,96]" {
+		t.Fatalf("detail = %q", n.Detail)
+	}
+}
+
+func TestUITreeNodeTruncatesText(t *testing.T) {
 	long := strings.Repeat("很长的文本", 20) // 120 显示列，应截到 40 + "…"
-	tree := &UITree{Node: UINode{Class: "android.widget.TextView", Text: long}}
-	lines := formatTree(tree, 0)
-	if len(lines) != 2 { // 标题行 + 无 bounds 的单节点行
-		t.Fatalf("lines = %q", lines)
-	}
-	if w := displayWidth(lines[0]); w > 80 {
-		t.Fatalf("text not truncated, width=%d: %q", w, lines[0])
-	}
-	if !strings.HasSuffix(lines[1], `…"`) {
-		t.Fatalf("truncation marker missing: %q", lines[1])
+	n := uiTreeNode(&UINode{Class: "android.widget.TextView", Text: long})
+	if !strings.HasSuffix(n.Label, `…"`) {
+		t.Fatalf("truncation marker missing: %q", n.Label)
 	}
 }

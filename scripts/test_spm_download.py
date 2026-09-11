@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """spm-download 纯函数自查：python3 scripts/test_spm_download.py（全绿则打印 ok）。
 
-覆盖参数解析、片段匹配、零命中退让、落盘路径映射、跳过判定五块。
+覆盖参数解析、片段匹配、零命中退让、浏览树、落盘路径映射、跳过判定六块。
 文件名带连字符不能直接 import，所以按路径加载模块。
 """
 import importlib.util
@@ -41,11 +41,16 @@ env_argv = ["spm-download.py"]
 assert mod.resolve_args(env_argv, {"ZIP_NAME": "a.zip", "INNER_PATH": "/i"}) == ["a.zip", "/i"]
 assert env_argv == ["spm-download.py"], "resolve_args 不得修改入参"
 
+# 浏览模式：片段可省——命令行 2 个参数，或 env 缺 INNER_PATH / 空串（表单留空注入空串）
+assert mod.resolve_args(["spm-download.py", "a.zip"], {}) == ["a.zip"]
+assert mod.resolve_args(["spm-download.py"], {"ZIP_NAME": "a.zip"}) == ["a.zip", ""]
+assert mod.resolve_args(
+    ["spm-download.py"], {"ZIP_NAME": "a.zip", "INNER_PATH": ""}
+) == ["a.zip", ""]
+
 # 参数不足/过多 → sys.exit(__doc__)，抛 SystemExit
 bad_cases = (
-    (["spm-download.py"], {}),  # 无参数且 env 为空
-    (["spm-download.py", "a.zip"], {}),  # 只有 2 个
-    (["spm-download.py"], {"ZIP_NAME": "a.zip"}),  # env 缺 INNER_PATH
+    (["spm-download.py"], {}),  # 无参数且 env 无 ZIP_NAME
     (["spm-download.py", "a", "b", "c", "d"], {}),  # 5 个，过多
 )
 for bad_argv, bad_env in bad_cases:
@@ -119,5 +124,27 @@ with tempfile.TemporaryDirectory() as d:
     assert not mod.is_complete(str(pathlib.Path(d, "missing")), 0)
     assert not mod.is_complete(d, 0), "目录不是完成的文件"
 
+
+# ---- 浏览树（##[tree 树帧）：human_size 与 Go formatFileSize 同风格 ----
+assert mod.human_size(356) == "356 B"
+assert mod.human_size(1456312) == "1.4 MB"
+
+# build_entry_tree：目录链按需补建、file 带 detail/path、按 path 字典序插入
+# 大写 CLIENT_VER 排在 resources 前；APLog_A 中间目录被文件条目补建
+tree = mod.build_entry_tree("z.zip", ENTRIES)
+assert tree["label"] == "z.zip" and tree["kind"] == "dir"
+assert tree["children"][0]["label"] == "CLIENT_VER"
+aplog = tree["children"][1]["children"][0]["children"][0]["children"][0]
+assert aplog["label"] == "APLog_A" and aplog["kind"] == "dir"
+assert [(c["label"], c["kind"], c["detail"], c["path"]) for c in aplog["children"]] == [
+    ("main_log_7__2026_0905_160000.gz", "file", "100 B", B),
+    ("main_log_8__2026_0905_170216.gz", "file", "6.5 MB", A),
+]
+
+# entry_tree_frame：title 读数；条目被 MAX_ENTRIES 截断时警告进 title
+frame = mod.entry_tree_frame("z.zip", ENTRIES, len(ENTRIES))
+assert frame["title"] == "z.zip · 共 4 个条目" and len(frame["nodes"]) == 1
+trunc = mod.entry_tree_frame("z.zip", ENTRIES[:2], len(ENTRIES))
+assert "仅列出前 2 个" in trunc["title"]
 
 print("ok")

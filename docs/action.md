@@ -261,6 +261,7 @@ command:
 |---|---|
 | `##[output key=value]` | 解析为该 step 的 `outputs.key`，供 workflow 后续 step 用 `${{ steps.<id>.outputs.key }}` 引用。该行**仍会**照常显示在输出里 |
 | `##[progress 文本]` | 文本以「进度流」推送，前端**原地覆盖**上一条进度行（模拟终端 `\r` 刷新）。该行不显示协议壳、不进 stdout 捕获，因此不污染 `outputs.stdout` |
+| `##[tree <json>]` | JSON 解析为树帧后以 `stream: "tree"` 推送，前端在流内位置原地渲染可交互树块（折叠/搜索/叶子复制）。该行不显示协议壳、不进 stdout 捕获，不污染 `outputs.stdout`；schema 见下节 |
 
 进度协议的用途是长任务的单行滚动读数（下载百分比、逐块计数等）。裸 `\r` 不行：宿主的行扫描把 `\r` 也当行结束符（见 `internal/runner/exec.go` 的 `splitLines`），于是每次刷新都变成追加一行。
 
@@ -275,6 +276,39 @@ echo "##[progress 上传 $i/$n]"
 ```
 
 Python 脚本更稳的做法是在 wrapper 里加 `-u`（`python3 -u foo.py`），一次性关掉缓冲，不必逐处 `flush=True`。
+
+### 树帧（##[tree]）
+
+树帧是输出流的第三种内容形态（文本行 / progress 单行之外）：一帧 = 一棵完整树，前端输出控制台在流内位置原地渲染树块。JSON 必须单行（换行会破坏协议行识别），schema 与 `internal/adb/tree.go` 对齐（`label` 必填，其余可选）：
+
+```json
+{
+  "title": "log_xxx.zip · 共 2809 个条目",
+  "nodes": [
+    {
+      "label": "log_xxx.zip", "kind": "dir",
+      "children": [
+        { "label": "config.json", "kind": "file", "detail": "4 KB", "path": "config.json" }
+      ]
+    }
+  ]
+}
+```
+
+- `label`：节点身份（文件名 / View 树的文本或 resource-id）
+- `kind`：类型徽标，前端**原样渲染、无 kind→文案/颜色映射**（文件树 `dir`/`file`，View 树=具体 class 短名）；配色只按结构：容器=主题色、叶子=灰
+- `detail`：弱化补充（大小 / bounds / 截断说明），块内搜索时与 label 一起参与匹配
+- `path`：叶子点击复制的完整路径；缺省时前端回退根到叶 label 面包屑（`/` 连接）
+- `children`：空即叶子
+
+树块交互：默认展开 2 层；非叶子行点击折叠/展开子树，「折叠/展开」按钮改全局深度；块内搜索命中 label 或 detail（命中+祖先保留，仅 detail 命中的行降透明）；叶子行点击复制 `path` 并弹 toast。单帧节点数硬护栏 5000（`internal/adb/tree.go` 的 `MaxTreeNodes`，超出按深度优先截断并追加 `…` 警告节点）。
+
+adb 域（`list-files`、`foreground-info` 的 View 树）不经协议行——Go 侧直接构造同构帧以 `stream: "tree"` 发射；script/run 动作用 `##[tree` 协议行进入同一通道：
+
+```python
+# 单行紧凑 JSON；ensure_ascii=False 保住中文可读性（scripts/spm-download.py 浏览模式）
+print("##[tree " + json.dumps(frame, ensure_ascii=False, separators=(",", ":")) + "]", flush=True)
+```
 
 ## adb 域形态（command.adb）
 
@@ -333,7 +367,7 @@ command:
 | `pull` | `REMOTE_PATH`(必填)、`LOCAL_PATH`(path,必填) | 拉取单个文件 |
 | `push-multiple` | `LOCAL_PATH`(path,必填)、`REMOTE_PATH`(必填) | 本地目录 → 远程目录 |
 | `pull-multiple` | `REMOTE_PATH`(必填)、`LOCAL_PATH`(path,必填) | 远程目录 → 本地目录 |
-| `list-files` | `REMOTE_PATH`(默认 `/sdcard/`)、`SHOW_HIDDEN`(bool) | 列目录 |
+| `list-files` | `REMOTE_PATH`(默认 `/sdcard/`)、`SHOW_HIDDEN`(bool) | 列目录（`stream: "tree"` 树块渲染，叶子点击复制设备完整路径） |
 | `mkdir` | `REMOTE_PATH`(必填) | 创建远程目录 |
 | `delete` | `REMOTE_PATH`(必填)、`ALLOW_PROTECTED`(可选 bool，默认 false；true 时放行 /data、/system 等系统分区，设备根 "/" 仍拒绝) | 删除远程文件/目录 |
 | `rename` | `REMOTE_PATH`(必填)、`NEW_REMOTE_PATH`(必填) | 重命名/移动 |
@@ -363,7 +397,7 @@ command:
 
 | operation | params | 说明 |
 |---|---|---|
-| `foreground-info` | `ACTIVITY`(bool,默认 true)、`WINDOWS`(bool,默认 true)、`VIEW_TREE`(bool,默认 true)、`TREE_MAX_DEPTH`(text,空=不限) | 一次输出三段格式化报告：前台 Activity（`topResumedActivity`）、焦点窗口（`dumpsys window displays` 按 display 分组的 `mCurrentFocus`/`mFocusedApp` 等摘要）、View 树（`uiautomator dump` 无障碍树，缩进树形，`TREE_MAX_DEPTH` 超出层折叠为 `… (+N 子节点)`）。段级失败仅 warning 不影响其余段，全失败才非 0；仅支持 Android 10+ 字段格式 |
+| `foreground-info` | `ACTIVITY`(bool,默认 true)、`WINDOWS`(bool,默认 true)、`VIEW_TREE`(bool,默认 true) | 一次输出三段：前台 Activity（`topResumedActivity`）、焦点窗口（`dumpsys window displays` 按 display 分组的 `mCurrentFocus`/`mFocusedApp` 等摘要）、View 树（`uiautomator dump` 无障碍树，以 `stream: "tree"` 树块渲染——折叠/搜索/叶子复制见「输出协议」章节）。段级失败仅 warning 不影响其余段，全失败才非 0；仅支持 Android 10+ 字段格式 |
 
 `scrcpy-start` / `scrcpy-record-start` 的投屏选项（均为可选，整数类空=不传）：
 

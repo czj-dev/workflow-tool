@@ -2,20 +2,30 @@
 // 抽离出来是为了让 action 和 workflow 的 stdout/stderr/progress 处理逻辑共用一份：
 // - stderr 加前缀
 // - progress 原地覆盖上一条 progress（模拟终端 \r 刷新），否则追加
+// - tree（##[tree 协议行）：JSON 解析为树帧后以行项入桶，不落文本行
 // - stdout / 其他流：追加
 // llm/llm-thinking/logcat/step-* 这类结构化 stream 有自己的缓冲，不走这条路径。
-import type { OutputEventData } from "../types/events";
+import type { OutputEventData, OutputLineItem } from "../types/events";
+import { parseTreeFrame } from "./treeFrame";
+
+export interface FoldOpts {
+  stderrPrefix: string;
+  // 树帧 JSON 解析失败时的降级文案（i18n 由调用方注入，fold 层保持纯函数）
+  treeErrLabel?: string;
+}
 
 // 每桶 lines 需要跟踪「上一行是否是 progress」——单条 boolean 状态跟着桶走，
 // 归属清晰（action 一桶 / 每个 workflow step 各一桶）。
 // nextSeq/pending 只有 action 桶用（重排 seq，见下）；workflow 按 step 索引落桶已规避
 // 乱序问题，调用时可不传，此时退化为原样按到达顺序应用。
 // nextSeq === 0 是哨兵，语义「以首个到达的 seq 为基线」（run 中途重置队列时用）。
+// treeSeq 是树帧 id 计数：树帧不可变且只追加，id 在桶内单调递增（React key 用）。
 export interface FoldState {
-  lines: string[];
+  lines: OutputLineItem[];
   lastWasProgress: boolean;
   nextSeq?: number;
   pending?: Map<number, OutputEventData>;
+  treeSeq?: number;
 }
 
 export const emptyFoldState = (): FoldState => ({
@@ -23,28 +33,34 @@ export const emptyFoldState = (): FoldState => ({
   lastWasProgress: false,
   nextSeq: 1,
   pending: new Map(),
+  treeSeq: 0,
 });
 
-function applyOne(
-  state: FoldState,
-  d: OutputEventData,
-  opts: { stderrPrefix: string },
-): FoldState {
+function applyOne(state: FoldState, d: OutputEventData, opts: FoldOpts): FoldState {
   if (d.stream === "progress") {
-    const line = d.line || "";
+    const text = d.line || "";
     if (state.lastWasProgress && state.lines.length > 0) {
       return {
         ...state,
-        lines: [...state.lines.slice(0, -1), line],
+        lines: [...state.lines.slice(0, -1), { kind: "progress", text }],
         lastWasProgress: true,
       };
     }
-    return { ...state, lines: [...state.lines, line], lastWasProgress: true };
+    return { ...state, lines: [...state.lines, { kind: "progress", text }], lastWasProgress: true };
+  }
+  if (d.stream === "tree") {
+    const frame = parseTreeFrame(d.line || "", opts.treeErrLabel ?? "##[tree] parse failed");
+    return {
+      ...state,
+      lines: [...state.lines, { kind: "tree", id: state.treeSeq ?? 0, frame }],
+      lastWasProgress: false,
+      treeSeq: (state.treeSeq ?? 0) + 1,
+    };
   }
   const prefix = d.stream === "stderr" ? opts.stderrPrefix : "";
   return {
     ...state,
-    lines: [...state.lines, prefix + (d.line || "")],
+    lines: [...state.lines, { kind: "text", text: prefix + (d.line || "") }],
     lastWasProgress: false,
   };
 }
@@ -52,7 +68,7 @@ function applyOne(
 export function foldOutputLine(
   state: FoldState,
   d: OutputEventData,
-  opts: { stderrPrefix: string },
+  opts: FoldOpts,
 ): FoldState {
   // 无 seq（workflow 桶、旧数据）或桶未启用重排（nextSeq 缺失）：原样按到达顺序应用。
   if (d.seq == null || state.nextSeq == null) {
