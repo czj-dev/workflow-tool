@@ -14,7 +14,7 @@ export default function App() {
       <TooltipProvider>
         <SidebarProvider className="h-svh overflow-hidden">
           <AppSidebar />
-          <SidebarInset>
+          <SidebarInset className="min-w-0">
             <OutputPanel />
           </SidebarInset>
           {/* 非模态片段抽屉（右）与参数表单抽屉（左）：portaled 到 body，与任意视图同屏共存 */}

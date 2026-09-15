@@ -36,12 +36,11 @@ presets:
   - name: AI BOX
     description: AI BOX 仲裁链（R4 四件套 + 最终指令下发 TinnoveIpc）
     values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: "", TAG: "DVR_R4Arbiter DVR_R4ArbiterState DVR_R4SequentialSender DVR_MixNluArbiterImpl DVR_TinnoveIpc"}
-  - name: 手车互联
-    description: 手车互联（PhoneLink 仲裁/路由/兜底 + 最终指令下发）
-    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: "", TAG: "DVR_PhoneLinkArb DVR_ThirdAppAgentDeviceModule DVR_PhoneLinkFallbackContextProvider DVR_TinnoveIpc"}
   - name: 多轮对话
     description: 多轮改写链（注册 MultiRoundRuleRegistrar → 派发 WtNluBot → DST 改写 NluModifyDeduceUnit → 转换 ProtocolConverterManager）
     values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: "", TAG: "DVR_MultiRoundRuleRegistrar DVR_WtNluBot DVR_NluModifyDeduceUnit DVR_ProtocolConverterManager"}
   - name: 用车 Agent
     description: 用车 Agent（SSE 投递 + TopQuery 入口拦截 + ComplexTask 主链路）
     values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: "", TAG: "DVR_SseAgentStreamRouter DVR_SseAgentBridge DVR_TopQueryInterceptor DVR_TopQueryInjection DVR_TopQueryUtil ernie_ComplexTaskDeviceModule ernie_CarManualStreamAgentVM"}
+  - name: 手车互联
+    values: {FILTER: '{"tokens":[{"key":"tag","op":"contains","negated":false,"value":"DVR_PhoneLinkArb"},{"key":"tag","op":"contains","negated":false,"value":"DVR_ThirdAppAgentDeviceModule"},{"key":"tag","op":"contains","negated":false,"value":"DVR_PhoneLinkFallbackContextProvider"},{"key":"tag","op":"contains","negated":false,"value":"DVR_TinnoveIpc"},{"key":"tag","op":"contains","negated":false,"value":"DVR_SpeechServiceImpl","link":"or"}],"minLevel":"V","package":""}', LEVEL: V, TAG: DVR_PhoneLinkArb DVR_ThirdAppAgentDeviceModule DVR_PhoneLinkFallbackContextProvider DVR_TinnoveIpc DVR_SpeechServiceImpl}

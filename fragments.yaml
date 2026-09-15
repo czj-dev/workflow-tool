@@ -51,3 +51,7 @@ fragments:
         DVR_UploadAgentSignalRequest
       tags:
         - Log
+    - title: Asr_sn_filter
+      content: vrsdk_AsrEngine_\d+\(\d+\):\s+asrResultInfo\s+sn:\s*(\S+)\s+(offline|online)\s+asr:\s*(.+?)\s+(partial|final)_result
+      tags:
+        - Rg

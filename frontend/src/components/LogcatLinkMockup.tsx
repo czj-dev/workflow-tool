@@ -288,25 +288,27 @@ function MockChip({
           tok.draft ? "border-dashed border-border opacity-80" : "border-border"
         }`}
       >
+        {/* 截断链路与 LogcatView.Chip 同构：值 span 为 flex item + min-w-0 truncate，
+            否则长 tag 溢出 max-w-64 chip 边框压到相邻 chip（inline 元素上 max-w/truncate 无效）。 */}
         <button
           type="button"
-          className="font-mono hover:opacity-80"
+          className="flex min-w-0 items-center font-mono hover:opacity-80"
           onClick={onMenu}
-          title="点击：取反 / 转正则 / 分组 / 删除"
+          title={`点击：取反 / 转正则 / 分组 / 删除 · ${tok.value}`}
         >
-          {tok.negated && <span className="text-destructive">−</span>}
+          {tok.negated && <span className="shrink-0 text-destructive">−</span>}
           {tok.key !== "any" && (
-            <span className="text-muted-foreground">{tok.key}</span>
+            <span className="shrink-0 text-muted-foreground">{tok.key}</span>
           )}
-          <span className={opText(tok)}>
+          <span className={`shrink-0 ${opText(tok)}`}>
             {tok.op === "exact" ? "=:" : tok.op === "regex" ? "~:" : ":"}
           </span>
-          <span className="max-w-40 truncate text-foreground">{tok.value}</span>
+          <span className="min-w-0 truncate text-foreground">{tok.value}</span>
         </button>
         <button
           type="button"
           aria-label="删除"
-          className="ml-0.5 font-mono text-muted-foreground/60 hover:text-destructive"
+          className="ml-0.5 shrink-0 font-mono text-muted-foreground/60 hover:text-destructive"
           onClick={onRemove}
         >
           ×
