@@ -1,21 +1,24 @@
 id: adb-device-info
 title: 设备信息
 icon: hi:settings
-description: 聚合设备画像：型号 / 品牌 / 系统版本 / 分辨率 / 密度 / CPU / 内存 / IP / MAC
+description: 聚合设备画像：型号 / 品牌 / 系统版本 / VIN / 分辨率 / 密度 / CPU / 内存 / IP / MAC
 command:
   run: |
     S="${ADB_SERIAL}"
     [ -n "$S" ] && ADB="adb -s $S" || ADB="adb"
+    # 纯展示探测：stderr 一律吞掉，缺接口/缺属性时字段留空即可，不污染输出
+    q() { $ADB shell "$@" 2>/dev/null; }
     echo "===== 设备信息 ====="
-    echo "[型号]    $($ADB shell getprop ro.product.model)"
-    echo "[品牌]    $($ADB shell getprop ro.product.brand) / $($ADB shell getprop ro.product.manufacturer)"
-    echo "[系统]    Android $($ADB shell getprop ro.build.version.release) (SDK $($ADB shell getprop ro.build.version.sdk))"
-    echo "[版本号]  $($ADB shell getprop ro.build.display.id)"
-    echo "[分辨率]  $($ADB shell wm size)"
-    echo "[密度]    $($ADB shell wm density)"
-    echo "[ABI]     $($ADB shell getprop ro.product.cpu.abilist)"
-    echo "[CPU]     $($ADB shell getprop ro.hardware) ($($ADB shell cat /proc/cpuinfo | grep -c ^processor) 核)"
-    echo "[内存]    $($ADB shell cat /proc/meminfo | head -1)"
-    echo "[IP/MAC]  $($ADB shell ip addr show wlan0 | grep -E 'inet ' | awk '{print $2}') / $($ADB shell ip addr show wlan0 | grep -E 'link/ether' | awk '{print $2}')"
+    echo "[型号]    $(q getprop ro.product.model)"
+    echo "[品牌]    $(q getprop ro.product.brand) / $(q getprop ro.product.manufacturer)"
+    echo "[系统]    Android $(q getprop ro.build.version.release) (SDK $(q getprop ro.build.version.sdk))"
+    echo "[版本号]  $(q getprop ro.build.display.id)"
+    echo "[VIN]     $(q settings get system VIN)"
+    echo "[分辨率]  $(q wm size | tail -1)"
+    echo "[密度]    $(q wm density | tail -1)"
+    echo "[ABI]     $(q getprop ro.product.cpu.abilist)"
+    echo "[CPU]     $(q getprop ro.hardware) ($(q cat /proc/cpuinfo | grep -c ^processor) 核)"
+    echo "[内存]    $(q cat /proc/meminfo | head -1)"
+    echo "[IP/MAC]  $(q ip addr show wlan0 | grep -E 'inet ' | awk '{print $2}') / $(q ip addr show wlan0 | grep -E 'link/ether' | awk '{print $2}')"
     echo "===================="
   timeout: 30s

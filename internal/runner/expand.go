@@ -14,9 +14,12 @@ import (
 // → 环境变量；都未命中则保留 ${VAR} 原样并记一条 warning。
 // vars 的值支持任意类型（按 fmt.Sprint 转字符串）。builtins 为 nil 时跳过该层查找。
 //
+// 只识别带花括号的 ${VAR}，不碰裸 $VAR / $1 / $@ —— 后者是 shell/awk 的位置参数与
+// 变量，必须原样交给解释器（os.Expand 会把 awk '{print $2}' 误改成 '{print ${2}}'）。
+//
 // 所有 Runner 实现都应通过它用 params 做变量替换（Phase 3 通用契约）。
 func Expand(ctx context.Context, s string, vars map[string]any, builtins *builtinvars.Registry) string {
-	return os.Expand(s, func(name string) string {
+	resolve := func(name string) string {
 		if v, ok := vars[name]; ok {
 			return fmt.Sprint(v)
 		}
@@ -28,7 +31,21 @@ func Expand(ctx context.Context, s string, vars map[string]any, builtins *builti
 		}
 		log.Printf("warning: 未定义的变量 ${%s}（params/内置变量/env 都无），保留原样", name)
 		return "${" + name + "}"
-	})
+	}
+
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if s[i] == '$' && i+1 < len(s) && s[i+1] == '{' {
+			if end := strings.IndexByte(s[i+2:], '}'); end >= 0 {
+				b.WriteString(resolve(s[i+2 : i+2+end]))
+				i += 2 + end + 1
+				continue
+			}
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
 }
 
 // ExpandMap 对 map 的每个 value 做 Expand（用于 env 块）。

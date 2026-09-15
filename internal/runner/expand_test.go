@@ -41,6 +41,29 @@ func TestExpandNonStringVar(t *testing.T) {
 	}
 }
 
+// 裸 $VAR / $1 / $@ 不是 ${VAR}，必须原样保留交给 shell/awk，
+// 否则 awk '{print $2}' 会被误展开成 '{print ${2}}' 触发语法错误。
+func TestExpandLeavesBarePositionals(t *testing.T) {
+	cases := []string{
+		`awk '{print $2}'`,
+		`echo $1 $@ $HOME`,
+		`grep -E 'link/ether' | awk '{print $2}'`,
+	}
+	for _, in := range cases {
+		if got := Expand(context.Background(), in, map[string]any{}, nil); got != in {
+			t.Fatalf("裸 $ 应原样保留\n in : %q\n got: %q", in, got)
+		}
+	}
+}
+
+// 未闭合的 ${ 原样保留，不吞后续内容。
+func TestExpandUnterminatedBrace(t *testing.T) {
+	in := "a ${ b"
+	if got := Expand(context.Background(), in, map[string]any{}, nil); got != in {
+		t.Fatalf("未闭合 ${ 应原样保留，got %q", got)
+	}
+}
+
 // ExpandParams 应把字符串值里的 ${VAR} 按同 map 的原始值展开。
 // workflow action step params 常含 { PACKAGE: "${PACKAGE_REF}" } 这类引用。
 func TestExpandParamsMapExpandsStringRefs(t *testing.T) {
