@@ -31,6 +31,14 @@ import {
   ruleToParams,
   tokenText,
 } from "../lib/logcatRule";
+import {
+  MARK_FIELD_MESSAGE,
+  MARK_FIELD_PID,
+  MARK_FIELD_TAG,
+  fieldMarkColor,
+  markColorOf,
+  splitMarked,
+} from "../lib/logcatMarks";
 
 // logcat 视图 · 两行控制甲板（spec 2026-08-18 定稿，变体 A）：
 //   行 1 场景层 —— level 阈值 / pkg 只读 chip / preset 分段条 / ⟲ 重置 / matched·total 读数
@@ -73,6 +81,38 @@ function opText(t: LogcatToken): string {
   return "text-muted-foreground/70";
 }
 
+// 命中子串渲染：按后端 marks 切分（域内），命中段用对应序位色的半透明背景
+// （index.css --mark-N），文字色继承父级——level 色不被覆盖。无 marks 时整体原文。
+function MarkedText({
+  text,
+  marks,
+  field,
+}: {
+  text: string;
+  marks?: number[][];
+  field: number;
+}) {
+  const pieces = splitMarked(text, marks, field);
+  if (pieces.length === 1 && pieces[0].color === null) return <>{text}</>;
+  return (
+    <>
+      {pieces.map((p, i) =>
+        p.color === null ? (
+          p.text
+        ) : (
+          <span
+            key={i}
+            className="rounded-[2px] px-px"
+            style={{ background: `var(--mark-${p.color})` }}
+          >
+            {p.text}
+          </span>
+        ),
+      )}
+    </>
+  );
+}
+
 // 还原为 threadtime 文本（复制用）
 function entryToText(e: LogcatEntry): string {
   if (e.date === "" && e.time === "" && e.pid === 0) {
@@ -87,6 +127,7 @@ function entryToText(e: LogcatEntry): string {
 type MenuKind = "negate" | "regex" | "link" | "delete";
 function Chip({
   tok,
+  colorIdx,
   menuOpen,
   onMenu,
   onMenuAction,
@@ -96,6 +137,8 @@ function Chip({
   removeLabel,
 }: {
   tok: LogcatToken;
+  // 色点色号（1..8）：与日志区命中高亮同序位取色，chip 色点即「颜色↔条件」图例
+  colorIdx: number;
   menuOpen: boolean;
   onMenu: () => void;
   onMenuAction: (kind: MenuKind) => void;
@@ -106,27 +149,35 @@ function Chip({
 }) {
   return (
     <span className="relative inline-flex">
-      {/* 只渲染固化 token：草稿不进 segs，虚线态由输入框自身承担（见行 2 控制台） */}
+      {/* 只渲染固化 token：草稿不进 segs，虚线态由输入框自身承担（见行 2 控制台）。
+          截断链路：值 span 必须是 flex item（blockified 后 max-width/overflow 才生效）
+          且整条链 min-w-0，否则长 tag（如 DVR_PhoneLinkFallbackContextProvider，
+          35 字符 ≈ 252px）会溢出 max-w-64 的 chip 边框，压到右侧相邻 chip。 */}
       <span className="inline-flex max-w-64 items-center gap-0.5 rounded border border-border bg-secondary/60 px-1.5 py-0.5">
+        {/* 同色色点：日志区命中背景同源色号（实色变体，5px 点在深浅主题均可辨） */}
+        <span
+          className="size-[5px] shrink-0 rounded-full"
+          style={{ background: `var(--mark-h-${colorIdx})` }}
+        />
         <button
           type="button"
-          className="font-mono hover:opacity-80"
+          className="flex min-w-0 items-center font-mono hover:opacity-80"
           onClick={onMenu}
-          title={menuTitle}
+          title={`${menuTitle} · ${tokenText(tok)}`}
         >
-          {tok.negated && <span className="text-destructive">−</span>}
+          {tok.negated && <span className="shrink-0 text-destructive">−</span>}
           {tok.key !== "any" && (
-            <span className="text-muted-foreground">{tok.key}</span>
+            <span className="shrink-0 text-muted-foreground">{tok.key}</span>
           )}
-          <span className={opText(tok)}>
+          <span className={`shrink-0 ${opText(tok)}`}>
             {tok.op === "exact" ? "=:" : tok.op === "regex" ? "~:" : ":"}
           </span>
-          <span className="max-w-40 truncate text-foreground">{tok.value}</span>
+          <span className="min-w-0 truncate text-foreground">{tok.value}</span>
         </button>
         <button
           type="button"
           aria-label={removeLabel}
-          className="ml-0.5 text-muted-foreground/60 hover:text-destructive"
+          className="ml-0.5 shrink-0 text-muted-foreground/60 hover:text-destructive"
           onClick={onRemove}
         >
           ×
@@ -235,6 +286,10 @@ export function LogcatView() {
   // 契约：next 只传 committed；drafts 自动带回，故「草稿整体晋升」路径不能走这里（见 commitInput）。
   const setTokens = (next: LogcatToken[]) =>
     setLogcatRule({ ...logcatRule, tokens: [...next, ...drafts] });
+
+  // chip 色点色号 = 该 token 在 logcatRule.tokens 中的原下标（后端 marks 的 t 同源；
+  // committed 恒为 tokens 前缀，indexOf 兼作序位兆底，令色点与行内高亮永不错位）。
+  const chipColor = (tok: LogcatToken) => markColorOf(logcatRule.tokens.indexOf(tok));
 
   // 渲染窗口：仅渲染末尾 RENDER_CAP 行（过滤在后端完成，entries 已是命中集）。
   const visible = useMemo(
@@ -586,6 +641,7 @@ export function LogcatView() {
               <Chip
                 key={`neg#${i}`}
                 tok={committed[i]}
+                colorIdx={chipColor(committed[i])}
                 menuOpen={menuIdx === i}
                 menuTitle={t("logcat.chipMenuTitle")}
                 menuItems={menuItemsFor(i)}
@@ -626,6 +682,7 @@ export function LogcatView() {
                     )}
                     <Chip
                       tok={committed[i]}
+                      colorIdx={chipColor(committed[i])}
                       menuOpen={menuIdx === i}
                       menuTitle={t("logcat.chipMenuTitle")}
                       menuItems={menuItemsFor(i)}
@@ -680,8 +737,10 @@ export function LogcatView() {
             }`}
           />
         </span>
-        {/* top-4 tag 快捷条（重放帧直方图）：点击 toggle 精确 tag */}
-        <span className="flex items-center gap-2 text-[10px] text-muted-foreground">
+        {/* top-4 tag 快捷条（重放帧直方图）：点击 toggle 精确 tag。长 tag 同构
+            截断（span 内 flex-wrap + 按钮限宽 + 值 span flex item 截断），最坏
+            4×35 字符 tag 不溢出控制台行；title 附全文可悬停查看。 */}
+        <span className="flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
           {logcatTagHist.slice(0, 4).map(([tag, n]) => (
             <button
               key={tag}
@@ -689,7 +748,7 @@ export function LogcatView() {
               onClick={() =>
                 toggleToken({ key: "tag", op: "exact", negated: false, value: tag })
               }
-              className={`flex items-center gap-1 hover:text-primary ${
+              className={`flex min-w-0 max-w-40 items-center gap-1 hover:text-primary ${
                 tokenActive({
                   key: "tag",
                   op: "exact",
@@ -699,10 +758,10 @@ export function LogcatView() {
                   ? "text-primary"
                   : ""
               }`}
-              title={t("logcat.quickTag")}
+              title={`${t("logcat.quickTag")} · ${tag}`}
             >
-              {tag}
-              <span className="tabular-nums opacity-60">{n}</span>
+              <span className="min-w-0 truncate">{tag}</span>
+              <span className="shrink-0 tabular-nums opacity-60">{n}</span>
             </button>
           ))}
         </span>
@@ -746,6 +805,11 @@ export function LogcatView() {
                 // parseEntry）：头部单元格留空，等级不重复画 V（解析兜底值）。
                 const cont = e.date === "" && e.time === "" && e.pid === 0;
                 const color = levelColor(e.level);
+                // marks 照常随行下发，但规则被后端拒绝（logcatFilterError）时
+                // 行内高亮整体熄灭：此时后端已回退为不过滤，marks 与用户所见规则
+                // 不再同源，亮着只会误导。
+                const marks = logcatFilterError ? undefined : e.marks;
+                const pidMark = fieldMarkColor(marks, MARK_FIELD_PID);
                 return (
                   <Fragment key={i}>
                     <span className="tabular-nums text-muted-foreground">
@@ -763,7 +827,15 @@ export function LogcatView() {
                               value: String(e.pid),
                             })
                           }
+                          title={t("logcat.onlyThisProcess")}
+                          style={
+                            pidMark
+                              ? { background: `var(--mark-${pidMark})` }
+                              : undefined
+                          }
                           className={`underline-offset-2 hover:underline ${
+                            pidMark ? "rounded-[2px] px-px " : ""
+                          }${
                             tokenActive({
                               key: "pid",
                               op: "exact",
@@ -773,7 +845,6 @@ export function LogcatView() {
                               ? "text-primary"
                               : "text-muted-foreground/50"
                           }`}
-                          title={t("logcat.onlyThisProcess")}
                         >
                           {e.pid}
                         </button>
@@ -804,14 +875,22 @@ export function LogcatView() {
                               ? "text-primary"
                               : "text-foreground/80"
                           }`}
-                          title={t("logcat.onlyThisTag")}
+                          title={`${e.tag} · ${t("logcat.onlyThisTag")}`}
                         >
-                          {e.tag}
+                          <MarkedText
+                            text={e.tag}
+                            marks={marks}
+                            field={MARK_FIELD_TAG}
+                          />
                         </button>
                       )}
                     </span>
                     <span className={`whitespace-pre-wrap break-all ${color}`}>
-                      {e.message}
+                      <MarkedText
+                        text={e.message}
+                        marks={marks}
+                        field={MARK_FIELD_MESSAGE}
+                      />
                     </span>
                   </Fragment>
                 );

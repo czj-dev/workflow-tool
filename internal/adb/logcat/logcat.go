@@ -144,20 +144,26 @@ func resolvePids(op *adb.OpContext, pkg string) map[int]struct{} {
 // logcatPayload 是下发给前端的 JSON 行结构（stream="logcat" 的 line 字段）。
 // 字段对齐 adbkit-logcat Entry：date/time/pid/tid/level(单字母)/tag/message。
 // 前端按 level 着色、按 tag 分列、对 message 做运行时搜索。
+// Marks 为命中高亮标注（rule.go CompiledRule.Marks 的产出，四元组 [t,f,s,l]、
+// UTF-16 单位、仅正向 token）；omitempty——无正向 token 或无命中行不带字段，
+// 前端视为无高亮。ring 存干净原文，标注只在序列化出口打上。
 type logcatPayload struct {
-	Date    string `json:"date"`
-	Time    string `json:"time"`
-	Pid     int    `json:"pid"`
-	Tid     int    `json:"tid"`
-	Level   string `json:"level"`
-	Tag     string `json:"tag"`
-	Message string `json:"message"`
+	Date    string   `json:"date"`
+	Time    string   `json:"time"`
+	Pid     int      `json:"pid"`
+	Tid     int      `json:"tid"`
+	Level   string   `json:"level"`
+	Tag     string   `json:"tag"`
+	Message string   `json:"message"`
+	Marks   [][]int `json:"marks,omitempty"`
 }
 
 // entryJSON 把内部 Entry 转成下发用 logcatPayload（剔除 Raw，避免重复传输）。
-func entryJSON(e Entry) logcatPayload {
+// marks 由调用方在求值通过后计算（增量 onLine 与重放 buildReplaceFrames 同源）。
+func entryJSON(e Entry, marks [][]int) logcatPayload {
 	return logcatPayload{
 		Date: e.Date, Time: e.Time, Pid: e.Pid, Tid: e.Tid,
 		Level: e.Level, Tag: e.Tag, Message: e.Message,
+		Marks: marks,
 	}
 }

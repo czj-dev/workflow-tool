@@ -121,7 +121,7 @@ func handleStream(op *adb.OpContext) adb.OpResult {
 		core.mu.Lock()
 		core.ring.push(e) // raw ring 先进：重放需全量历史（放宽条件可找回）
 		if allowEntry(core.rule, pids, &e) {
-			core.buf = append(core.buf, entryJSON(e))
+			core.buf = append(core.buf, entryJSON(e, core.rule.Marks(&e)))
 		}
 		core.mu.Unlock()
 	}
@@ -296,7 +296,7 @@ func buildReplaceFrames(snap []Entry, cr *CompiledRule, pids map[int]struct{}) [
 		if !allowEntry(cr, pids, &snap[i]) {
 			continue
 		}
-		matched = append(matched, entryJSON(snap[i]))
+		matched = append(matched, entryJSON(snap[i], cr.Marks(&snap[i])))
 		if snap[i].Tag != "" {
 			hist[snap[i].Tag]++
 		}

@@ -4,8 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf16"
 )
 
 // 统一过滤规则（spec: docs/superpowers/specs/2026-08-18-logcat-filter-chips-design.md）。
@@ -63,6 +66,8 @@ type Rule struct {
 }
 
 // cToken 是编译后的 token：别名/算子已归一，正则已编译，contains 预备小写值。
+// idx 是该 token 在 Rule.Tokens 中的原下标（Marks 契约：前端按同一序位取色；
+// 空值 token 编译时跳过但下标仍按原数组计数，不因跳过而前移）。
 type cToken struct {
 	key   string
 	op    string
@@ -71,6 +76,7 @@ type cToken struct {
 	lower string         // contains 用（不区分大小写）
 	re    *regexp.Regexp // op=regex 时非 nil
 	num   int            // key=pid/tid 时非 0
+	idx   int            // Rule.Tokens 原下标（Marks 用）
 }
 
 // combo 是一个条件组：桶内同 key（OR），桶间跨 key（AND）。
@@ -81,11 +87,14 @@ type combo struct {
 
 // CompiledRule 是编译后的规则：正/负 token 分离，正向 token 按 Link="or" 切成
 // 条件组（组间 OR：任一组全桶命中即通过），组顺序按 token 首次出现顺序（确定性）。
+// pos 是正向 token 平铺列表（Marks 枚举用）：不参与 Allow 的短路求值，
+// 供「对通过行标出全部命中条件」独立遍历。
 type CompiledRule struct {
 	minRank int
 	minSet  bool
 	neg     []cToken
 	combos  []combo
+	pos     []cToken
 }
 
 // normalizeTokenKey 归一 key 别名（msg→message），未知 key 报错（TS/Go 漂移尽早暴露）。
@@ -128,7 +137,7 @@ func CompileRule(r Rule) (*CompiledRule, error) {
 		if err != nil {
 			return nil, fmt.Errorf("token[%d]: %w", i, err)
 		}
-		ct := cToken{key: key, neg: t.Negated, value: t.Value}
+		ct := cToken{key: key, neg: t.Negated, value: t.Value, idx: i}
 		switch key {
 		case keyPid, keyTid:
 			// 数字维度仅精确匹配，op 一律归一为 exact（与前端解析一致）。
@@ -161,6 +170,7 @@ func CompileRule(r Rule) (*CompiledRule, error) {
 			cr.neg = append(cr.neg, ct)
 			continue
 		}
+		cr.pos = append(cr.pos, ct) // Marks 枚举源（与 combos 平行，见 CompiledRule 注释）
 		switch t.Link {
 		case "", LinkAnd, LinkOr: // 首个正向 token 的 link（含 or）无前组可切，等同并入
 		default:
@@ -249,6 +259,164 @@ func (cr *CompiledRule) Allow(e *Entry) bool {
 		}
 	}
 	return len(cr.combos) == 0
+}
+
+// ——— Marks：命中高亮区间（spec: docs/superpowers/specs/2026-09-15-logcat-marks-highlight.md）———
+//
+// marks 域码（四元组的 f）：面板按列渲染，tag/message 为子串、pid 为整格。
+const (
+	fieldMessage = 0
+	fieldTag     = 1
+	fieldPid     = 2
+)
+
+// Marks 枚举一条通过行上各正向 token 的全部命中区间（前端命中高亮数据源）。
+// 返回四元组 [t, f, s, l]（与前端 events.ts LogcatEntry.marks 镜像，json tag 即协议）：
+//   - t = token 在 Rule.Tokens 中的原下标（前端按同一序位取色，草稿 token 同样计数）；
+//   - f = 域码 0=message 1=tag 2=pid；tid 面板无列，不产出（过滤语义不受影响）；
+//   - s/l = 命中子串在该域字符串内的起点与长度，单位 UTF-16 code unit
+//     （对齐 JS string 索引；Go 字节偏移在中文内容下会错位，换算必须经 u16Index）。
+// 语义与 Allow 对齐但相互独立：无论哪个条件组促成了放行，所有正向 token 都枚举
+// （高亮回答「哪些条件命中了此行」，非「哪条路径放行了此行」）；取反 token 命中
+// 的行不会出现在通过集，永不产出。输出按 (t, f, s) 升序——前端重叠区间按序后者
+// 覆盖，排序即覆盖优先级。nil 规则 / 无正向 token 无产出。
+func (cr *CompiledRule) Marks(e *Entry) [][]int {
+	if cr == nil || len(cr.pos) == 0 {
+		return nil
+	}
+	var out [][]int
+	for i := range cr.pos {
+		t := &cr.pos[i]
+		switch t.key {
+		case keyPid:
+			// pid 域值 = 十进制字符串（ASCII），整域命中：位数即 UTF-16 长度
+			if e.Pid == t.num && e.Pid > 0 {
+				out = append(out, mark4(t.idx, fieldPid, 0, len(strconv.Itoa(e.Pid))))
+			}
+		case keyTag:
+			out = append(out, t.marks(t.idx, fieldTag, e.Tag)...)
+		case keyMessage:
+			out = append(out, t.marks(t.idx, fieldMessage, e.Message)...)
+		case keyTid:
+			// 面板无 tid 列：无落点不产出
+		default: // any：tag 与 message 各自命中都标（与 hit 的 any 语义对齐）
+			out = append(out, t.marks(t.idx, fieldTag, e.Tag)...)
+			out = append(out, t.marks(t.idx, fieldMessage, e.Message)...)
+		}
+	}
+	if len(out) < 2 {
+		return out
+	}
+	sort.Slice(out, func(a, b int) bool {
+		for k := 0; k < 3; k++ {
+			if out[a][k] != out[b][k] {
+				return out[a][k] < out[b][k]
+			}
+		}
+		return false
+	})
+	return out
+}
+
+func mark4(t, f, s, l int) []int { return []int{t, f, s, l} }
+
+// marks 枚举单域内 token 的全部命中区间（UTF-16 单位）。空串域无产出。
+func (t *cToken) marks(idx, field int, s string) [][]int {
+	if s == "" {
+		return nil
+	}
+	switch t.op {
+	case opExact:
+		if s == t.value {
+			return [][]int{mark4(idx, field, 0, utf16Len(s))}
+		}
+		return nil
+	case opRegex:
+		return regexMarks(t.re, idx, field, s)
+	default: // contains：不区分大小写，全部出现处（与 Allow 的 matchText 同语义）
+		return containsMarks(idx, field, s, t.lower)
+	}
+}
+
+// u16Index 预计算字符串的 rune 序与两套偏移：byteOff（regex 的字节偏移换算）
+// 与 u16Off（UTF-16 code unit 偏移）。len 均为 runes+1，末项即总长。
+// 所有 marks 的偏移换算都经它出，保证 s/l 与 JS string 索引严格一致。
+type u16Index struct {
+	runes   []rune
+	byteOff []int
+	u16Off  []int
+}
+
+func newU16Index(s string) *u16Index {
+	ix := &u16Index{}
+	u16 := 0
+	for i, r := range s {
+		ix.runes = append(ix.runes, r)
+		ix.byteOff = append(ix.byteOff, i)
+		ix.u16Off = append(ix.u16Off, u16)
+		u16 += utf16.RuneLen(r) // 1 或 2（>0xFFFF 的增补平面字符）
+	}
+	ix.byteOff = append(ix.byteOff, len(s))
+	ix.u16Off = append(ix.u16Off, u16)
+	return ix
+}
+
+// byteToU16 字节偏移 → UTF-16 偏移。RE2 命中边界恒在 rune 边界，二分精确命中。
+func (ix *u16Index) byteToU16(b int) int {
+	return ix.u16Off[sort.SearchInts(ix.byteOff, b)]
+}
+
+func utf16Len(s string) int {
+	n := 0
+	for _, r := range s {
+		n += utf16.RuneLen(r)
+	}
+	return n
+}
+
+// regexMarks RE2 全部命中。FindAllStringIndex 返回字节偏移，经 u16Index 换算。
+func regexMarks(re *regexp.Regexp, idx, field int, s string) [][]int {
+	locs := re.FindAllStringIndex(s, -1)
+	if len(locs) == 0 {
+		return nil
+	}
+	ix := newU16Index(s)
+	out := make([][]int, 0, len(locs))
+	for _, lc := range locs {
+		from, to := ix.byteToU16(lc[0]), ix.byteToU16(lc[1])
+		out = append(out, mark4(idx, field, from, to-from))
+	}
+	return out
+}
+
+// containsMarks 大小写不敏感子串的全部出现处（从左到右、非重叠）。
+// strings.ToLower 逐 rune 映射（1:1），折叠文本与原文共享 rune 下标——命中区间
+// 直接以 rune 区间映射回原文，再换算 UTF-16，绕开「折叠改变字节长度」的错位坑。
+func containsMarks(idx, field int, s, lowerValue string) [][]int {
+	if lowerValue == "" {
+		return nil
+	}
+	ix := newU16Index(s)
+	folded := make([]rune, len(ix.runes))
+	for i, r := range ix.runes {
+		folded[i] = unicode.ToLower(r)
+	}
+	needle := []rune(lowerValue)
+	var out [][]int
+	for i := 0; i+len(needle) <= len(folded); i++ {
+		ok := true
+		for j, nr := range needle {
+			if folded[i+j] != nr {
+				ok = false
+				break
+			}
+		}
+		if ok {
+			out = append(out, mark4(idx, field, ix.u16Off[i], ix.u16Off[i+len(needle)]-ix.u16Off[i]))
+			i += len(needle) - 1 // 跳过整个命中（非重叠）
+		}
+	}
+	return out
 }
 
 // ParamFilter 是 preset 携带完整规则的保留参数键（甲板「存为预设」写入）：

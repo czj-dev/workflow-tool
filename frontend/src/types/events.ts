@@ -41,6 +41,14 @@ export interface LogcatEntry {
   level: string; // V/D/I/W/E/F
   tag: string;
   message: string;
+  // 命中高亮标注（与 Go rule.go CompiledRule.Marks / logcat.go logcatPayload.Marks
+  // 镜像，json tag 即协议）：四元组 [t, f, s, l] ——
+  //   t = token 在下发 Rule.Tokens 中的原下标（= 前端 logcatRule.tokens 序位，
+  //       含草稿，据此取色 lib/logcatMarks.ts）；
+  //   f = 域码 0=message 1=tag 2=pid（tid 无列不产出）；
+  //   s/l = 命中子串在该域字符串内的起点/长度，单位 UTF-16 code unit（JS string 索引）。
+  // 仅正向 token；按 (t,f,s) 升序，重叠区间按序后者覆盖；缺省（omitempty）= 无高亮。
+  marks?: number[][];
 }
 
 // ——— 统一过滤规则（与 Go internal/adb/logcat/rule.go 逐字段对齐，json tag 即协议） ———

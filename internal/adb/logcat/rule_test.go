@@ -1,6 +1,8 @@
 package logcat
 
 import (
+	"bytes"
+	"encoding/json"
 	"reflect"
 	"testing"
 )
@@ -275,6 +277,144 @@ func TestRuleFromParams(t *testing.T) {
 	r3 := RuleFromParams("X", "", "", "", "")
 	if r3.MinLevel != "" {
 		t.Fatalf("非法 LEVEL 应宽松处理: %+v", r3)
+	}
+}
+
+// ——— Marks：命中高亮区间（四元组 [t,f,s,l]，UTF-16 单位）———
+
+func marksOf(t *testing.T, r Rule, e Entry) [][]int {
+	t.Helper()
+	return mustCompile(t, r).Marks(&e)
+}
+
+func TestMarksContainsAllOccurrences(t *testing.T) {
+	e := mkEntry("I", "T", "a >==>> b >==>> c", 1, 1)
+	got := marksOf(t, Rule{Tokens: []Token{{Key: "message", Op: "contains", Value: ">==>>"}}}, e)
+	want := [][]int{{0, 0, 2, 5}, {0, 0, 10, 5}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("全部出现处（非重叠）不符:\n got %v\nwant %v", got, want)
+	}
+	// 重叠出现不交叠：aaaa 包含 aa → 两段 (0,2)(2,4)
+	got2 := marksOf(t, Rule{Tokens: []Token{{Key: "message", Op: "contains", Value: "aa"}}}, mkEntry("I", "T", "aaaa", 1, 1))
+	if !reflect.DeepEqual(got2, [][]int{{0, 0, 0, 2}, {0, 0, 2, 2}}) {
+		t.Fatalf("非重叠扫描不符: %v", got2)
+	}
+}
+
+func TestMarksUTF16Offsets(t *testing.T) {
+	// 中文+emoji：字节偏移会错位，必须按 UTF-16 code unit
+	// "中文🙂abc"：中(1)文(1)🙂(2) → abc 起点 4；命中 ABC（contains 不区分大小写）
+	e := mkEntry("I", "T", "中文🙂abc", 1, 1)
+	got := marksOf(t, Rule{Tokens: []Token{{Key: "message", Op: "contains", Value: "ABC"}}}, e)
+	if !reflect.DeepEqual(got, [][]int{{0, 0, 4, 3}}) {
+		t.Fatalf("UTF-16 偏移不符: %v", got)
+	}
+	// emoji 在正则命中区间内：长度也要按 UTF-16（🙂 = 2）
+	got2 := marksOf(t, Rule{Tokens: []Token{{Key: "message", Op: "regex", Value: "文."}}}, e)
+	if !reflect.DeepEqual(got2, [][]int{{0, 0, 1, 3}}) {
+		t.Fatalf("正则跨 emoji 的 UTF-16 长度不符: %v", got2)
+	}
+}
+
+func TestMarksFieldsAndOps(t *testing.T) {
+	// tag 域（f=1）contains 子串区间
+	got := marksOf(t, Rule{Tokens: []Token{{Key: "tag", Op: "contains", Value: "init"}}},
+		mkEntry("I", "DVR_InitService", "x", 1, 1))
+	if !reflect.DeepEqual(got, [][]int{{0, 1, 4, 4}}) {
+		t.Fatalf("tag 域区间不符: %v", got)
+	}
+	// exact 整域
+	got = marksOf(t, Rule{Tokens: []Token{{Key: "tag", Op: "exact", Value: "DVR_InitService"}}},
+		mkEntry("I", "DVR_InitService", "x", 1, 1))
+if !reflect.DeepEqual(got, [][]int{{0, 1, 0, 15}}) {
+		t.Fatalf("exact 整域不符: %v", got)
+	}
+	// pid 域（f=2）十进制整域；tid 无列不产出
+	e := mkEntry("I", "T", "x", 4321, 4330)
+	got = marksOf(t, Rule{Tokens: []Token{{Key: "pid", Value: "4321"}}}, e)
+	if !reflect.DeepEqual(got, [][]int{{0, 2, 0, 4}}) {
+		t.Fatalf("pid 整域不符: %v", got)
+	}
+	got = marksOf(t, Rule{Tokens: []Token{{Key: "tid", Value: "4330"}}}, e)
+	if got != nil {
+		t.Fatalf("tid 无列不应产出: %v", got)
+	}
+	// regex 全部命中
+	got = marksOf(t, Rule{Tokens: []Token{{Key: "message", Op: "regex", Value: "\\d+"}}},
+		mkEntry("I", "T", "ipc 12 ms 345 end", 1, 1))
+	if !reflect.DeepEqual(got, [][]int{{0, 0, 4, 2}, {0, 0, 10, 3}}) {
+		t.Fatalf("regex 全部命中不符: %v", got)
+	}
+}
+
+func TestMarksAnyDualFieldAndSort(t *testing.T) {
+	// any 裸词：tag 与 message 各自命中都发（同 t 不同 f）
+	e := mkEntry("I", "AudioRouter", "focus from AudioRouter", 1, 1)
+	got := marksOf(t, Rule{Tokens: []Token{{Key: "any", Op: "contains", Value: "audiorouter"}}}, e)
+	want := [][]int{{0, 0, 11, 11}, {0, 1, 0, 11}} // (t,f,s) 升序：message(0) 前 tag(1)
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("any 双域/排序不符:\n got %v\nwant %v", got, want)
+	}
+	// 多 token：按 t 升序，且空值 token 跳过后原下标保持
+	r := Rule{Tokens: []Token{
+		{Key: "message", Op: "contains", Value: "  "}, // 空值跳过，占位下标 0
+		{Key: "message", Op: "contains", Value: "focus"}, // t=1
+		{Key: "tag", Op: "exact", Value: "AudioRouter"},  // t=2
+	}}
+	got = marksOf(t, r, e)
+	want = [][]int{{1, 0, 0, 5}, {2, 1, 0, 11}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("原下标保持/排序不符:\n got %v\nwant %v", got, want)
+	}
+}
+
+func TestMarksNegatedAndNil(t *testing.T) {
+	// 取反 token 永不产出；正向 token 照常枚举（即使非放行路径的组）
+	e := mkEntry("I", "Alpha", "hello world", 1, 1)
+	got := marksOf(t, Rule{Tokens: []Token{
+		{Key: "tag", Op: "exact", Value: "Alpha"},
+		{Key: "message", Op: "contains", Negated: true, Value: "zzz"},
+	}}, e)
+	if !reflect.DeepEqual(got, [][]int{{0, 1, 0, 5}}) {
+		t.Fatalf("取反不应产出: %v", got)
+	}
+	// ∨ 分组下未促成放行的组也枚举（高亮回答「哪些条件命中」，非「哪条路径放行」）
+	got = marksOf(t, Rule{Tokens: []Token{
+		{Key: "tag", Op: "exact", Value: "Alpha"},
+		{Key: "tag", Op: "exact", Value: "Nope", Link: "or"},
+		{Key: "message", Op: "contains", Value: "world", Link: "or"},
+	}}, e)
+	want := [][]int{{0, 1, 0, 5}, {2, 0, 6, 5}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("非放行组也应枚举:\n got %v\nwant %v", got, want)
+	}
+	// nil 规则 / 无正向 token 无产出
+	var nilCR *CompiledRule
+	if nilCR.Marks(&e) != nil {
+		t.Fatal("nil 规则应无产出")
+	}
+	if got := marksOf(t, Rule{MinLevel: "I"}, e); got != nil {
+		t.Fatalf("无正向 token 应无产出: %v", got)
+	}
+}
+
+func TestEntryJSONMarksOmitEmpty(t *testing.T) {
+	e := mkEntry("I", "T", "x", 1, 1)
+	// 无 marks → 字段缺省（omitempty 契约）
+	b, err := json.Marshal(entryJSON(e, nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(b, []byte("marks")) {
+		t.Fatalf("无 marks 不应携带字段: %s", b)
+	}
+	// 有 marks → 字段存在
+	b2, err := json.Marshal(entryJSON(e, [][]int{{0, 0, 0, 1}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(b2, []byte(`"marks":[[0,0,0,1]]`)) {
+		t.Fatalf("marks 应按四元组序列化: %s", b2)
 	}
 }
 
