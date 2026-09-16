@@ -19,9 +19,10 @@ LLM 动作（`command.llm` 形态）经 LLMRunner 以 headless 模式调 CLI（�
 | 3 | 源目录 = 目标格式 | exe 同级新建 `skills/<name>/SKILL.md`（Claude Code 原生格式，可带附属文件）；源=目标格式，同步是纯文件拷贝零转换 |
 | 4 | 作用域目录分区，按 agent 运行位置路由 | `skills/` 根 = project 级（→ `<agent-cwd>/.claude/skills/`），`skills/user/` = user 级（→ `~/.claude/skills/`，全局一次生效）；agent-cwd = 展开后 Cwd，空则 exeDir() 兜底。一次运行的绑定集合按作用域分流到多个目标根（一对多：同一 skill 也会随动作不同 cwd 落到不同项目目录） |
 | 5 | 源为准，比对覆盖 | 绑定名单内：逐「相对路径+内容」比对，不一致覆盖写，目标多余文件删除；一致跳过（幂等） |
-| 6 | 同步放 actionrun.Build | 路由计算与文件同步都在 Build；api 直跑与 workflow step 两条路径天然一致；runner 保持纯执行单元不被文件 IO 污染 |
-| 7 | 失败即动作失败 | skill 是声明的依赖：源缺失（加载时校验拦截）、目标 IO 失败 → 动作直接报错，不静默降级 |
-| 8 | 本期无 UI / 无生成 | 纯后端机制，skill 文件手写；前端视图与 AI 生成入口下期再议 |
+| 6 | 路径映射集中在 SkillRouter 类 | 后端单独建 `SkillRouter` 类型维护「绑定 ids → 源/目标路径」映射与同步足迹（持久化账本）；Build 只调用不散落路径拼接；路径全部硬编码约定，**不做配置化**（无 CLAUDE_CONFIG_DIR 适配、无 config.yaml 覆盖） |
+| 7 | 同步执行在 actionrun.Build | Build 调 `router.Route()` 算映射、执行同步；api 直跑与 workflow step 两条路径天然一致；runner 保持纯执行单元不被文件 IO 污染 |
+| 8 | 失败即动作失败 | skill 是声明的依赖：源缺失（加载时校验拦截）、目标 IO 失败 → 动作直接报错，不静默降级 |
+| 9 | 本期无 UI / 无生成 | 纯后端机制，skill 文件手写；前端视图与 AI 生成入口下期再议 |
 
 ## 目录布局与作用域路由
 
@@ -52,12 +53,32 @@ workflow-tool.exe
 ```
 RunAction / workflow step
   → actionrun.Build（解析 llm.skills，cwd 已是展开终值）
-  → 查 registry 拿每个 id 的 scope/srcDir，按路由表算 dstDir
+  → SkillRouter.Route(ids, agentCwd)（查 registry 元数据，按路由表算 SrcDir/DstDir）
   → SyncSkills(items)（比对/覆盖，Build 的副作用）
-     └─ 返回 report 注入 LLMConfig
+     └─ 成功后 SkillRouter.Record(items) 更新足迹账本
+  → 返回 report 注入 LLMConfig
   → 构造 LLMRunner
   → Run 开头最先 emit report 行 → ducc 自行发现两级 skills 加载
 ```
+
+## 路径映射维护（`SkillRouter` 类）
+
+后端单独建类集中维护全部路径映射，`actionrun.Build` 只调用不拼接：
+
+```go
+// internal/actionrun/skillrouter.go
+type SkillRouter struct { /* registry 元数据引用 + 账本 */ }
+
+func (r *SkillRouter) Route(ids []string, agentCwd string) ([]SyncItem, error)
+//   project 级 → <agentCwd>/.claude/skills/<id>/；user 级 → <home>/.claude/skills/<id>/
+//   源路径来自 registry 扫描结果（scope/srcDir），agentCwd 由 Build 传入（空则 exeDir）
+func (r *SkillRouter) Record(items []SyncItem) // 同步成功后更新账本并落盘
+```
+
+- **`.claude/skills` 子路径**定义为包级常量（将来扩展 Codex 目标时升为「CLI → 目录约定」映射）；
+- **user 级根**固定 `os.UserHomeDir()/.claude/skills`——**不做** `CLAUDE_CONFIG_DIR` 适配（暂不考虑配置化）；
+- **足迹账本**：`skills.synced.json` 落 exe 同级（dev 时项目根，加入 .gitignore），结构 `map[目标根绝对路径][]skillId`，`Record` 时合并去重、路径统一为绝对路径（分隔符归一，Windows 反斜杠）；**Load 时自洁**——丢弃 id 已不存在于源目录的陈旧条目；
+- **孤儿策略（本期仅记录不清理）**：账本能识别「目标根同步过、但 id 已不在任何动作绑定集」的孤儿，本期不做自动删除（cwd 动态使跨动作误删风险不可静态排除），清理入口（后端命令或 UI）下期定。
 
 `exeDir()` 扫描约定新增 `skills/` 目录（与 actions/workflows/config.yaml/fragments.yaml 并列）；dev 时回退当前工作目录，规则不变。
 
@@ -87,8 +108,7 @@ type SyncItem struct {
     ID, Scope, SrcDir, DstDir string  // Scope: "project" | "user"，仅用于报告行展示
 }
 SyncSkills(items []SyncItem) (report SyncReport, err error)
-// 路由计算在 Build：查 registry（scope/srcDir）→ 按 agent-cwd / UserHomeDir 拼 DstDir。
-// ".claude/skills" 子路径定义为常量，便于将来扩展 Codex 等 CLI 目标目录。
+// items 由 SkillRouter.Route 产出（路径映射全部集中在 SkillRouter 类）。
 // report 含 synced / skipped 两个列表（各带 scope 标注）。
 ```
 
@@ -127,7 +147,7 @@ SyncSkills(items []SyncItem) (report SyncReport, err error)
 ## 测试
 
 - `internal/registry`：skills 两级分区扫描（正常/缺失/坏 frontmatter/跨级同名冲突）；validate 对 `llm.skills` 引用存在性、id 命名规则的正反用例；
-- `internal/actionrun`：路由计算（project 级随 agent-cwd、空则 exeDir 兜底；user 级落 UserHomeDir——后者以注入 homeDir 的方式测试，避免依赖真实用户目录）；`t.TempDir()` 造 src/dst，覆盖四种情况——全新同步 / 一致跳过 / 内容变更覆盖 / 目标多余文件清除；混合绑定（project+user）分流到两个目标根的用例；
+- `internal/actionrun`：SkillRouter 路由计算（project 级随 agent-cwd、空则 exeDir 兜底；user 级落 UserHomeDir——homeDir 以注入方式测试，不依赖真实用户目录）；账本 Record/Load 自洁/路径归一；`t.TempDir()` 造 src/dst，覆盖四种情况——全新同步 / 一致跳过 / 内容变更覆盖 / 目标多余文件清除；混合绑定（project+user）分流到两个目标根的用例；
 - `internal/runner`：LLMRunner 收到非空 SkillSyncReport 时，Run 开头最先 emit `[skill-sync]` 行且不进 `Result.Stdout`。
 
 ## 文档同步（CLAUDE.md 硬性要求）
@@ -137,4 +157,4 @@ SyncSkills(items []SyncItem) (report SyncReport, err error)
 
 ## 本期明确不做
 
-前端 Skill 视图、AI 生成 skill 动作、多 CLI 目标路由（Codex 的 `.codex/skills`/`.agents/skills`——目标子路径留常量，将来「CLI → 目录约定」扩成映射表即可）、prompt 层注入（context-saving 式 @mention）。
+前端 Skill 视图、AI 生成 skill 动作、路径配置化（`CLAUDE_CONFIG_DIR` 适配、config.yaml 覆盖目标根——路径全部硬编码约定）、孤儿 skill 自动清理（账本已可识别，清理入口下期定）、多 CLI 目标路由（Codex 的 `.codex/skills`/`.agents/skills`——目标子路径留常量，将来「CLI → 目录约定」扩成映射表即可）、prompt 层注入（context-saving 式 @mention）。
