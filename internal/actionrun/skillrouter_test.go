@@ -101,6 +101,19 @@ func TestRouteMissingSkillErrors(t *testing.T) {
 	}
 }
 
+// TestRouteUserScopeWithoutHomeErrors 锁定 Route 仅有的两个 error 分支之一：
+// HomeDir 为空且 skills 含 user 级条目时，user 级目标根无法确定，应报错（动作失败）。
+func TestRouteUserScopeWithoutHomeErrors(t *testing.T) {
+	skills := map[string]registry.SkillMeta{
+		"git-style": {Scope: "user", Dir: `/src/skills/user/git-style`},
+	}
+	router, _ := newTestRouter(t, skills)
+	router.HomeDir = func() string { return "" }
+	if _, _, err := router.Route([]string{"git-style"}, `D:\p`, ""); err == nil {
+		t.Fatal("HomeDir 空且含 user 级 skill 应报错（动作失败）")
+	}
+}
+
 func TestRecordLedgerSelfClean(t *testing.T) {
 	skills := map[string]registry.SkillMeta{
 		"x": {Scope: "project", Dir: `/src/skills/x`},

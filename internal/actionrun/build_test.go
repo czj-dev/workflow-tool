@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -204,5 +205,57 @@ func TestBuildLLMSkillSyncFailureFails(t *testing.T) {
 	if _, err := Build(context.Background(), la, Deps{BaseDir: t.TempDir(), SkillRouter: router},
 		Options{Params: map[string]any{"p": "hi"}}); err == nil {
 		t.Fatal("skill 同步失败应使 Build 返回 error（动作失败）")
+	}
+}
+
+// TestBuildLLMSkillSyncLedgerFailureWarns 锁定契约「账本 Record 失败 = 警告（不失败）」：
+// LedgerPath 指向已存在的目录，os.WriteFile 必败（Windows ERROR_ACCESS_DENIED / Unix EISDIR），
+// Build 仍应成功返回 LLMRunner，警告含 [skill-sync] 前缀，且同步落盘本身不受影响。
+func TestBuildLLMSkillSyncLedgerFailureWarns(t *testing.T) {
+	base := t.TempDir() // 充当 BaseDir（= agent-cwd 兜底值）
+	src := filepath.Join(base, "skills", "demo")
+	if err := os.MkdirAll(src, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(src, "SKILL.md"), []byte("# demo"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ledgerDir := filepath.Join(t.TempDir(), "as-dir") // 已存在的目录 → WriteFile 必败
+	if err := os.MkdirAll(ledgerDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(base, ".claude", "skills", "demo") // project 级落 base
+
+	skills := map[string]registry.SkillMeta{"demo": {Scope: "project", Dir: src}}
+	router := &SkillRouter{
+		Skills:     func() map[string]registry.SkillMeta { return skills },
+		HomeDir:    func() string { return t.TempDir() },
+		LedgerPath: ledgerDir,
+	}
+	la := registry.LoadedAction{Def: registry.ActionDef{ID: "a", Title: "a", Command: registry.Command{
+		LLM: registry.LLMCommand{Prompt: "p", Skills: []string{"demo"}}}}}
+
+	r, err := Build(context.Background(), la, Deps{BaseDir: base, SkillRouter: router},
+		Options{Params: map[string]any{"p": "hi"}})
+	if err != nil {
+		t.Fatalf("账本写失败应降级为警告，不应使动作失败: %v", err)
+	}
+	lr, ok := r.(*runner.LLMRunner)
+	if !ok {
+		t.Fatalf("应构造 LLMRunner, got %T", r)
+	}
+	found := false
+	for _, w := range lr.Cfg.SkillSyncWarnings {
+		if strings.HasPrefix(w, "[skill-sync]") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("账本写失败应产生 [skill-sync] 前缀警告: %v", lr.Cfg.SkillSyncWarnings)
+	}
+	// 同步本身不受账本失败影响：目标文件已落盘
+	if data, err := os.ReadFile(filepath.Join(dst, "SKILL.md")); err != nil || string(data) != "# demo" {
+		t.Fatalf("同步落盘不应受账本失败影响: %v", err)
 	}
 }

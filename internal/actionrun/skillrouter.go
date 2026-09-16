@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"workflow-tool/internal/registry"
 )
@@ -33,6 +34,10 @@ type SkillRouter struct {
 	Skills     func() map[string]registry.SkillMeta
 	HomeDir    func() string
 	LedgerPath string // skills.synced.json 绝对路径（exe 同级，dev 时项目根）
+
+	// mu 保护 Record 的读-改-写：直跑与 workflow 并行 step 可并发触达同一
+	// router 实例（api.go 的 runDeps 只构造一次），无锁会丢条目或交错写坏 JSON。
+	mu sync.Mutex
 }
 
 // Route 把绑定的 skill ids 展开为 SyncItem 列表（一对多：codex 双根、
@@ -79,7 +84,10 @@ func (r *SkillRouter) Route(ids []string, agentCwd, cli string) ([]SyncItem, Syn
 
 // Record 把本次同步足迹合并进账本（目标根 → id 列表）并自洁落盘。
 // 账本是维护性数据：写失败由调用方降级为警告，不使动作失败。
+// 读-改-写全程持锁：并发 Record 串行化，防后写者覆盖前写者或交错写坏 JSON。
 func (r *SkillRouter) Record(items []SyncItem) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	ledger := map[string][]string{}
 	if data, err := os.ReadFile(r.LedgerPath); err == nil {
 		_ = json.Unmarshal(data, &ledger) // 损坏则忽略重建
