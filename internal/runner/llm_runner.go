@@ -29,14 +29,19 @@ const defaultLLMCLI = "ducc"
 // LLMConfig 是一次 LLM 调用的执行配置。System/Prompt 都是**终值文本**（已由 api 层
 // 按 command.llm.system/prompt 指向的 param id 取出并 Expand），Runner 不再做变量替换。
 type LLMConfig struct {
-	CLI          string                // CLI 命令名，空则用 defaultLLMCLI
-	SystemPrompt string                // 系统提示词，非空则作为 --append-system-prompt 的独立 argv
-	Prompt       string                // 用户提示词，写入子进程 stdin
-	Resume       string                // 非空则作为 --resume <sessionId> 续接上次会话
-	Cwd          string                // 工作目录（空则继承父进程）
-	Timeout      time.Duration         // 超时
-	Env          map[string]string     // 额外环境变量
-	Builtins     *builtinvars.Registry // 内置变量注册表，nil 时跳过该层查找（Cwd 已在构造时展开，此字段仅保持结构一致）
+	CLI          string            // CLI 命令名，空则用 defaultLLMCLI
+	SystemPrompt string            // 系统提示词，非空则作为 --append-system-prompt 的独立 argv
+	Prompt       string            // 用户提示词，写入子进程 stdin
+	Resume       string            // 非空则作为 --resume <sessionId> 续接上次会话
+	Cwd          string            // 工作目录（空则继承父进程）
+	Timeout      time.Duration     // 超时
+	Env          map[string]string // 额外环境变量
+	// SkillSyncReport 是 Build 层注入的 [skill-sync] 报告行，Run 开头最先以
+	// stdout 流 emit（进输出面板）；不经 CLI 输出解析，不进 Result.Stdout。
+	SkillSyncReport []string
+	// SkillSyncWarnings 是同步警告行（未知 CLI 回退、账本写失败），stderr 流。
+	SkillSyncWarnings []string
+	Builtins          *builtinvars.Registry // 内置变量注册表，nil 时跳过该层查找（Cwd 已在构造时展开，此字段仅保持结构一致）
 }
 
 // LLMRunner 是 LLM 的一等执行形态（对标 ADBRunner）：自己构 argv 调 CLI，
@@ -55,6 +60,15 @@ func (r *LLMRunner) Run(ctx context.Context, params map[string]any, emit EmitFun
 	start := time.Now()
 
 	cfg := r.Cfg
+	// skill 同步报告行/警告行先于一切失败路径 emit（Build 层注入，不经 CLI 输出解析）
+	if emit != nil {
+		for _, w := range cfg.SkillSyncWarnings {
+			emit("stderr", w)
+		}
+		for _, l := range cfg.SkillSyncReport {
+			emit("stdout", l)
+		}
+	}
 	if cfg.Prompt == "" {
 		err := fmt.Errorf("command.llm: prompt 为空（检查 llm.prompt 指向的 param 是否已填）")
 		if emit != nil {

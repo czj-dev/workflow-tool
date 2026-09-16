@@ -220,6 +220,31 @@ func TestLLMRunner_StderrEmittedNotCaptured(t *testing.T) {
 	}
 }
 
+// TestLLMRunnerEmitsSkillSyncReportFirst 验证 skill 同步报告行/警告行在 Run 开头最先
+// emit（先于 Prompt 检查与子进程启动等一切失败路径），且只走 emit、不进 Result.Stdout。
+func TestLLMRunnerEmitsSkillSyncReportFirst(t *testing.T) {
+	var got []string
+	emit := func(stream, line string) { got = append(got, stream+":"+line) }
+
+	r := &LLMRunner{Cfg: LLMConfig{
+		Prompt: "hi",
+		CLI:    "definitely-no-such-cli", // 不存在的 CLI：子进程必然启动失败，
+		// 但报告行应在任何失败路径之前 emit
+		SkillSyncReport:   []string{"[skill-sync] demo(project) → D:\\p\\.claude\\skills\\demo"},
+		SkillSyncWarnings: []string{"[skill-sync] 未知 CLI 回退"},
+	}}
+	res := r.Run(context.Background(), map[string]any{}, emit)
+
+	// CLI 启动失败无任何子进程输出，收集器里应恰有手动注入的 2 行且顺序固定：
+	// 警告（stderr）在前、报告（stdout）在后。
+	if len(got) != 2 || got[0] != "stderr:[skill-sync] 未知 CLI 回退" || got[1] != "stdout:[skill-sync] demo(project) → D:\\p\\.claude\\skills\\demo" {
+		t.Fatalf("报告行应最先 emit: %v", got)
+	}
+	if res.Stdout != "" {
+		t.Fatalf("报告行不得进 Result.Stdout: %q", res.Stdout)
+	}
+}
+
 // TestLLMRunner_StructuredOutputs 验证 session_id/thinking/cost_usd/total_tokens
 // 等结构化字段仍被累积进 Result.Outputs。
 func TestLLMRunner_StructuredOutputs(t *testing.T) {
