@@ -17,34 +17,47 @@ LLM 动作（`command.llm` 形态）经 LLMRunner 以 headless 模式调 CLI（�
 | 1 | 文件即注册 | skill 同步成 `.claude/skills/<id>/` 文件，CLI 自己发现；不在 prompt/system 层注入任何内容 |
 | 2 | 动作声明绑定 | YAML 写 `command.llm.skills: [id...]`，运行前只同步绑定的这几个；名单外的目标文件永不触碰 |
 | 3 | 源目录 = 目标格式 | exe 同级新建 `skills/<name>/SKILL.md`（Claude Code 原生格式，可带附属文件）；源=目标格式，同步是纯文件拷贝零转换 |
-| 4 | 源为准，比对覆盖 | 绑定名单内：逐「相对路径+内容」比对，不一致覆盖写，目标多余文件删除；一致跳过（幂等） |
-| 5 | 同步放 actionrun.Build | cwd 终值已算好（空则 exeDir 兜底）；api 直跑与 workflow step 两条路径天然一致；runner 保持纯执行单元不被文件 IO 污染 |
-| 6 | 失败即动作失败 | skill 是声明的依赖：源缺失（加载时校验拦截）、目标 IO 失败 → 动作直接报错，不静默降级 |
-| 7 | 本期无 UI / 无生成 | 纯后端机制，skill 文件手写；前端视图与 AI 生成入口下期再议 |
+| 4 | 作用域目录分区，按 agent 运行位置路由 | `skills/` 根 = project 级（→ `<agent-cwd>/.claude/skills/`），`skills/user/` = user 级（→ `~/.claude/skills/`，全局一次生效）；agent-cwd = 展开后 Cwd，空则 exeDir() 兜底。一次运行的绑定集合按作用域分流到多个目标根（一对多：同一 skill 也会随动作不同 cwd 落到不同项目目录） |
+| 5 | 源为准，比对覆盖 | 绑定名单内：逐「相对路径+内容」比对，不一致覆盖写，目标多余文件删除；一致跳过（幂等） |
+| 6 | 同步放 actionrun.Build | 路由计算与文件同步都在 Build；api 直跑与 workflow step 两条路径天然一致；runner 保持纯执行单元不被文件 IO 污染 |
+| 7 | 失败即动作失败 | skill 是声明的依赖：源缺失（加载时校验拦截）、目标 IO 失败 → 动作直接报错，不静默降级 |
+| 8 | 本期无 UI / 无生成 | 纯后端机制，skill 文件手写；前端视图与 AI 生成入口下期再议 |
 
-## 目录布局与数据流
+## 目录布局与作用域路由
 
 ```
 workflow-tool.exe
-├── actions/claude-bug-analyze.yaml   # command.llm.skills: [bug-analyze]
+├── actions/claude-bug-analyze.yaml   # command.llm.skills: [bug-analyze, git-style]
 ├── skills/
-│   └── bug-analyze/
-│       ├── SKILL.md                  # frontmatter(name/description) + 正文
-│       └── references/*.md           # 可选附属文件，整目录同步
+│   ├── bug-analyze/                  # project 级（根目录即 project 分区）
+│   │   ├── SKILL.md                  # frontmatter(name/description) + 正文
+│   │   └── references/*.md           # 可选附属文件，整目录同步
+│   └── user/
+│       └── git-style/                # user 级分区
+│           └── SKILL.md
 └── workflows/…
 ```
+
+**位置即作用域**（与 Claude Code 原生「~/.claude/skills vs ./.claude/skills 位置定作用域」同一语义，零 frontmatter 扩展）。两级合并为**单一 id 命名空间**：跨级同名 id 视为冲突，加载时报错（与 action id 冲突同风格）。
+
+**路由表**（同步目标 = f(skill 作用域, agent 运行位置)）：
+
+| skill 分区 | 同步目标 | 语义 |
+|-----------|---------|------|
+| `skills/<id>/`（project 级） | `<agent-cwd>/.claude/skills/<id>/` | 跟随 agent 实际运行目录；动作 cwd 随参数变化时同一 skill 落到不同项目目录（一对多） |
+| `skills/user/<id>/`（user 级） | `~/.claude/skills/<id>/`（`os.UserHomeDir()`） | 与 cwd 无关，agent 在任何目录运行都能读到；同步一次全局生效，后续运行比对一致即跳过 |
+
+**agent-cwd 的确定**：`LoadedAction.Cwd` 展开后的终值，非空即用它；为空则**显式用 `exeDir()` 兜底**（与 registry 扫描同源，不依赖子进程「继承父进程 cwd」的隐式语义）——agent 实际在 exe 同级目录运行，skill 落点与之一致。
 
 ```
 RunAction / workflow step
   → actionrun.Build（解析 llm.skills，cwd 已是展开终值）
-  → SyncSkills(源=exeDir/skills, 目标=<cwd>/.claude/skills, ids)
-     ├─ 比对/覆盖（Build 的副作用）
-     └─ 返回 report（synced/skipped 列表）注入 LLMConfig
+  → 查 registry 拿每个 id 的 scope/srcDir，按路由表算 dstDir
+  → SyncSkills(items)（比对/覆盖，Build 的副作用）
+     └─ 返回 report 注入 LLMConfig
   → 构造 LLMRunner
-  → Run 开头最先 emit report 行 → ducc 自行发现 .claude/skills/ 加载
+  → Run 开头最先 emit report 行 → ducc 自行发现两级 skills 加载
 ```
-
-**cwd 兜底语义**：同步目标不依赖子进程继承语义——`LoadedAction.Cwd` 展开后为空时，同步目标**显式用 `exeDir()` 兜底**（与 registry 扫描同源、对齐 exe 同级约定），而非子进程的「继承父进程 cwd」。正常启动方式下两者一致，但显式兜底让 skill 落点可预期。
 
 `exeDir()` 扫描约定新增 `skills/` 目录（与 actions/workflows/config.yaml/fragments.yaml 并列）；dev 时回退当前工作目录，规则不变。
 
@@ -62,19 +75,24 @@ command:
 校验规则（`registry.validate`，加载时报错风格与 action id 冲突一致）：
 
 - skill id 命名 `^[a-z0-9-]+$`（与 action id 同规则，也是 Claude Code skill 名约定）；
-- 每个 id 必须存在 `skills/<id>/SKILL.md`，缺失即该动作加载失败；
-- registry 新增 skills 目录扫描：目录名即 id，frontmatter 宽松解析（name/description 可缺，坏 frontmatter 跳过该条不计入可用集——与 Claudian「malformed skip」哲学一致）。
+- 每个 id 必须存在对应分区的 `SKILL.md`（project 级 `skills/<id>/SKILL.md`，user 级 `skills/user/<id>/SKILL.md`），缺失即该动作加载失败；
+- registry 新增 skills 目录扫描：**两级分区（根 + user/）合并为单一 id 命名空间**，目录名即 id，frontmatter 宽松解析（name/description 可缺，坏 frontmatter 跳过该条不计入可用集）；跨级同名 id 加载时报冲突（与 action id 冲突同风格）。
 
 `skills` 字段位于 `command.llm` 内部，天然不与 run/script/adb 形态混用；四选一互斥校验不受影响。
 
 ## 同步算法（`actionrun.SyncSkills`）
 
 ```
-SyncSkills(srcRoot, dstRoot string, ids []string) (report SyncReport, err error)
-// dstRoot 由调用方（Build）拼好传入 = <cwd>/.claude/skills；
-// ".claude/skills" 子路径定义为常量，便于将来扩展 Codex 目标目录。
-// report 含 synced / skipped 两个列表。
+type SyncItem struct {
+    ID, Scope, SrcDir, DstDir string  // Scope: "project" | "user"，仅用于报告行展示
+}
+SyncSkills(items []SyncItem) (report SyncReport, err error)
+// 路由计算在 Build：查 registry（scope/srcDir）→ 按 agent-cwd / UserHomeDir 拼 DstDir。
+// ".claude/skills" 子路径定义为常量，便于将来扩展 Codex 等 CLI 目标目录。
+// report 含 synced / skipped 两个列表（各带 scope 标注）。
 ```
+
+对 items 内每个条目（一次运行可含两个目标根的条目，即一对多分流）：
 
 **输出行协议**：Build 层没有 emit 回调，report 不在 Build 时直接推送——注入 `LLMConfig.SkillSyncReport`，由 `LLMRunner.Run` 开头（CLI 子进程启动前）最先逐行 emit 为普通 `stdout` 流。好处：输出协议仍集中在 runner 一处，api 直跑与 workflow 两条路径自动一致，且报告行天然成为 LLM 会话的第一条可见输出。
 
@@ -85,11 +103,12 @@ SyncSkills(srcRoot, dstRoot string, ids []string) (report SyncReport, err error)
 
 **不做目录级先删后拷**：中途失败最多留旧文件，不留空目录（Windows 下目录级原子 rename 不可靠，不做）。符号链接/二进制文件按普通文件字节读写作比对，不特殊处理。
 
-报告行格式（Runner 自发，不经 CLI 输出解析，因此**不进 `Result.Stdout`**——保持其纯 assistant text 语义供 workflow `if` 引用）：
+报告行格式（Runner 自发，不经 CLI 输出解析，因此**不进 `Result.Stdout`**——保持其纯 assistant text 语义供 workflow `if` 引用；作用域随行标注）：
 
 ```
-[skill-sync] bug-analyze → D:\proj\.claude\skills\bug-analyze
-[skill-sync] card-convert 已是最新，跳过
+[skill-sync] bug-analyze(project) → D:\proj\.claude\skills\bug-analyze
+[skill-sync] git-style(user) → C:\Users\ASUS\.claude\skills\git-style
+[skill-sync] card-convert(project) 已是最新，跳过
 ```
 
 **并发**：同一动作并发运行已被现有机制拒绝；不同动作同步同一目标目录属跨动作并发写文件，文件级覆盖写在最坏情况下后写者胜，可接受，不加锁。
@@ -98,15 +117,17 @@ SyncSkills(srcRoot, dstRoot string, ids []string) (report SyncReport, err error)
 
 | 场景 | 行为 |
 |------|------|
-| `llm.skills` 引用的 id 在 skills/ 目录不存在 | registry 加载时校验失败，动作不可运行 |
-| skills/<id>/SKILL.md 运行时被外部删除（加载时存在） | Build 时 SyncSkills 报错，动作失败 |
+| `llm.skills` 引用的 id 在 skills/ 两级分区均不存在 | registry 加载时校验失败，动作不可运行 |
+| 跨级同名 id（`skills/<id>/` 与 `skills/user/<id>/` 并存） | registry 加载时报 id 冲突 |
+| SKILL.md 运行时被外部删除（加载时存在） | Build 时 SyncSkills 报错，动作失败 |
 | 目标目录写失败（权限/占用） | SyncSkills 报错，动作失败，stderr 带路径 |
+| user 级目标 `~/.claude/skills/` 不可写 | 同上，动作失败（user 级 skill 同样是声明的依赖） |
 | 坏 frontmatter | 加载时跳过该 skill；若被动作引用则按「id 不存在」报错 |
 
 ## 测试
 
-- `internal/registry`：skills 目录扫描（正常/缺失/坏 frontmatter）；validate 对 `llm.skills` 引用存在性、id 命名规则的正反用例；
-- `internal/actionrun`：`t.TempDir()` 造 src/dst，覆盖四种情况——全新同步 / 一致跳过 / 内容变更覆盖 / 目标多余文件清除；
+- `internal/registry`：skills 两级分区扫描（正常/缺失/坏 frontmatter/跨级同名冲突）；validate 对 `llm.skills` 引用存在性、id 命名规则的正反用例；
+- `internal/actionrun`：路由计算（project 级随 agent-cwd、空则 exeDir 兜底；user 级落 UserHomeDir——后者以注入 homeDir 的方式测试，避免依赖真实用户目录）；`t.TempDir()` 造 src/dst，覆盖四种情况——全新同步 / 一致跳过 / 内容变更覆盖 / 目标多余文件清除；混合绑定（project+user）分流到两个目标根的用例；
 - `internal/runner`：LLMRunner 收到非空 SkillSyncReport 时，Run 开头最先 emit `[skill-sync]` 行且不进 `Result.Stdout`。
 
 ## 文档同步（CLAUDE.md 硬性要求）
@@ -116,4 +137,4 @@ SyncSkills(srcRoot, dstRoot string, ids []string) (report SyncReport, err error)
 
 ## 本期明确不做
 
-前端 Skill 视图、AI 生成 skill 动作、Codex 目标目录（`.codex/skills`，目标子路径留常量便于扩展）、用户级 `~/.claude/skills` 同步、prompt 层注入（context-saving 式 @mention）。
+前端 Skill 视图、AI 生成 skill 动作、多 CLI 目标路由（Codex 的 `.codex/skills`/`.agents/skills`——目标子路径留常量，将来「CLI → 目录约定」扩成映射表即可）、prompt 层注入（context-saving 式 @mention）。
