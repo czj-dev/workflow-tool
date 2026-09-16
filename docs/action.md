@@ -145,6 +145,16 @@ command:
   timeout: 5m       # 仍适用，默认 60s（LLM 调用建议显式设更长超时）
 ```
 
+#### `skills`（可选，string[]）
+
+绑定的 skill id 列表。运行前把 exe 同级 `skills/` 源目录中对应的 skill **整目录同步**到 Agent 目录（源为准：内容比对，不一致覆盖，目标多余文件删除；一致跳过），由 CLI 自行发现加载——**不在 prompt/system 层拼接任何内容**。
+
+- 源目录两级分区，**位置即作用域**：`skills/<id>/` = project 级 → 同步到 `<cwd>/.claude/skills/<id>/`（`cwd` 展开后为空则用 exe 目录）；`skills/user/<id>/` = user 级 → 同步到 `~/.claude/skills/<id>/`（全局一次生效）
+- 目标目录按 **CLI 路由表**（`config.yaml` 的 `LLM_CLI`）：`claude`/`ducc` → `.claude/skills`；`codex` → `.codex/skills` + `.agents/skills` 双根；未知 CLI 回退 `.claude/skills` 并输出警告
+- id 命名 `^[a-z0-9-]+$`，两级合并单一命名空间，跨级同名加载时报冲突；引用不存在的 id 该动作加载失败
+- 同步结果以 `[skill-sync]` 报告行出现在输出面板首行（如 `[skill-sync] demo-skill(project) → D:\proj\.claude\skills\demo-skill`）
+- 同步目标写失败 = 动作失败（skill 是声明的依赖）；同步足迹记录在 exe 同级 `skills.synced.json`
+
 ### 工作机制
 
 - **CLI 名**：从全局配置 `config.yaml` 的 `LLM_CLI` 读取，缺省 `ducc`；一处改全局切换到 `claude` 等其他 CLI。

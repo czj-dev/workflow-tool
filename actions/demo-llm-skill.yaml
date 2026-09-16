@@ -1,0 +1,12 @@
+id: demo-llm-skill
+title: LLM Skill 同步演示
+icon: hi:ai
+command:
+  llm:
+    prompt: user_prompt
+    skills:
+      - demo-skill
+params:
+  - id: user_prompt
+    label: 提问
+    type: textarea

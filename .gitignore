@@ -43,4 +43,6 @@ __pycache__/
 # OS
 .DS_Store
 Thumbs.db
-skills/
+
+# skill 同步足迹（运行时生成，不入仓库）
+skills.synced.json
