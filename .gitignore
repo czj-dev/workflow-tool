@@ -47,3 +47,7 @@ Thumbs.db
 
 # skill 同步足迹（运行时生成，不入仓库）
 skills.synced.json
+
+# 业务 skill 本体（含敏感数据，各端自备；yaml 引用保留，缺技能时对应动作加载失败）
+skills/icafe-bug-analyzer/
+skills/icafe-skill/

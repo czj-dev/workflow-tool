@@ -44,5 +44,7 @@ command:
     system: ROLE
     prompt: TASK
     resume: SESSION_ID
+    skills:
+      - icafe-bug-analyzer
   # 七步流水线含附件下载/解压/多卡串行，5m 必杀；与 ROLE 的「单进程内串行完成」约束匹配。
   timeout: 30m
