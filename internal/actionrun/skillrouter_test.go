@@ -107,9 +107,13 @@ func TestRecordLedgerSelfClean(t *testing.T) {
 	}
 	router, _ := newTestRouter(t, skills)
 
+	rootA := filepath.Join(t.TempDir(), "proj") // 项目根（agent cwd 侧）
+	rootB := filepath.Join(t.TempDir(), "home") // 另一根（user 侧）
 	items := []SyncItem{
-		{ID: "x", Scope: "project", SrcDir: `/src/skills/x`, DstDir: `D:\p\.claude\skills\x`},
-		{ID: "y", Scope: "user", SrcDir: `/src/skills/user/y`, DstDir: `C:\h\.claude\skills\y`}, // y 不在源
+		{ID: "x", Scope: "project", SrcDir: `/src/skills/x`,
+			DstDir: filepath.Join(rootA, ".claude", "skills", "x")},
+		{ID: "y", Scope: "user", SrcDir: `/src/skills/user/y`,
+			DstDir: filepath.Join(rootB, ".claude", "skills", "y")}, // y 不在源
 	}
 	if err := router.Record(items); err != nil {
 		t.Fatal(err)
@@ -126,7 +130,7 @@ func TestRecordLedgerSelfClean(t *testing.T) {
 	if len(ledger) != 1 {
 		t.Fatalf("陈旧条目应被自洁，只剩 1 个根: %+v", ledger)
 	}
-	key := filepath.Dir(filepath.Clean(`D:\p\.claude\skills\x`))
+	key := normalizeLedgerPath(filepath.Dir(items[0].DstDir))
 	if got := ledger[key]; len(got) != 1 || got[0] != "x" {
 		t.Fatalf("账本内容不符: %v", got)
 	}
