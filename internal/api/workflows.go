@@ -169,11 +169,16 @@ func (s *Service) makeActionRun(merged map[string]any) workflow.ActionRunFunc {
 		// ${VAR} 展开必须在合并前完成（详见 buildActionRunParams 注释）。
 		runParams, expandedEnv := s.buildActionRunParams(req.Ctx, merged, req.Env, req.Params)
 		// 与直跑路径共用同一构造逻辑：形态分发/env 分层/capture 合并都在 actionrun.Build 里。
-		r := actionrun.Build(req.Ctx, la, s.runDeps, actionrun.Options{
+		r, err := actionrun.Build(req.Ctx, la, s.runDeps, actionrun.Options{
 			Params:          runParams,
 			ExtraEnv:        expandedEnv,
 			CaptureOverride: req.CaptureOutput,
 		})
+		if err != nil {
+			req.Emit("stderr", err.Error())
+			return runner.Result{ExitCode: -1, Err: err,
+				Outputs: map[string]string{"exit_code": "-1", "success": "false"}}
+		}
 		return r.Run(req.Ctx, runParams, req.Emit)
 	}
 }

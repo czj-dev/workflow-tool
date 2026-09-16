@@ -31,6 +31,9 @@ type Deps struct {
 	ADBDevice DeviceResolver        // 设备解析（serial 校验与回退）
 	Builtins  *builtinvars.Registry // 内置变量注册表（CURRENT_DATE/CURRENT_TIME/ADB_SERIAL）
 	BashPath  func() string         // config.yaml BASH_PATH 惰性读取（bash/sh 解析级联第一优先），nil = 无覆盖
+	// SkillRouter 集中维护 skill 同步路径映射与足迹账本（nil = 不支持 skill 同步，
+	// 仅测试场景；声明了 skills 且 router 为 nil 时 Build 报错）。
+	SkillRouter *SkillRouter
 }
 
 // Options 是一次构造的可变输入：直接运行与 workflow step 运行的差异全部在这里。
@@ -51,7 +54,8 @@ type Options struct {
 
 // Build 按 LoadedAction 的 command 形态构造对应 Runner。
 // registry.Validate 已保证四选一互斥，default 分支即 shell/script 形态。
-func Build(ctx context.Context, la registry.LoadedAction, deps Deps, opts Options) runner.Runner {
+// LLM 形态绑定了 skills 时先执行同步（失败即返回 error，动作失败）。
+func Build(ctx context.Context, la registry.LoadedAction, deps Deps, opts Options) (runner.Runner, error) {
 	capture := la.Def.Command.CaptureOutput
 	if opts.CaptureOverride != nil {
 		capture = opts.CaptureOverride
@@ -65,9 +69,9 @@ func Build(ctx context.Context, la registry.LoadedAction, deps Deps, opts Option
 			ResolvePaths: deps.ADBPaths,
 			Control:      opts.ADBControl,
 			Builtins:     deps.Builtins,
-		}
+		}, nil
 	case la.Def.Command.LLM.Prompt != "":
-		return buildLLM(ctx, la, opts, deps.Builtins)
+		return buildLLM(ctx, la, deps, opts)
 	default:
 		return &runner.ShellRunner{Cfg: runner.ShellConfig{
 			Run:           la.Def.Command.Run,
@@ -80,25 +84,51 @@ func Build(ctx context.Context, la registry.LoadedAction, deps Deps, opts Option
 			BaseDir:       deps.BaseDir,
 			CaptureOutput: capture,
 			Builtins:      deps.Builtins,
-		}}
+		}}, nil
 	}
 }
 
 // buildLLM 按 command.llm 声明的 param id 从 params 取终值构造 LLMRunner。
-// CLI 名空时由 LLMRunner 内部取默认（ducc）。
-func buildLLM(ctx context.Context, la registry.LoadedAction, opts Options, builtins *builtinvars.Registry) runner.Runner {
+// CLI 名空时由 LLMRunner 内部取默认（ducc）。绑定了 skills 时先路由+同步：
+// agent-cwd 用展开后的 Cwd（空则 BaseDir 兜底，与 registry 扫描同源），
+// 同步失败返回 error（动作失败）；账本 Record 失败降级为警告行。
+func buildLLM(ctx context.Context, la registry.LoadedAction, deps Deps, opts Options) (runner.Runner, error) {
 	cmd := la.Def.Command.LLM
-	return &runner.LLMRunner{Cfg: runner.LLMConfig{
+	cwd := runner.Expand(ctx, la.Cwd, opts.Params, deps.Builtins)
+	if cwd == "" {
+		cwd = deps.BaseDir // 显式兜底，不依赖子进程「继承父进程 cwd」的隐式语义
+	}
+	cfg := runner.LLMConfig{
 		CLI:          strOf(opts.Params, "LLM_CLI"),
 		SystemPrompt: strOf(opts.Params, cmd.System),
 		Prompt:       strOf(opts.Params, cmd.Prompt),
 		Resume:       strings.TrimSpace(strOf(opts.Params, cmd.Resume)),
 		// LLMRunner 不做 ${VAR} 替换，Cwd 在这里展开成终值（与 Shell 形态传 raw 不同）。
-		Cwd:      runner.Expand(ctx, la.Cwd, opts.Params, builtins),
+		Cwd:      cwd,
 		Timeout:  la.Timeout,
 		Env:      mergeEnv(la.Def.Command.Env, opts.ExtraEnv),
-		Builtins: builtins,
-	}}
+		Builtins: deps.Builtins,
+	}
+	if len(cmd.Skills) > 0 {
+		if deps.SkillRouter == nil {
+			return nil, fmt.Errorf("动作绑定了 command.llm.skills 但 SkillRouter 未注入")
+		}
+		items, routeReport, err := deps.SkillRouter.Route(cmd.Skills, cwd, cfg.CLI)
+		if err != nil {
+			return nil, err
+		}
+		syncReport, err := SyncSkills(items)
+		if err != nil {
+			return nil, err
+		}
+		if err := deps.SkillRouter.Record(items); err != nil {
+			syncReport.Warnings = append(syncReport.Warnings,
+				fmt.Sprintf("[skill-sync] 足迹账本写入失败（不影响本次同步）: %v", err))
+		}
+		cfg.SkillSyncReport = syncReport.Lines()
+		cfg.SkillSyncWarnings = append(routeReport.Warnings, syncReport.Warnings...)
+	}
+	return &runner.LLMRunner{Cfg: cfg}, nil
 }
 
 // mergeEnv 合并 action 定义 env 与注入 env（注入覆盖同名）。

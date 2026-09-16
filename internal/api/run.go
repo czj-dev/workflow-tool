@@ -110,7 +110,11 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 		}
 	}
 
-	r := actionrun.Build(ctx, la, s.runDeps, actionrun.Options{Params: params, ADBControl: ctrl})
+	r, err := actionrun.Build(ctx, la, s.runDeps, actionrun.Options{Params: params, ADBControl: ctrl})
+	if err != nil {
+		ev.DoneUnordered(-1, err.Error(), 0)
+		return
+	}
 	res := r.Run(ctx, params, ev.EmitFunc())
 
 	// LLM 形态提取终点读数（cost/tokens/session_id），随 done 事件下发。

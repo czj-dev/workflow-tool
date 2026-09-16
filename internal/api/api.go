@@ -5,6 +5,8 @@
 package api
 
 import (
+	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -67,7 +69,13 @@ func New(reg *registry.Registry, wfReg *workflow.WorkflowRegistry, baseDir, cfgP
 	svc.bin = binary.NewService()
 	svc.dev = device.NewService(svc.binPaths)
 	svc.builtins = builtinvars.New(svc.dev)
-	svc.runDeps = actionrun.Deps{BaseDir: baseDir, ADBPaths: svc.binPaths, ADBDevice: svc.dev, Builtins: svc.builtins, BashPath: svc.bashOverride}
+	svc.runDeps = actionrun.Deps{BaseDir: baseDir, ADBPaths: svc.binPaths, ADBDevice: svc.dev, Builtins: svc.builtins, BashPath: svc.bashOverride,
+		SkillRouter: &actionrun.SkillRouter{
+			// 惰性取当前 registry（热重载后 Skills 随之更新）
+			Skills:     func() map[string]registry.SkillMeta { return svc.reg.Skills },
+			HomeDir:    func() string { h, _ := os.UserHomeDir(); return h },
+			LedgerPath: filepath.Join(baseDir, "skills.synced.json"),
+		}}
 	return svc
 }
 
