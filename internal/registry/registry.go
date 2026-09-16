@@ -82,6 +82,9 @@ type LLMCommand struct {
 	Prompt string `yaml:"prompt"`
 	// Resume 可选，param id，值非空时通过 --resume <值> 续接指定 session id 的历史会话。
 	Resume string `yaml:"resume"`
+	// Skills 可选，绑定的 skill id 列表。运行前由 actionrun.SkillRouter 把
+	// skills/ 源目录里对应 skill 同步到 Agent 工作目录，CLI 自行发现加载。
+	Skills []string `yaml:"skills"`
 }
 
 // LoadedAction 是已校验、字段已解析的动作。
@@ -102,6 +105,14 @@ type FileError struct {
 type Registry struct {
 	Actions map[string]LoadedAction
 	Errors  []FileError
+	// Skills 是 skills/ 两级分区扫描出的可用 skill 集（键为目录名即 id）。
+	Skills map[string]SkillMeta
+}
+
+// SkillMeta 描述一个可用 skill：作用域（源目录位置决定）与源目录绝对路径。
+type SkillMeta struct {
+	Scope string // "project"（skills/<id>/）| "user"（skills/user/<id>/）
+	Dir   string // 源目录绝对路径
 }
 
 var idPattern = regexp.MustCompile(`^[a-z0-9-]+$`)
@@ -110,6 +121,9 @@ var idPattern = regexp.MustCompile(`^[a-z0-9-]+$`)
 // baseDir 用于运行时解析相对 script 路径（Registry 仅透传，不做路径解析）。
 func Load(dir, baseDir string) *Registry {
 	reg := &Registry{Actions: map[string]LoadedAction{}}
+	skills, skillErrs := loadSkills(baseDir)
+	reg.Skills = skills
+	reg.Errors = append(reg.Errors, skillErrs...)
 	files, err := filepath.Glob(filepath.Join(dir, "*.yaml"))
 	if err != nil {
 		reg.Errors = append(reg.Errors, FileError{File: dir, Error: err.Error()})
@@ -127,6 +141,10 @@ func Load(dir, baseDir string) *Registry {
 		}
 		if _, exists := reg.Actions[def.ID]; exists {
 			reg.Errors = append(reg.Errors, FileError{File: filepath.Base(f), Error: fmt.Sprintf("重复 id %q", def.ID)})
+			continue
+		}
+		if err := validateSkillRefs(def, skills); err != nil {
+			reg.Errors = append(reg.Errors, FileError{File: filepath.Base(f), Error: err.Error()})
 			continue
 		}
 		// Phase 3：不在 Load 时替换 ${VAR}，保留 raw，运行时由 runner 用 params 替换
@@ -222,6 +240,11 @@ func Validate(def *ActionDef) error {
 		}
 		if def.Command.LLM.Resume != "" && !hasParam(def.Params, def.Command.LLM.Resume) {
 			return fmt.Errorf("command.llm.resume 引用的 param %q 不存在于 params 中", def.Command.LLM.Resume)
+		}
+		for _, id := range def.Command.LLM.Skills {
+			if !idPattern.MatchString(id) {
+				return fmt.Errorf("command.llm.skills[%q] 必须匹配 ^[a-z0-9-]+$", id)
+			}
 		}
 	}
 	switch def.Command.Stream {
@@ -352,6 +375,54 @@ func newPresetMapping(name, description string, valuesNode *yaml.Node) *yaml.Nod
 	}
 	add("values", valuesNode)
 	return m
+}
+
+// loadSkills 扫描 baseDir/skills 两级分区：根目录（user/ 除外）= project 级，
+// skills/user/ = user 级。子目录含 SKILL.md 才收录；frontmatter 不解析
+// （name/description 本期无消费方，id 即目录名，坏 frontmatter 无法定义故不判）。
+// 跨级同名 id 视为冲突，报 FileError。
+func loadSkills(baseDir string) (map[string]SkillMeta, []FileError) {
+	skills := map[string]SkillMeta{}
+	var errs []FileError
+	root := filepath.Join(baseDir, "skills")
+	addScope := func(dir, scope string) {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return // 目录不存在：无 skill，正常
+		}
+		for _, e := range entries {
+			if !e.IsDir() {
+				continue
+			}
+			name := e.Name()
+			if scope == "project" && name == "user" {
+				continue // user 分区由第二次调用扫
+			}
+			skillDir := filepath.Join(dir, name)
+			if _, err := os.Stat(filepath.Join(skillDir, "SKILL.md")); err != nil {
+				continue // 无 SKILL.md 宽松跳过
+			}
+			if _, exists := skills[name]; exists {
+				errs = append(errs, FileError{File: "skills/" + name,
+					Error: fmt.Sprintf("跨级同名 skill id %q 冲突（project 与 user 分区并存）", name)})
+				continue
+			}
+			skills[name] = SkillMeta{Scope: scope, Dir: skillDir}
+		}
+	}
+	addScope(root, "project")
+	addScope(filepath.Join(root, "user"), "user")
+	return skills, errs
+}
+
+// validateSkillRefs 校验动作引用的 skill id 都在可用集内（加载级，需 skills 扫描结果）。
+func validateSkillRefs(def *ActionDef, skills map[string]SkillMeta) error {
+	for _, id := range def.Command.LLM.Skills {
+		if _, ok := skills[id]; !ok {
+			return fmt.Errorf("command.llm.skills 引用的 skill %q 不存在于 skills/ 目录", id)
+		}
+	}
+	return nil
 }
 
 // encodeYAMLNode 以 2 空格缩进序列化节点。
