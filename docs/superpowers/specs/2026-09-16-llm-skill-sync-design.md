@@ -38,9 +38,13 @@ workflow-tool.exe
 RunAction / workflow step
   → actionrun.Build（解析 llm.skills，cwd 已是展开终值）
   → SyncSkills(源=exeDir/skills, 目标=<cwd>/.claude/skills, ids)
+     ├─ 比对/覆盖（Build 的副作用）
+     └─ 返回 report（synced/skipped 列表）注入 LLMConfig
   → 构造 LLMRunner
-  → ducc 自行发现 .claude/skills/ 加载
+  → Run 开头最先 emit report 行 → ducc 自行发现 .claude/skills/ 加载
 ```
+
+**cwd 兜底语义**：同步目标不依赖子进程继承语义——`LoadedAction.Cwd` 展开后为空时，同步目标**显式用 `exeDir()` 兜底**（与 registry 扫描同源、对齐 exe 同级约定），而非子进程的「继承父进程 cwd」。正常启动方式下两者一致，但显式兜底让 skill 落点可预期。
 
 `exeDir()` 扫描约定新增 `skills/` 目录（与 actions/workflows/config.yaml/fragments.yaml 并列）；dev 时回退当前工作目录，规则不变。
 
@@ -66,10 +70,13 @@ command:
 ## 同步算法（`actionrun.SyncSkills`）
 
 ```
-SyncSkills(srcRoot, dstRoot string, ids []string) (synced []string, err error)
+SyncSkills(srcRoot, dstRoot string, ids []string) (report SyncReport, err error)
+// dstRoot 由调用方（Build）拼好传入 = <cwd>/.claude/skills；
+// ".claude/skills" 子路径定义为常量，便于将来扩展 Codex 目标目录。
+// report 含 synced / skipped 两个列表。
 ```
 
-对名单内每个 id：
+**输出行协议**：Build 层没有 emit 回调，report 不在 Build 时直接推送——注入 `LLMConfig.SkillSyncReport`，由 `LLMRunner.Run` 开头（CLI 子进程启动前）最先逐行 emit 为普通 `stdout` 流。好处：输出协议仍集中在 runner 一处，api 直跑与 workflow 两条路径自动一致，且报告行天然成为 LLM 会话的第一条可见输出。
 
 1. **比对**：walk `srcRoot/<id>/`，按「相对路径 + 文件内容」与 `dstRoot/<id>/` 对应文件比对；
 2. **一致** → 跳过（重试/重复运行幂等）；
@@ -78,14 +85,12 @@ SyncSkills(srcRoot, dstRoot string, ids []string) (synced []string, err error)
 
 **不做目录级先删后拷**：中途失败最多留旧文件，不留空目录（Windows 下目录级原子 rename 不可靠，不做）。符号链接/二进制文件按普通文件字节读写作比对，不特殊处理。
 
-同步结果 emit 为普通输出行（stdout 流，进输出面板）：
+报告行格式（Runner 自发，不经 CLI 输出解析，因此**不进 `Result.Stdout`**——保持其纯 assistant text 语义供 workflow `if` 引用）：
 
 ```
 [skill-sync] bug-analyze → D:\proj\.claude\skills\bug-analyze
 [skill-sync] card-convert 已是最新，跳过
 ```
-
-（进不进 stdout 捕获：进——它是一次运行的正常产出记录，`Result.Stdout` 含此行无害。）
 
 **并发**：同一动作并发运行已被现有机制拒绝；不同动作同步同一目标目录属跨动作并发写文件，文件级覆盖写在最坏情况下后写者胜，可接受，不加锁。
 
@@ -101,7 +106,8 @@ SyncSkills(srcRoot, dstRoot string, ids []string) (synced []string, err error)
 ## 测试
 
 - `internal/registry`：skills 目录扫描（正常/缺失/坏 frontmatter）；validate 对 `llm.skills` 引用存在性、id 命名规则的正反用例；
-- `internal/actionrun`：`t.TempDir()` 造 src/dst，覆盖四种情况——全新同步 / 一致跳过 / 内容变更覆盖 / 目标多余文件清除；附带验证 emit 的 `[skill-sync]` 输出行。
+- `internal/actionrun`：`t.TempDir()` 造 src/dst，覆盖四种情况——全新同步 / 一致跳过 / 内容变更覆盖 / 目标多余文件清除；
+- `internal/runner`：LLMRunner 收到非空 SkillSyncReport 时，Run 开头最先 emit `[skill-sync]` 行且不进 `Result.Stdout`。
 
 ## 文档同步（CLAUDE.md 硬性要求）
 
