@@ -1,18 +1,19 @@
 id: adb-device-info
 title: 设备信息
 icon: hi:settings
-description: 聚合设备画像：型号 / 品牌 / 系统版本 / VIN / 分辨率 / 密度 / CPU / 内存 / IP / MAC
+description: 聚合设备画像：概览(型号/品牌/系统/VIN/分辨率/密度/IP/MAC) + 详情(车型标识/构建/芯片/OEM车机定制属性/序列号/CPU/内存/内核)
 command:
   run: |
     S="${ADB_SERIAL}"
     [ -n "$S" ] && ADB="adb -s $S" || ADB="adb"
     # 纯展示探测：stderr 一律吞掉，缺接口/缺属性时字段留空即可，不污染输出
     q() { $ADB shell "$@" 2>/dev/null; }
-    echo "===== 设备信息 ====="
+    echo "===== [0] 设备概览 ====="
     echo "[型号]    $(q getprop ro.product.model)"
     echo "[品牌]    $(q getprop ro.product.brand) / $(q getprop ro.product.manufacturer)"
-    echo "[系统]    Android $(q getprop ro.build.version.release) (SDK $(q getprop ro.build.version.sdk))"
+    echo "[系统]    Android $(q getprop ro.build.version.release) (SDK $(q getprop ro.build.version.sdk), 补丁 $(q getprop ro.build.version.security_patch))"
     echo "[版本号]  $(q getprop ro.build.display.id)"
+    echo "[SOC]     $(q getprop ro.soc.model) / 平台 $(q getprop ro.board.platform)"
     echo "[VIN]     $(q settings get system VIN)"
     echo "[分辨率]  $(q wm size | tail -1)"
     echo "[密度]    $(q wm density | tail -1)"
@@ -20,5 +21,40 @@ command:
     echo "[CPU]     $(q getprop ro.hardware) ($(q cat /proc/cpuinfo | grep -c ^processor) 核)"
     echo "[内存]    $(q cat /proc/meminfo | head -1)"
     echo "[IP/MAC]  $(q ip addr show wlan0 | grep -E 'inet ' | awk '{print $2}') / $(q ip addr show wlan0 | grep -E 'link/ether' | awk '{print $2}')"
-    echo "===================="
-  timeout: 30s
+
+    # 详情全量采集：单次 shell 在设备端执行（源自 info.sh 的 6 个维度），空属性自动过滤
+    $ADB shell '
+    echo
+    echo "========== [1] 车型/品牌/产品标识 =========="
+    for p in ro.product.manufacturer ro.product.brand ro.product.model ro.product.marketname ro.product.name ro.product.device ro.product.board ro.product.cpu.abi ro.product.locale ro.product.system.manufacturer ro.vendor.product.model; do
+      v=$(getprop $p)
+      [ -n "$v" ] && echo "$p=$v"
+    done
+    echo
+    echo "========== [2] 系统/构建信息 =========="
+    for p in ro.build.fingerprint ro.build.id ro.build.display.id ro.build.version.release ro.build.version.sdk ro.build.version.security_patch ro.build.date ro.build.type ro.build.tags ro.build.product ro.build.description ro.system.build.fingerprint ro.vendor.build.fingerprint; do
+      v=$(getprop $p)
+      [ -n "$v" ] && echo "$p=$v"
+    done
+    echo
+    echo "========== [3] 芯片/硬件平台 =========="
+    for p in ro.soc.model ro.soc.manufacturer ro.board.platform ro.hardware ro.hardware.chipname ro.boot.hardware ro.boot.bootloader ro.boot.selinux; do
+      v=$(getprop $p)
+      [ -n "$v" ] && echo "$p=$v"
+    done
+    echo
+    echo "========== [4] 厂商/OEM/车机定制属性(含VIN等) =========="
+    getprop | grep -E "\[[^]]*(vendor|oem|vehicle|vin|can)[^]]*\]"
+    echo
+    echo "========== [5] 序列号/唯一标识 =========="
+    for p in ro.serialno ro.boot.serialno; do
+      v=$(getprop $p)
+      [ -n "$v" ] && echo "$p=$v"
+    done
+    echo
+    echo "========== [6] CPU/内存/内核 =========="
+    grep -E "model name|Hardware|Processor|Features" /proc/cpuinfo | head -8
+    head -8 /proc/meminfo
+    cat /proc/version
+    ' 2>/dev/null
+  timeout: 60s
