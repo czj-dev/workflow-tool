@@ -143,11 +143,40 @@ func TestParseUITree(t *testing.T) {
 		t.Fatalf("unexpected nesting: %+v", root)
 	}
 	btn := root.Nodes[0].Nodes[0]
-	if btn.Text != "登录" || !btn.Clickable || btn.Class != "android.widget.Button" {
+	if btn.Text != "登录" || btn.Clickable == nil || !*btn.Clickable || btn.Class != "android.widget.Button" {
 		t.Fatalf("button = %+v", btn)
 	}
 	if tree.Rotation != "0" {
 		t.Fatalf("rotation = %q", tree.Rotation)
+	}
+}
+
+func TestParseUITreeAttributes(t *testing.T) {
+	data := `<hierarchy><node index="0" class="android.widget.Button" package="com.example" content-desc="菜单" drawing-order="2" clickable="false" enabled="false" focusable="true" focused="false" selected="true" checked="false" scrollable="true" visible-to-user="false" bounds="[1,2][30,40]"/></hierarchy>`
+	tree, err := parseUITree(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := tree.Node
+	if n.Index != "0" || n.Package != "com.example" || n.ContentDesc != "菜单" || n.DrawingOrder != "2" {
+		t.Fatalf("string attributes = %+v", n)
+	}
+	for name, got := range map[string]*bool{
+		"clickable":       n.Clickable,
+		"enabled":         n.Enabled,
+		"focusable":       n.Focusable,
+		"focused":         n.Focused,
+		"selected":        n.Selected,
+		"checked":         n.Checked,
+		"scrollable":      n.Scrollable,
+		"visible-to-user": n.VisibleToUser,
+	} {
+		if got == nil {
+			t.Fatalf("%s missing", name)
+		}
+	}
+	if *n.Clickable || *n.Enabled || !*n.Focusable || *n.Focused || !*n.Selected || *n.Checked || !*n.Scrollable || *n.VisibleToUser {
+		t.Fatalf("boolean attributes = %+v", n)
 	}
 }
 

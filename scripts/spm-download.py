@@ -14,8 +14,11 @@ resources/debuglogger/mobilelog/
 落盘位置为 <输出目录>/<zip名去后缀>/<zip内相对路径>，保留 zip 内层级以免同名文件互相覆盖。
 已存在且大小与 zip 内记录一致的文件直接跳过，所以取消后重跑只补未完成的部分。
 
+环境变量:
+    MODEL 可选 518 / 5181 / 216-C，默认 5181；action 通过同名参数注入。
+
 示例:
-    python3 spm-download.py log_1788599460103_LS6ANE0P0TK534164.zip 170216 /tmp/logs
+    MODEL=518 python3 spm-download.py log_1788599460103_LS6ANE0P0TK534164.zip 170216 /tmp/logs
 """
 import concurrent.futures as cf
 import json
@@ -27,7 +30,12 @@ import urllib.request
 from collections.abc import Mapping
 
 BASE = "https://spm.auto-pai.com/spm-data"
-ZIP_PREFIX = "autopai-tlc/platform/C5181/log/"
+DEFAULT_MODEL = "5181"
+MODEL_PREFIXES = {
+    "518": "autopai-tlc/platform/C518/log/",
+    "5181": "autopai-tlc/platform/C5181/log/",
+    "216-C": "autopai-tlc/platform/B216-C/log/",
+}
 # 实测服务端并无 2MB 分块上限（16MB / 64MB 请求均正常返回），且块越大每请求的固定开销摊得越薄。
 CHUNK_SIZE = 8 * 1024 * 1024
 # 并发放在文件之间（单文件内部仍顺序分块），实测 4 路相对串行约 3x。
@@ -38,6 +46,19 @@ HINT_LIMIT = 20
 
 class SpmError(Exception):
     """服务端返回非 2xx；由调用方决定是致命错误还是只跳过当前文件。"""
+
+
+def resolve_model(model: str | None) -> str:
+    """空车型使用默认值；非空车型必须命中白名单。"""
+    selected = (model or "").strip() or DEFAULT_MODEL
+    if selected not in MODEL_PREFIXES:
+        raise SpmError(f"不支持的车型: {selected!r}，仅支持 518、5181 和 216-C")
+    return selected
+
+
+def archive_path(model: str | None, zip_name: str) -> str:
+    """按车型构造 SPM 日志归档路径。"""
+    return MODEL_PREFIXES[resolve_model(model)] + zip_name
 
 
 def post(path: str, body: dict) -> dict:
@@ -264,9 +285,9 @@ def main() -> None:
     zip_name = args[0]
     fragment = args[1] if len(args) > 1 else ""
     out_dir = args[2] if len(args) > 2 else os.getcwd()
-    zip_path = ZIP_PREFIX + zip_name
 
     try:
+        zip_path = archive_path(os.environ.get("MODEL"), zip_name)
         sid = post("/api/storage/connectWithPreset", {"user_id": "spm"})["data"]["session_id"]
         entries, total = load_entries(sid, zip_path)
     except SpmError as e:

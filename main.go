@@ -11,6 +11,8 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/events"
 
 	"workflow-tool/internal/api"
+	"workflow-tool/internal/apphome"
+	"workflow-tool/internal/cli"
 	"workflow-tool/internal/registry"
 	"workflow-tool/internal/runner"
 	"workflow-tool/internal/workflow"
@@ -37,7 +39,16 @@ func main() {
 	// 抓真实登录 shell PATH 合并进来，非 darwin 空操作。
 	runner.FixPath()
 
-	baseDir := exeDir()
+	// headless 子命令分流：命中 list/describe/run 走 CLI（供 Agent shell 调用），
+	// 否则照旧起 GUI。adb 子包的 operation 自登记已在上方 blank import 的 init() 完成。
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "list", "describe", "run":
+			os.Exit(cli.Run(os.Args[1:]))
+		}
+	}
+
+	baseDir := apphome.ExeDir()
 	reg := registry.Load(filepath.Join(baseDir, "actions"), baseDir)
 	wfReg := workflow.Load(filepath.Join(baseDir, "workflows"))
 	svc := api.New(reg, wfReg, baseDir, filepath.Join(baseDir, "config.yaml"), filepath.Join(baseDir, "fragments.yaml"))
@@ -95,17 +106,4 @@ func main() {
 	if err := app.Run(); err != nil {
 		log.Fatal(err)
 	}
-}
-
-// exeDir 返回 exe 所在目录；dev 模式回退到当前工作目录。
-func exeDir() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return "."
-	}
-	dir := filepath.Dir(exe)
-	if _, err := os.Stat(filepath.Join(dir, "actions")); err != nil {
-		return "." // dev 时 actions/ 在项目根
-	}
-	return dir
 }

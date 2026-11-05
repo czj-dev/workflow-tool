@@ -44,3 +44,9 @@ presets:
     values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: "", TAG: "DVR_SseAgentStreamRouter DVR_SseAgentBridge DVR_TopQueryInterceptor DVR_TopQueryInjection DVR_TopQueryUtil ernie_ComplexTaskDeviceModule ernie_CarManualStreamAgentVM"}
   - name: 手车互联
     values: {FILTER: '{"tokens":[{"key":"tag","op":"contains","negated":false,"value":"DVR_PhoneLinkArb"},{"key":"tag","op":"contains","negated":false,"value":"DVR_ThirdAppAgentDeviceModule"},{"key":"tag","op":"contains","negated":false,"value":"DVR_PhoneLinkFallbackContextProvider"},{"key":"tag","op":"contains","negated":false,"value":"DVR_TinnoveIpc"},{"key":"tag","op":"contains","negated":false,"value":"DVR_SpeechServiceImpl","link":"or"}],"minLevel":"V","package":""}', LEVEL: V, TAG: DVR_PhoneLinkArb DVR_ThirdAppAgentDeviceModule DVR_PhoneLinkFallbackContextProvider DVR_TinnoveIpc DVR_SpeechServiceImpl}
+  - name: VTS / TopQuery
+    description: TopQuery 入口与可见即可说命中、控件筛选
+    values: {EXCLUDE: "", INCLUDE: "", FILTER: "", LEVEL: V, PACKAGE: "", TAG: "DVR_TopQueryInterceptor DVR_TopQueryUtil DVR_VtsManager DVR_VtsInterveneMatchImpl"}
+  - name: 导航多轮
+    description: 导航轮次、POI 状态、协议转换及下发
+    values: {EXCLUDE: "", INCLUDE: "", FILTER: "", LEVEL: V, PACKAGE: "", TAG: "DVR_NaviMultiRoundRule DVR_NavigationFlowDeviceModule DVR_ProtocolConverterManager DVR_TinnoveIpc"}

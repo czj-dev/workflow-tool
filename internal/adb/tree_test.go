@@ -88,11 +88,29 @@ func TestEmitTree(t *testing.T) {
 	if f.Title != "t" || len(f.Nodes) != 1 || f.Nodes[0].Kind != "dir" {
 		t.Fatalf("frame = %+v", f)
 	}
-	// omitempty：可选字段为空时不进 JSON
+	// properties 可选，且保留结构化值与显式 false。
 	op2 := &OpContext{Emit: func(stream, line string) { lines = append(lines, line) }}
-	op2.EmitTree(TreeFrame{Nodes: []TreeNode{{Label: "x"}}})
-	if strings.Contains(lines[len(lines)-1], "kind") ||
+	op2.EmitTree(TreeFrame{Nodes: []TreeNode{{Label: "x", Properties: map[string]any{
+		"enabled": false,
+		"bounds":  TreeBounds{Left: 1, Top: 2, Right: 3, Bottom: 4},
+	}}}})
+	if !strings.Contains(lines[len(lines)-1], `"enabled":false`) || !strings.Contains(lines[len(lines)-1], `"bounds":{"left":1`) {
+		t.Fatalf("properties missing: %s", lines[len(lines)-1])
+	}
+
+	// 显式帧级默认展开标记沿序列化通道传递。
+	op2.EmitTree(TreeFrame{DefaultExpandAll: true, Nodes: []TreeNode{{Label: "x"}}})
+	if !strings.Contains(lines[len(lines)-1], `"defaultExpandAll":true`) {
+		t.Fatalf("expand marker missing: %s", lines[len(lines)-1])
+	}
+
+	// omitempty：可选字段为空时不进 JSON
+	op3 := &OpContext{Emit: func(stream, line string) { lines = append(lines, line) }}
+	op3.EmitTree(TreeFrame{Nodes: []TreeNode{{Label: "x"}}})
+	if strings.Contains(lines[len(lines)-1], "defaultExpandAll") ||
+		strings.Contains(lines[len(lines)-1], "kind") ||
 		strings.Contains(lines[len(lines)-1], "detail") ||
+		strings.Contains(lines[len(lines)-1], "properties") ||
 		strings.Contains(lines[len(lines)-1], "children") {
 		t.Fatalf("omitempty leaked: %s", lines[len(lines)-1])
 	}

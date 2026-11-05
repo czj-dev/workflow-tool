@@ -2,11 +2,12 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import { flattenTree, searchTree, type FlatNode, type TreeFrame } from "../lib/treeFrame";
+import { TreePropertiesPanel } from "./TreePropertiesPanel";
 
 // ##[tree] 内联树块（mockup v2.4 定稿视觉，样式见 index.css 的 .treeblock 一节）：
 // - 徽标 = 节点 kind 原样渲染，无 kind→文案/颜色映射；label==kind 时不重复显示标签
 // - 配色只按结构：容器=主题色、叶子=灰，全走主题 token 亮暗自适应
-// - 等宽 │├└ 连接线（与旧 formatTree 同构）；默认展开 2 层（根=0），折叠全部=1，展开全部
+// - 等宽 │├└ 连接线（与旧 formatTree 同构）；默认展开 2 层（根=0），帧可指定全部展开
 // - 块内搜索：命中 label 或 detail；命中+祖先保留，仅 detail 命中的节点降透明，其余隐藏
 // - 叶子点击复制完整路径（path 优先，否则根到叶 label 面包屑）+ toast；非叶子点击=折叠
 // 逻辑纯函数在 lib/treeFrame.ts，样式在 index.css 的 .treeblock 一节。
@@ -45,8 +46,9 @@ async function writeClipboard(text: string): Promise<boolean> {
 export function TreeBlock({ frame }: TreeBlockProps) {
   const { t } = useTranslation();
   const flat = useMemo(() => flattenTree(frame.nodes ?? []), [frame]);
+  const defaultDepth = frame.defaultExpandAll ? Infinity : DEFAULT_DEPTH;
   const [query, setQuery] = useState("");
-  const [depthLimit, setDepthLimit] = useState(DEFAULT_DEPTH);
+  const [depthLimit, setDepthLimit] = useState(defaultDepth);
   // 单节点折叠覆盖（key→是否折叠）；「折叠/展开」按钮改 depthLimit 并清覆盖
   const [overrides, setOverrides] = useState<Map<string, boolean>>(new Map());
   const [toast, setToast] = useState<string | null>(null);
@@ -93,8 +95,8 @@ export function TreeBlock({ frame }: TreeBlockProps) {
   const onQueryChange = (q: string) => {
     setQuery(q);
     if (!q.trim()) {
-      // 清空搜索：恢复默认深度并清掉单点覆盖（与 mockup setDepth(DEFAULT) 一致）
-      setDepthLimit(DEFAULT_DEPTH);
+      // 清空搜索后恢复当前树帧的初始展开深度。
+      setDepthLimit(defaultDepth);
       setOverrides(new Map());
     }
   };
@@ -201,6 +203,13 @@ export function TreeBlock({ frame }: TreeBlockProps) {
                 {showLabel && <span className="tree-label">{renderLabel(f)}</span>}
                 {f.node.detail && <span className="tree-detail">{f.node.detail}</span>}
               </span>
+              {f.node.properties && (
+                <TreePropertiesPanel
+                  properties={f.node.properties}
+                  rail={f.rail}
+                  kind={f.node.kind}
+                />
+              )}
             </div>
           );
         })}

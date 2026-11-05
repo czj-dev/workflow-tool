@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 
@@ -94,7 +95,7 @@ func (r *SkillRouter) Record(items []SyncItem) error {
 	}
 	for _, it := range items {
 		root := normalizeLedgerPath(filepath.Dir(it.DstDir))
-		if !containsStr(ledger[root], it.ID) {
+		if !slices.Contains(ledger[root], it.ID) {
 			ledger[root] = append(ledger[root], it.ID)
 		}
 	}
@@ -127,13 +128,4 @@ func normalizeLedgerPath(p string) string {
 		return filepath.Clean(p)
 	}
 	return abs
-}
-
-func containsStr(list []string, s string) bool {
-	for _, v := range list {
-		if v == s {
-			return true
-		}
-	}
-	return false
 }

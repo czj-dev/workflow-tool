@@ -104,12 +104,23 @@ func parseWindowDisplays(dump string) []WindowDisplay {
 // UINode 是 uiautomator dump 的一个节点（无障碍树，非字面 View 树——
 // 用于定位可交互控件）。
 type UINode struct {
-	Class      string   `xml:"class,attr"`
-	Text       string   `xml:"text,attr"`
-	ResourceID string   `xml:"resource-id,attr"`
-	Clickable  bool     `xml:"clickable,attr"`
-	Bounds     string   `xml:"bounds,attr"`
-	Nodes      []UINode `xml:"node"`
+	Class         string   `xml:"class,attr"`
+	Text          string   `xml:"text,attr"`
+	ContentDesc   string   `xml:"content-desc,attr"`
+	ResourceID    string   `xml:"resource-id,attr"`
+	Package       string   `xml:"package,attr"`
+	Index         string   `xml:"index,attr"`
+	DrawingOrder  string   `xml:"drawing-order,attr"`
+	Bounds        string   `xml:"bounds,attr"`
+	Clickable     *bool    `xml:"clickable,attr"`
+	Enabled       *bool    `xml:"enabled,attr"`
+	Focusable     *bool    `xml:"focusable,attr"`
+	Focused       *bool    `xml:"focused,attr"`
+	Selected      *bool    `xml:"selected,attr"`
+	Checked       *bool    `xml:"checked,attr"`
+	Scrollable    *bool    `xml:"scrollable,attr"`
+	VisibleToUser *bool    `xml:"visible-to-user,attr"`
+	Nodes         []UINode `xml:"node"`
 }
 
 // UITree 是 uiautomator dump XML 的根。XMLName 强校验根元素是 hierarchy，

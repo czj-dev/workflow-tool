@@ -32,6 +32,13 @@ describe("parseTreeFrame", () => {
     });
   });
 
+  it("保留显式默认展开标记，仅接受布尔值", () => {
+    const raw = JSON.stringify({ nodes: [{ label: "root" }], defaultExpandAll: true });
+    expect(parseTreeFrame(raw, "err").defaultExpandAll).toBe(true);
+    const invalid = JSON.stringify({ nodes: [{ label: "root" }], defaultExpandAll: "true" });
+    expect(parseTreeFrame(invalid, "err").defaultExpandAll).toBeUndefined();
+  });
+
   it("nodes 非数组时降级（防脏数据不炸）", () => {
     const f = parseTreeFrame(JSON.stringify({ nodes: "oops" }), "err");
     expect(f.nodes).toHaveLength(1);
@@ -48,6 +55,25 @@ describe("parseTreeFrame", () => {
     const long = "x".repeat(200);
     expect(parseTreeFrame(long, "e").nodes[0].detail).toBe("x".repeat(120) + "…");
     expect(parseTreeFrame("", "e").nodes[0].detail).toBe("(empty)");
+  });
+});
+
+describe("properties", () => {
+  it("保留属性但不改变树层级、搜索和复制文本", () => {
+    const frame = parseTreeFrame(
+      JSON.stringify({
+        nodes: [{ label: "Button", properties: { enabled: false, bounds: { left: 1 } } }],
+      }),
+      "err",
+    );
+    expect(frame.nodes[0].properties).toEqual({ enabled: false, bounds: { left: 1 } });
+    expect(flattenTree(frame.nodes)[0].labelPath).toEqual(["Button"]);
+    expect(searchTree(flattenTree(frame.nodes), "enabled")).toEqual({
+      keep: new Set(),
+      dim: new Set(),
+      labelHit: new Set(),
+    });
+    expect(treeFrameToText(frame)).toBe("Button");
   });
 });
 

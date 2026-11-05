@@ -46,12 +46,18 @@ fragments:
       tags:
         - Link
     - title: 车辆信号
-      content: |-
-        VehicleContextManager
-        DVR_UploadAgentSignalRequest
+      content: DVR_UploadAgentSignalRequest
       tags:
         - Log
     - title: Asr_sn_filter
       content: vrsdk_AsrEngine_\d+\(\d+\):\s+asrResultInfo\s+sn:\s*(\S+)\s+(offline|online)\s+asr:\s*(.+?)\s+(partial|final)_result
       tags:
         - Rg
+    - title: 环境打印信息
+      content: ' vrsdk_DcsEngine: setNetworkEnvConfig'
+      tags:
+        - Log
+    - title: 车辆信号请求
+      content: 'UploadAgentSignalRequest.*?:|DVR_okhttp.OkHttpClient.*?:'
+      tags:
+        - Log

@@ -11,22 +11,33 @@ import (
 // 输出协议）。script 动作经 stdout 的 `##[tree {...}]` 协议行进入同一通道
 // （runner.parseTreeLine）；adb Go 域直接构造本类型并 EmitTree，免文本协议转义。
 
+// TreeBounds 是树节点属性中的矩形边界。
+type TreeBounds struct {
+	Left   int `json:"left"`
+	Top    int `json:"top"`
+	Right  int `json:"right"`
+	Bottom int `json:"bottom"`
+}
+
 // TreeNode 是树协议节点：仅 Label 必填。Kind 是类型徽标，前端原样渲染、
 // 无 kind→文案/颜色映射（文件树 dir/file，View 树=class 短名）；Detail 是
-// 弱化补充（大小/属性/截断说明）；Path 是叶子点击复制用的完整路径（空则
-// 前端回退根到叶 label 面包屑）；Children 为空即叶子。
+// 弱化补充（大小/属性/截断说明）；Properties 是可选的通用只读属性；Path
+// 是叶子点击复制用的完整路径（空则前端回退根到叶 label 面包屑）；Children 为空即叶子。
 type TreeNode struct {
-	Label    string     `json:"label"`
-	Kind     string     `json:"kind,omitempty"`
-	Detail   string     `json:"detail,omitempty"`
-	Path     string     `json:"path,omitempty"`
-	Children []TreeNode `json:"children,omitempty"`
+	Label      string         `json:"label"`
+	Kind       string         `json:"kind,omitempty"`
+	Detail     string         `json:"detail,omitempty"`
+	Path       string         `json:"path,omitempty"`
+	Properties map[string]any `json:"properties,omitempty"`
+	Children   []TreeNode     `json:"children,omitempty"`
 }
 
 // TreeFrame 是一帧树的顶层：Title 进树块头部（可选），Nodes 为根节点列表（通常 1 个）。
+// DefaultExpandAll 仅改变初始展开深度，缺省时仍按两层显示。
 type TreeFrame struct {
-	Title string     `json:"title,omitempty"`
-	Nodes []TreeNode `json:"nodes"`
+	Title            string     `json:"title,omitempty"`
+	Nodes            []TreeNode `json:"nodes"`
+	DefaultExpandAll bool       `json:"defaultExpandAll,omitempty"`
 }
 
 // MaxTreeNodes 是单帧节点数硬护栏：极端 dump（车机全屏无障碍树可达数万节点）

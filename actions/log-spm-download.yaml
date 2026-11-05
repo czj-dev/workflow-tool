@@ -8,6 +8,12 @@ params:
     type: text
     required: true
     description: 如 log_1787193057533_LS6ANE0P7TK525767.zip
+  - id: MODEL
+    label: 车型
+    type: select
+    options: ["5181", "518", "216-C"]
+    default: "5181"
+    description: 选择日志归档车型，默认 5181
   - id: INNER_PATH
     label: zip 内路径片段
     type: text

@@ -38,18 +38,11 @@ func (s *Service) RunAction(id string, params map[string]any) error {
 	return nil
 }
 
-// mergeGlobalAndParams 合并全局配置与参数（参数覆盖同名全局）。
+// mergeGlobalAndParams 持锁快照 global 后委托 actionrun.MergeParams（合并单一真相源）。
 func (s *Service) mergeGlobalAndParams(params map[string]any) map[string]any {
 	s.gMu.Lock()
 	defer s.gMu.Unlock()
-	merged := make(map[string]any, len(s.global)+len(params))
-	for k, v := range s.global {
-		merged[k] = v
-	}
-	for k, v := range params {
-		merged[k] = v
-	}
-	return merged
+	return actionrun.MergeParams(s.global, params)
 }
 
 // CancelAction 取消正在运行的动作。

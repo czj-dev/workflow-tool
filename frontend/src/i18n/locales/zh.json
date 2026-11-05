@@ -35,6 +35,7 @@
   "tree.expand": "展开",
   "tree.copied": "已复制 {{path}}",
   "tree.copyHint": "点击复制：{{path}}",
+  "tree.properties": "属性",
   "global.title": "全局配置",
   "global.desc": "这些变量可在动作命令中用 ${VAR} 引用",
   "global.add": "新增",

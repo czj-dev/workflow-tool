@@ -2,6 +2,7 @@ package foreground
 
 import (
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -95,14 +96,73 @@ func shortClass(class string) string {
 	return class
 }
 
-// uiTreeNode 把 UINode 转为树协议节点（mockup v2.4 定稿）。字段映射：
-//   - kind   = class 短名（前端原样渲染为类型徽标，无 kind→文案映射）
-//   - label  = 身份：文本 > resource-id > class 短名兜底（与 kind 相同时前端不重复显示）
-//   - detail = 剩余属性单行拼接 `id=… · clickable · [bounds]`
-//     （id 仅在 label 取了文本时出现，避免与 label 重复）
+var boundsRe = regexp.MustCompile(`^\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]$`)
+
+func parseBounds(raw string) (adb.TreeBounds, bool) {
+	m := boundsRe.FindStringSubmatch(raw)
+	if m == nil {
+		return adb.TreeBounds{}, false
+	}
+	values := make([]int, 4)
+	for i := range values {
+		value, err := strconv.Atoi(m[i+1])
+		if err != nil {
+			return adb.TreeBounds{}, false
+		}
+		values[i] = value
+	}
+	return adb.TreeBounds{Left: values[0], Top: values[1], Right: values[2], Bottom: values[3]}, true
+}
+
+func addStringProperty(properties map[string]any, key, value string) {
+	if value != "" {
+		properties[key] = value
+	}
+}
+
+func addNumberProperty(properties map[string]any, key, raw string) {
+	if raw == "" {
+		return
+	}
+	if value, err := strconv.Atoi(raw); err == nil {
+		properties[key] = value
+	}
+}
+
+func addBoolProperty(properties map[string]any, key string, value *bool) {
+	if value != nil {
+		properties[key] = *value
+	}
+}
+
+func uiProperties(n *UINode) map[string]any {
+	properties := make(map[string]any)
+	addStringProperty(properties, "class", n.Class)
+	addStringProperty(properties, "text", n.Text)
+	addStringProperty(properties, "content-desc", n.ContentDesc)
+	addStringProperty(properties, "resource-id", n.ResourceID)
+	addStringProperty(properties, "package", n.Package)
+	addNumberProperty(properties, "index", n.Index)
+	addNumberProperty(properties, "drawing-order", n.DrawingOrder)
+	if bounds, ok := parseBounds(n.Bounds); ok {
+		properties["bounds"] = bounds
+	}
+	addBoolProperty(properties, "clickable", n.Clickable)
+	addBoolProperty(properties, "enabled", n.Enabled)
+	addBoolProperty(properties, "focusable", n.Focusable)
+	addBoolProperty(properties, "focused", n.Focused)
+	addBoolProperty(properties, "selected", n.Selected)
+	addBoolProperty(properties, "checked", n.Checked)
+	addBoolProperty(properties, "scrollable", n.Scrollable)
+	addBoolProperty(properties, "visible-to-user", n.VisibleToUser)
+	return properties
+}
+
+// uiTreeNode 把 UINode 转为树协议节点。properties 是通用只读属性对象，
+// 不改变现有树行的 kind、label、detail 和 children 语义。
 func uiTreeNode(n *UINode) adb.TreeNode {
 	short := shortClass(n.Class)
-	tn := adb.TreeNode{Kind: short, Label: short}
+	tn := adb.TreeNode{Kind: short, Label: short, Properties: uiProperties(n)}
 	var parts []string
 	switch {
 	case n.Text != "":
@@ -110,10 +170,12 @@ func uiTreeNode(n *UINode) adb.TreeNode {
 		if n.ResourceID != "" {
 			parts = append(parts, "id="+n.ResourceID)
 		}
+	case n.ContentDesc != "":
+		tn.Label = n.ContentDesc
 	case n.ResourceID != "":
 		tn.Label = n.ResourceID
 	}
-	if n.Clickable {
+	if n.Clickable != nil && *n.Clickable {
 		parts = append(parts, "clickable")
 	}
 	if n.Bounds != "" {
@@ -142,7 +204,7 @@ func emitUITree(op *adb.OpContext, t *UITree) {
 		title += fmt.Sprintf(" · 超上限已截断 %d", total-adb.MaxTreeNodes)
 	}
 	op.EmitStdout(sectionTitle("View 树"))
-	op.EmitTree(adb.TreeFrame{Title: title, Nodes: nodes})
+	op.EmitTree(adb.TreeFrame{Title: title, Nodes: nodes, DefaultExpandAll: true})
 }
 
 // truncateDisplay 按显示宽度截断（返回串显示宽度 ≤ width+省略号），超出时以 "…" 结尾。

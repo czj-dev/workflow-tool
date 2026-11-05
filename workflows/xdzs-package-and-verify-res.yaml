@@ -12,9 +12,10 @@ params:
     label: 产品线资源目录名
     type: select
     required: true
-    default: buick-xd-tinnove
+    default: C518-1
     options:
-      - buick-xd-tinnove
+      - C518-1
+      - B216-C
 steps:
   - id: device-init
     name: 设备初始化
@@ -32,16 +33,22 @@ steps:
       cd "${PROJECT_DIR}"
       ./scripts/package_speech_res.sh "$RES_DIR"
     timeout: 240s
-  - id: mkdir-remote
-    name: 创建设备目录
-    run: adb shell mkdir -p /resources/sota/speech/backup/
-  - id: push
-    name: push 资源包
-    action: adb-push
+  - id: clean-loaded-res
+    name: 清理设备旧资源
+    # 删除 app 解压加载后的资源目录，绕过 SotaSpeechResourceLoader 的
+    # version 相同 + sotaDataCopyfinish 跳过逻辑，强制重新加载新 push 的包
+    action: adb-delete-file
     params:
-      LOCAL_PATH: ${PROJECT_DIR}/resource/${RES_NAME}/speech_project_res.zip
-      REMOTE_PATH: /resources/sota/speech/backup/
+      REMOTE_PATH: /resources/appdata/tinnove/WT_TSpeech
       ALLOW_PROTECTED: "true"
-  - id: chmod
-    name: 授权 777
-    run: adb shell chmod -R 777 /resources/sota/speech
+  - id: push
+    name: push 资源包并授权
+    # 复用 res 项目自带脚本：内部做 mkdir backup + adb push + chmod -R 777 + force-stop codriver，
+    # 并按 resource/<车型>/buick-xd-tinnove/speech_project_res.zip 定位包，车型即 RES_NAME
+    run: |
+      PUSH_SH="${PROJECT_DIR}/push_speech_res_to_device.sh"
+      if [ ! -x "$PUSH_SH" ]; then
+        echo "未找到 push 脚本: $PUSH_SH" >&2; exit 1
+      fi
+      "$PUSH_SH" "${RES_NAME}"
+    timeout: 10m

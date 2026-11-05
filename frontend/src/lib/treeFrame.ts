@@ -2,6 +2,14 @@
 // 缩进文本化。schema 与 Go internal/adb/tree.go 对齐（label 必填，kind/detail/
 // path/children 可选）；渲染组件 TreeBlock 只做展示与交互，逻辑全在这层以便单测。
 
+export type TreePropertyValue =
+  | string
+  | number
+  | boolean
+  | { [key: string]: TreePropertyValue };
+
+export type TreeProperties = Record<string, TreePropertyValue>;
+
 export interface TreeNode {
   label: string;
   // 类型徽标：原样渲染，前端无 kind→文案/颜色映射（文件树 dir/file，View 树=class 短名）
@@ -10,21 +18,28 @@ export interface TreeNode {
   detail?: string;
   // 叶子点击复制的完整路径；空则前端回退根到叶 label 面包屑（/ 连接）
   path?: string;
+  // 通用只读属性；不参与树层级、搜索或复制文本
+  properties?: TreeProperties;
   children?: TreeNode[];
 }
 
 export interface TreeFrame {
   title?: string;
   nodes: TreeNode[];
+  defaultExpandAll?: boolean;
 }
 
 // parseTreeFrame 把树 JSON 原文解析成帧；失败不炸——降级为单错误节点帧
 // （label 由调用方传入，i18n 归组件层），detail 带原文片段便于排查。
 export function parseTreeFrame(raw: string, errLabel: string): TreeFrame {
   try {
-    const v = JSON.parse(raw) as { title?: unknown; nodes?: unknown };
+    const v = JSON.parse(raw) as { title?: unknown; nodes?: unknown; defaultExpandAll?: unknown };
     if (v && Array.isArray(v.nodes)) {
-      return { title: typeof v.title === "string" ? v.title : undefined, nodes: v.nodes as TreeNode[] };
+      return {
+        title: typeof v.title === "string" ? v.title : undefined,
+        nodes: v.nodes as TreeNode[],
+        ...(typeof v.defaultExpandAll === "boolean" && { defaultExpandAll: v.defaultExpandAll }),
+      };
     }
   } catch {
     // 落到下方统一降级

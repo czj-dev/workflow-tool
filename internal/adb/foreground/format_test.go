@@ -1,8 +1,11 @@
 package foreground
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
+
+	"workflow-tool/internal/adb"
 )
 
 func TestDisplayWidth(t *testing.T) {
@@ -77,6 +80,21 @@ func TestShortClass(t *testing.T) {
 	}
 }
 
+func TestEmitUITreeDefaultsToExpanded(t *testing.T) {
+	var frame adb.TreeFrame
+	op := &adb.OpContext{Emit: func(stream, line string) {
+		if stream == "tree" {
+			if err := json.Unmarshal([]byte(line), &frame); err != nil {
+				t.Errorf("decode tree frame: %v", err)
+			}
+		}
+	}}
+	emitUITree(op, &UITree{Node: UINode{Class: "android.view.View"}})
+	if !frame.DefaultExpandAll || len(frame.Nodes) != 1 {
+		t.Fatalf("frame = %+v", frame)
+	}
+}
+
 func TestUITreeNodeConversion(t *testing.T) {
 	tree, err := parseUITree(uiTreeFixture)
 	if err != nil {
@@ -104,6 +122,52 @@ func TestUITreeNodeConversion(t *testing.T) {
 	}
 	if len(btn.Children) != 0 {
 		t.Fatalf("button should be leaf: %+v", btn.Children)
+	}
+}
+
+func TestUIProperties(t *testing.T) {
+	falseValue := false
+	trueValue := true
+	n := &UINode{
+		Class: "android.widget.Button", Text: "登录", ContentDesc: "菜单", ResourceID: "com.example:id/login",
+		Package: "com.example", Index: "0", DrawingOrder: "2", Bounds: "[1,2][30,40]",
+		Clickable: &falseValue, Enabled: &falseValue, Focusable: &trueValue, Focused: &falseValue,
+		Selected: &trueValue, Checked: &falseValue, Scrollable: &trueValue, VisibleToUser: &falseValue,
+	}
+	properties := uiProperties(n)
+	for _, key := range []string{"class", "text", "content-desc", "resource-id", "package", "index", "drawing-order", "bounds", "clickable", "enabled", "focusable", "focused", "selected", "checked", "scrollable", "visible-to-user"} {
+		if _, ok := properties[key]; !ok {
+			t.Fatalf("missing property %q: %#v", key, properties)
+		}
+	}
+	if properties["index"] != 0 || properties["drawing-order"] != 2 {
+		t.Fatalf("numeric properties = %#v", properties)
+	}
+	if properties["clickable"] != false || properties["enabled"] != false || properties["checked"] != false {
+		t.Fatalf("false properties = %#v", properties)
+	}
+	if properties["bounds"] != (adb.TreeBounds{Left: 1, Top: 2, Right: 30, Bottom: 40}) {
+		t.Fatalf("bounds = %#v", properties["bounds"])
+	}
+}
+
+func TestUIPropertiesOmitInvalidAndEmptyValues(t *testing.T) {
+	n := &UINode{Index: "bad", DrawingOrder: "", Bounds: "invalid"}
+	properties := uiProperties(n)
+	if len(properties) != 0 {
+		t.Fatalf("properties = %#v, want empty", properties)
+	}
+}
+
+func TestUITreeNodeLabelFallbackAndProperties(t *testing.T) {
+	falseValue := false
+	n := &UINode{Class: "android.widget.ImageButton", ContentDesc: "菜单", ResourceID: "id/menu", Clickable: &falseValue, Nodes: []UINode{{Class: "android.widget.TextView", Text: "子项"}}}
+	got := uiTreeNode(n)
+	if got.Label != "菜单" {
+		t.Fatalf("label = %q, want content-desc", got.Label)
+	}
+	if got.Properties["clickable"] != false || len(got.Children) != 1 || got.Children[0].Properties["class"] != "android.widget.TextView" {
+		t.Fatalf("node properties = %#v", got)
 	}
 }
 

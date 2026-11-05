@@ -305,13 +305,15 @@ Python 脚本更稳的做法是在 wrapper 里加 `-u`（`python3 -u foo.py`）�
 }
 ```
 
-- `label`：节点身份（文件名 / View 树的文本或 resource-id）
+- `defaultExpandAll`：帧级可选布尔值；`true` 时初始展开全部节点，省略或 `false` 时默认展开两层。`foreground-info` 的 View 树设为 `true`，普通树即使带属性也不自动全展开
+- `label`：节点身份（文件名 / View 树的文本、content-desc、resource-id 或 class）
 - `kind`：类型徽标，前端**原样渲染、无 kind→文案/颜色映射**（文件树 `dir`/`file`，View 树=具体 class 短名）；配色只按结构：容器=主题色、叶子=灰
 - `detail`：弱化补充（大小 / bounds / 截断说明），块内搜索时与 label 一起参与匹配
 - `path`：叶子点击复制的完整路径；缺省时前端回退根到叶 label 面包屑（`/` 连接）
 - `children`：空即叶子
+- `properties`：可选的通用只读属性对象。字符串空值省略，布尔值保留显式 `false`；对象值按 key/value 递归展示。`foreground-info` 的 View 树使用 `class`、`text`、`content-desc`、`resource-id`、`package`、`index`、`drawing-order`、`bounds` 以及主要交互状态字段；`bounds` 为 `{left, top, right, bottom}`。
 
-树块交互：默认展开 2 层；非叶子行点击折叠/展开子树，「折叠/展开」按钮改全局深度；块内搜索命中 label 或 detail（命中+祖先保留，仅 detail 命中的行降透明）；叶子行点击复制 `path` 并弹 toast。单帧节点数硬护栏 5000（`internal/adb/tree.go` 的 `MaxTreeNodes`，超出按深度优先截断并追加 `…` 警告节点）。
+树块交互：省略 `defaultExpandAll` 时默认展开 2 层；设置为 `true` 的帧（如 View 树）默认展开全部节点，深层控件不被容器层级遮住；非叶子行点击折叠/展开子树，「折叠/展开」按钮改全局深度；属性面板默认折叠，不参与树层级、搜索或复制文本；块内搜索命中 label 或 detail（命中+祖先保留，仅 detail 命中的行降透明）；叶子行点击复制 `path` 并弹 toast。深层树可横向滚动查看完整缩进。单帧节点数硬护栏 5000（`internal/adb/tree.go` 的 `MaxTreeNodes`，超出按深度优先截断并追加 `…` 警告节点）。
 
 adb 域（`list-files`、`foreground-info` 的 View 树）不经协议行——Go 侧直接构造同构帧以 `stream: "tree"` 发射；script/run 动作用 `##[tree` 协议行进入同一通道：
 

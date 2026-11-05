@@ -312,13 +312,13 @@
 }
 .treeblock-body {
   padding: 6px 12px 8px;
+  overflow-x: auto;
 }
 .tree-row {
   display: flex;
   align-items: center;
-  min-width: 0;
+  width: max-content;
   white-space: nowrap;
-  overflow: hidden;
   border-radius: 4px;
   padding: 0 2px;
 }
@@ -334,6 +334,7 @@
 }
 .tree-rail {
   flex: none;
+  white-space: pre;
   color: color-mix(in oklch, var(--muted-foreground) 72%, transparent);
 }
 .tree-caret {
@@ -368,6 +369,84 @@
   margin-left: 8px;
   font-size: 11px;
   color: var(--muted-foreground);
+}
+.tree-properties-layout {
+  display: flex;
+  align-items: flex-start;
+  width: max-content;
+  margin: 2px 0 4px;
+  padding: 0 2px;
+  font-size: inherit;
+  line-height: 1.5;
+}
+.tree-properties-rail {
+  flex: none;
+  white-space: pre;
+  color: transparent;
+}
+.tree-properties-caret {
+  flex: none;
+  width: 14px;
+}
+.tree-properties-kind {
+  flex: none;
+  font-size: 9px;
+  line-height: 1.4;
+  padding: 1px 6px;
+  margin: 0 6px 0 12px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  color: transparent;
+}
+.tree-properties {
+  flex: none;
+}
+.tree-properties-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 1px 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--muted-foreground);
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+.tree-properties-trigger:hover,
+.tree-properties-trigger:focus-visible {
+  color: var(--foreground);
+  border-color: color-mix(in oklch, var(--foreground) 28%, transparent);
+  outline: none;
+}
+.tree-properties-content {
+  margin-top: 3px;
+  padding: 4px 6px;
+  border-left: 1px solid var(--border);
+  background: color-mix(in oklch, var(--foreground) 2%, transparent);
+}
+.tree-properties-grid,
+.tree-properties-nested {
+  display: grid;
+  gap: 2px 12px;
+}
+.tree-properties-grid {
+  grid-template-columns: minmax(110px, max-content) minmax(0, 1fr);
+}
+.tree-properties-nested {
+  grid-template-columns: minmax(80px, max-content) minmax(0, 1fr);
+  margin: 1px 0;
+}
+.tree-properties-row {
+  display: contents;
+}
+.tree-properties-key {
+  color: var(--muted-foreground);
+}
+.tree-properties-value {
+  min-width: 0;
+  color: var(--foreground);
+  overflow-wrap: anywhere;
 }
 /* 搜索时仅 detail 命中的节点：内容降透明但保留结构可读 */
 .tree-row.dimmed .tree-rail,

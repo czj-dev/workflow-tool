@@ -14,6 +14,21 @@ spec = importlib.util.spec_from_file_location(
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
 
+# ---- 车型 → SPM 归档目录：默认 5181，支持 518 / 216-C ----
+assert mod.resolve_model("") == "5181"
+assert mod.resolve_model(None) == "5181"
+assert mod.archive_path("518", "a.zip") == "autopai-tlc/platform/C518/log/a.zip"
+assert mod.archive_path("5181", "a.zip") == "autopai-tlc/platform/C5181/log/a.zip"
+assert mod.archive_path("216-C", "log_1793257032303_LS6ANE0F2TB413501.zip") == (
+    "autopai-tlc/platform/B216-C/log/log_1793257032303_LS6ANE0F2TB413501.zip"
+)
+try:
+    mod.archive_path("unknown", "a.zip")
+except mod.SpmError as exc:
+    assert "518" in str(exc) and "5181" in str(exc)
+else:
+    raise AssertionError("不支持的车型必须报错")
+
 # 命令行传参：原样取 argv[1:]，且不得改动入参
 argv = ["spm-download.py", "a.zip", "/inner/x.gz"]
 assert mod.resolve_args(argv, {}) == ["a.zip", "/inner/x.gz"]

@@ -70,6 +70,57 @@ describe("TreeBlock", () => {
     expect(screen.getByText("360×640")).toBeInTheDocument();
   });
 
+  it("属性面板默认折叠，展开后显示通用键值且不触发树行操作", async () => {
+    const user = userEvent.setup();
+    render(
+      <TreeBlock
+        frame={{
+          nodes: [
+            {
+              label: "Button",
+              kind: "Button",
+              properties: { enabled: false, text: "登录", bounds: { left: 1, top: 2 } },
+              children: [{ label: "child" }],
+            },
+          ],
+        }}
+      />,
+    );
+    expect(screen.queryByText("enabled", { exact: true })).toBeNull();
+    await user.click(screen.getByRole("button", { name: "属性" }));
+    expect(screen.getByText("enabled", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("false", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("left", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("1", { exact: true })).toBeInTheDocument();
+    expect(screen.getByText("child")).toBeInTheDocument();
+    expect(screen.getByText("属性").closest(".tree-properties-layout")).toBeInTheDocument();
+    expect(screen.getAllByRole("treeitem")[0]).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("View 树默认显示深层控件，并允许折叠其祖先", async () => {
+    const user = userEvent.setup();
+    const viewNodes: TreeNode[] = [{
+      label: "root",
+      properties: { class: "FrameLayout" },
+      children: [{ label: "container", children: [{ label: "wrapper", children: [{ label: "button", properties: { clickable: true } }] }] }],
+    }];
+    render(<TreeBlock frame={{ nodes: viewNodes, defaultExpandAll: true }} />);
+    expect(screen.getByText("button")).toBeInTheDocument();
+    const buttonTreeItem = screen.getByText("button").closest('[role="treeitem"]');
+    const buttonTreeRail = buttonTreeItem?.querySelector(".tree-rail");
+    const buttonPropertiesRail = buttonTreeItem?.querySelector(".tree-properties-rail");
+    expect(buttonPropertiesRail?.textContent).toBe(buttonTreeRail?.textContent);
+    expect(buttonTreeItem?.querySelector(".tree-properties-layout")).toBeInTheDocument();
+    await user.click(screen.getByText("container"));
+    expect(screen.queryByText("button")).toBeNull();
+  });
+
+  it("带属性的普通树仍默认只展开两层", () => {
+    render(<TreeBlock frame={{ nodes: [{ ...deepNodes[0], properties: { size: 10 } }] }} />);
+    expect(screen.getByText("g")).toBeInTheDocument();
+    expect(screen.queryByText("leaf4")).toBeNull();
+  });
+
   it("默认展开两层；折叠/展开按钮切换深度", async () => {
     const user = userEvent.setup();
     render(<TreeBlock frame={{ nodes: deepNodes }} />);

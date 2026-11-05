@@ -2,8 +2,10 @@ package api
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"workflow-tool/internal/adb/logcat"
 	"workflow-tool/internal/registry"
 )
 
@@ -37,4 +39,61 @@ func TestActionsDirectoryValidates(t *testing.T) {
 		}
 	}
 	t.Logf("loaded %d actions, all validate OK", len(reg.Actions))
+}
+
+func TestLogcatScenarioPresets(t *testing.T) {
+	reg := registry.Load(filepath.Join("..", "..", "actions"), filepath.Join("..", ".."))
+	if len(reg.Errors) > 0 {
+		t.Fatalf("action load errors: %v", reg.Errors)
+	}
+	action, ok := reg.Actions["adb-logcat-stream"]
+	if !ok {
+		t.Fatal("adb-logcat-stream not loaded")
+	}
+
+	cases := []struct {
+		name string
+		tags []string
+	}{
+		{"VTS / TopQuery", []string{"DVR_TopQueryInterceptor", "DVR_TopQueryUtil", "DVR_VtsManager", "DVR_VtsInterveneMatchImpl"}},
+		{"导航多轮", []string{"DVR_NaviMultiRoundRule", "DVR_NavigationFlowDeviceModule", "DVR_ProtocolConverterManager", "DVR_TinnoveIpc"}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var values map[string]string
+			for _, preset := range action.Def.Presets {
+				if preset.Name == tc.name {
+					values = preset.Values
+					break
+				}
+			}
+			if values == nil {
+				t.Fatalf("missing preset %q", tc.name)
+			}
+			if values["LEVEL"] != "V" || values["PACKAGE"] != "" {
+				t.Fatalf("unexpected level/package: %v", values)
+			}
+			for _, key := range []string{"FILTER", "INCLUDE", "EXCLUDE"} {
+				if value, ok := values[key]; !ok || value != "" {
+					t.Errorf("%s must explicitly clear global config, got %q (present: %t)", key, value, ok)
+				}
+			}
+			if strings.Join(strings.Fields(values["TAG"]), " ") != strings.Join(tc.tags, " ") {
+				t.Fatalf("unexpected tags: %q", values["TAG"])
+			}
+			rule := logcat.RuleFromParamsExt(values["LEVEL"], values["TAG"], values["INCLUDE"], values["EXCLUDE"], values["PACKAGE"], values["FILTER"])
+			compiled, err := logcat.CompileRule(rule)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, tag := range tc.tags {
+				if !compiled.Allow(&logcat.Entry{Level: "D", Tag: tag}) {
+					t.Errorf("does not match %s", tag)
+				}
+			}
+			if compiled.Allow(&logcat.Entry{Level: "D", Tag: "UnrelatedTag", Message: tc.tags[0]}) {
+				t.Error("target tag in message matched an unrelated tag")
+			}
+		})
+	}
 }
