@@ -1,12 +1,17 @@
 id: adb-list-files
 title: 设备文件列表
 icon: hi:folder
-description: 列出设备指定目录下的文件（默认 /sdcard/）
+description: 递归查看设备目录文件与属性（默认 /sdcard/，最多四层）
 params:
   - id: REMOTE_PATH
     label: 设备路径
     type: text
     default: /sdcard/
+  - id: DEPTH
+    label: 扫描深度
+    type: text
+    default: "4"
+    description: 从指定目录的直接子项算第一层；超过动作超时会显示部分结果。
   - id: SHOW_HIDDEN
     label: 显示隐藏文件
     type: bool
@@ -14,4 +19,4 @@ params:
 command:
   adb:
     operation: list-files
-  timeout: 30s
+  timeout: 5s

@@ -8,52 +8,6 @@ import (
 	"workflow-tool/internal/adbcore"
 )
 
-// listFilesTree 组装 list-files 树帧根节点：root=目录本身，children=条目。
-// kind=dir/file（符号链接目标已剥离、归 file）；file 的 detail=`大小 · 日期`，
-// dir 保持安静；path=设备完整路径（叶子点击复制用）。
-func listFilesTree(normalized string, entries []Entry) adb.TreeNode {
-	root := adb.TreeNode{Label: normalized, Kind: "dir", Path: normalized}
-	for _, e := range entries {
-		n := adb.TreeNode{Label: e.Name, Path: e.Path}
-		if e.Type == dirType {
-			n.Kind = "dir"
-		} else {
-			n.Kind = "file"
-			n.Detail = e.SizeHuman + " · " + e.ModifiedAt
-		}
-		root.Children = append(root.Children, n)
-	}
-	return root
-}
-
-// handleListFiles lists the contents of a remote directory.
-// Params: REMOTE_PATH (default /sdcard/), SHOW_HIDDEN (bool).
-// 输出形态是一帧树（stream "tree"，前端渲染内联树块，替代原逐行文本列表）。
-func handleListFiles(op *adb.OpContext) adb.OpResult {
-	const opName = "list-files"
-	normalized, err := normalizeRemotePath(op.ParamStr("REMOTE_PATH"))
-	if err != nil {
-		return abortWith(op, opName, err)
-	}
-	showHidden := op.ParamBool("SHOW_HIDDEN")
-
-	res, runErr := adbcore.RunCommand(op.Ctx, op.Adb("shell", "ls", "-lAL", quoteShellArg(normalized)))
-	if runErr != nil {
-		return runFail(op, opName, "Failed to list files", res, runErr, true)
-	}
-	entries, parseErr := parseFileListOutput(res.Stdout, normalized, showHidden)
-	if parseErr != nil {
-		return paramErr(op, opName, "Failed to parse file listing", parseErr.Error())
-	}
-
-	op.EmitTree(adb.TreeFrame{
-		Title: fmt.Sprintf("%s · %d 项", normalized, len(entries)),
-		Nodes: []adb.TreeNode{listFilesTree(normalized, entries)},
-	})
-	summary := fmt.Sprintf("%d item(s) in %s", len(entries), normalized)
-	return adb.OpResult{ExitCode: 0, Stdout: summary}
-}
-
 // handleMkdir creates a remote directory (and parents).
 // Params: REMOTE_PATH (required).
 func handleMkdir(op *adb.OpContext) adb.OpResult {

@@ -21,6 +21,7 @@ type Entry struct {
 	Permissions string `json:"permissions"`
 	ModifiedAt  string `json:"modifiedAt"`
 	IsHidden    bool   `json:"isHidden"`
+	LinkTarget  string `json:"linkTarget,omitempty"`
 }
 
 // StorageInfo describes device storage usage, parsed from `df -k`.
@@ -168,8 +169,8 @@ func statHostPath(opName, hostPath string) (os.FileInfo, error) {
 func parseFileListOutput(output, parentPath string, showHidden bool) ([]Entry, error) {
 	entries := make([]Entry, 0)
 	for _, rawLine := range splitLines(output) {
-		line := strings.TrimSpace(rawLine)
-		if line == "" || strings.HasPrefix(line, "total ") {
+		line := strings.TrimLeft(rawLine, " \t")
+		if strings.TrimSpace(line) == "" || strings.HasPrefix(line, "total ") {
 			continue
 		}
 		entry, ok, err := parseFileListLine(line, parentPath)
@@ -193,9 +194,24 @@ func parseFileListLine(line, parentPath string) (Entry, bool, error) {
 		return Entry{}, false, fmt.Errorf("unexpected ls output: %s", line)
 	}
 	permissions := parts[0]
-	name := strings.Join(parts[7:], " ")
-	if permissions != "" && permissions[0] == 'l' {
-		name = strings.TrimSpace(strings.Split(name, " -> ")[0])
+	fieldCount := 7
+	if (permissions[0] == 'b' || permissions[0] == 'c') && strings.HasSuffix(parts[4], ",") {
+		fieldCount++ // 设备文件的主次设备号占两列，而不是 size 一列。
+	}
+	if len(parts) <= fieldCount {
+		return Entry{}, false, fmt.Errorf("unexpected ls output: %s", line)
+	}
+	rest := line
+	for _, field := range parts[:fieldCount] {
+		rest = strings.TrimLeft(rest, " \t")
+		rest = rest[len(field):]
+	}
+	name := strings.TrimLeft(rest, " \t")
+	linkTarget := ""
+	if permissions[0] == 'l' {
+		if index := strings.Index(name, " -> "); index >= 0 {
+			name, linkTarget = name[:index], name[index+4:]
+		}
 	}
 	if name == "." || name == ".." || name == "" {
 		return Entry{}, false, nil
@@ -212,8 +228,9 @@ func parseFileListLine(line, parentPath string) (Entry, bool, error) {
 		Size:        sizeValue,
 		SizeHuman:   formatFileSize(sizeValue),
 		Permissions: permissions,
-		ModifiedAt:  parts[5] + " " + parts[6],
+		ModifiedAt:  parts[fieldCount-2] + " " + parts[fieldCount-1],
 		IsHidden:    strings.HasPrefix(name, "."),
+		LinkTarget:  linkTarget,
 	}
 	if entryType == dirType {
 		entry.Size = 0

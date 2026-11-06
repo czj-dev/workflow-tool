@@ -305,15 +305,15 @@ Python 脚本更稳的做法是在 wrapper 里加 `-u`（`python3 -u foo.py`）�
 }
 ```
 
-- `defaultExpandAll`：帧级可选布尔值；`true` 时初始展开全部节点，省略或 `false` 时默认展开两层。`foreground-info` 的 View 树设为 `true`，普通树即使带属性也不自动全展开
+- `defaultExpandAll`：帧级可选布尔值；`true` 时初始展开全部节点，省略或 `false` 时默认展开两层。`foreground-info` 的 View 树和 `list-files` 文件树设为 `true`，其他树即使带属性也不自动全展开
 - `label`：节点身份（文件名 / View 树的文本、content-desc、resource-id 或 class）
-- `kind`：类型徽标，前端**原样渲染、无 kind→文案/颜色映射**（文件树 `dir`/`file`，View 树=具体 class 短名）；配色只按结构：容器=主题色、叶子=灰
+- `kind`：类型徽标，前端**原样渲染、无 kind→文案/颜色映射**（设备文件树 `dir`/`file`/`symlink`/`other`，View 树=具体 class 短名）；配色只按结构：容器=主题色、叶子=灰
 - `detail`：弱化补充（大小 / bounds / 截断说明），块内搜索时与 label 一起参与匹配
 - `path`：叶子点击复制的完整路径；缺省时前端回退根到叶 label 面包屑（`/` 连接）
 - `children`：空即叶子
 - `properties`：可选的通用只读属性对象。字符串空值省略，布尔值保留显式 `false`；对象值按 key/value 递归展示。`foreground-info` 的 View 树使用 `class`、`text`、`content-desc`、`resource-id`、`package`、`index`、`drawing-order`、`bounds` 以及主要交互状态字段；`bounds` 为 `{left, top, right, bottom}`。
 
-树块交互：省略 `defaultExpandAll` 时默认展开 2 层；设置为 `true` 的帧（如 View 树）默认展开全部节点，深层控件不被容器层级遮住；非叶子行点击折叠/展开子树，「折叠/展开」按钮改全局深度；属性面板默认折叠，不参与树层级、搜索或复制文本；块内搜索命中 label 或 detail（命中+祖先保留，仅 detail 命中的行降透明）；叶子行点击复制 `path` 并弹 toast。深层树可横向滚动查看完整缩进。单帧节点数硬护栏 5000（`internal/adb/tree.go` 的 `MaxTreeNodes`，超出按深度优先截断并追加 `…` 警告节点）。
+树块交互：省略 `defaultExpandAll` 时默认展开 2 层；设置为 `true` 的帧（如 View 树、设备文件树）默认展开全部节点；非叶子行点击折叠/展开子树，「折叠/展开」按钮改全局深度；属性面板默认折叠，不参与树层级、搜索或复制文本；块内搜索命中 label 或 detail（命中+祖先保留，仅 detail 命中的行降透明）；叶子行点击复制 `path` 并弹 toast。深层树可横向滚动查看完整缩进。`MaxTreeNodes=5000` 是数据源可选用的截断工具，并非树帧发送器的全局硬限制；设备文件列表不设置节点数上限，由扫描时限控制。
 
 adb 域（`list-files`、`foreground-info` 的 View 树）不经协议行——Go 侧直接构造同构帧以 `stream: "tree"` 发射；script/run 动作用 `##[tree` 协议行进入同一通道：
 
@@ -379,14 +379,14 @@ command:
 | `pull` | `REMOTE_PATH`(必填)、`LOCAL_PATH`(path,必填) | 拉取单个文件 |
 | `push-multiple` | `LOCAL_PATH`(path,必填)、`REMOTE_PATH`(必填) | 本地目录 → 远程目录 |
 | `pull-multiple` | `REMOTE_PATH`(必填)、`LOCAL_PATH`(path,必填) | 远程目录 → 本地目录 |
-| `list-files` | `REMOTE_PATH`(默认 `/sdcard/`)、`SHOW_HIDDEN`(bool) | 列目录（`stream: "tree"` 树块渲染，叶子点击复制设备完整路径） |
+| `list-files` | `REMOTE_PATH`(默认 `/sdcard/`)、`DEPTH`(正整数，默认 4)、`SHOW_HIDDEN`(bool) | 递归读取目录（直接子项为第一层）；`stream: "tree"` 默认展开全部已扫描层级，叶子点击复制设备完整路径 |
 | `mkdir` | `REMOTE_PATH`(必填) | 创建远程目录 |
 | `delete` | `REMOTE_PATH`(必填)、`ALLOW_PROTECTED`(可选 bool，默认 false；true 时放行 /data、/system 等系统分区，设备根 "/" 仍拒绝) | 删除远程文件/目录 |
 | `rename` | `REMOTE_PATH`(必填)、`NEW_REMOTE_PATH`(必填) | 重命名/移动 |
 | `directory-size` | `REMOTE_PATH`(必填) | 远程目录占用大小 |
 | `storage-info` | `REMOTE_PATH`(必填) | 挂载点总/已用/可用 |
 
-远程路径会做规范化与 `..` 拦截。`push`/`pull` 进度经 `stream: "progress"` 推送。
+`list-files` 不跟随目录内的符号链接；属性面板展示文件大小、修改时间、权限、类型，链接额外展示目标，目录不计算总大小。动作 YAML 的 `command.timeout` 默认 `5s`，约束整个目录扫描阶段（不包含设备探测、组树与前端渲染）；取得部分结果后超时或子目录不可读时保留部分树并发出警告，未读到根目录结果、设备断开或手动取消则失败。未扫描完的目录会标明状态。无独立节点数上限，扫描大量文件时仍可能产生较大的树帧；设备 `ls` 的行格式不支持含换行符的文件名，解析失败时动作报错；链接名自身含 ` -> ` 时，无法从该行格式可靠区分链接名与目标名。远程路径会规范化（包括折叠 `..`）。`push`/`pull` 进度经 `stream: "progress"` 推送。
 
 **scrcpy（6）**
 

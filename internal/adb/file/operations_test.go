@@ -36,9 +36,9 @@ func TestListFilesTree(t *testing.T) {
 	if file.Detail != "1.4 MB · 2026-09-05 17:02" {
 		t.Fatalf("file detail = %q", file.Detail)
 	}
-	// 符号链接：目标已剥离、归 file 徽标
+	// 符号链接单独标记，目标在属性面板中展示。
 	link := root.Children[2]
-	if link.Label != "link" || link.Kind != "file" {
+	if link.Label != "link" || link.Kind != "symlink" || link.Properties["target"] != "target.txt" {
 		t.Fatalf("link = %+v", link)
 	}
 }
@@ -47,5 +47,23 @@ func TestListFilesTreeEmpty(t *testing.T) {
 	root := listFilesTree("/sdcard/empty", nil)
 	if len(root.Children) != 0 {
 		t.Fatalf("children = %+v", root.Children)
+	}
+}
+
+func TestParseFileListLinePreservesNames(t *testing.T) {
+	cases := []struct {
+		line, name, target, modified string
+	}{
+		{"-rw-r--r-- 1 root root 2 2026-09-05 11:02 two  spaces.txt ", "two  spaces.txt ", "", "2026-09-05 11:02"},
+		{"lrwxrwxrwx 1 root root 1 2026-09-05 11:02 link -> a -> b", "link", "a -> b", "2026-09-05 11:02"},
+		{"crw------- 1 root root 1, 3 2026-09-05 11:02 null", "null", "", "2026-09-05 11:02"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			entry, ok, err := parseFileListLine(tc.line, "/dev")
+			if err != nil || !ok || entry.Name != tc.name || entry.LinkTarget != tc.target || entry.ModifiedAt != tc.modified {
+				t.Fatalf("entry=%+v ok=%t err=%v", entry, ok, err)
+			}
+		})
 	}
 }
