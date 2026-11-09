@@ -20,6 +20,8 @@ import { ParamFields } from "./ParamFields";
 import { SavePresetDialog } from "./SavePresetDialog";
 import { WorkflowStepsOverview } from "./WorkflowStepsOverview";
 import { missingRequired } from "../lib/params";
+import { invalidArrayParams } from "../lib/arrayParams";
+import { hasValidLogcatFilter } from "../lib/logcatRule";
 
 // 与 ui/sidebar.tsx 的 SIDEBAR_WIDTH / SIDEBAR_WIDTH_ICON 对齐（模块内常量未导出，此处镜像）。
 // sheet portal 到 body，继承不到 sidebar-wrapper 上的 --sidebar-width 变量，只能用字面量；
@@ -70,7 +72,9 @@ export function ParamSheet() {
   const values = isWorkflow ? workflowFormValues : formValues;
   const setValue = isWorkflow ? setWorkflowFormValue : setFormValue;
 
-  const canRun = missingRequired(params, values).length === 0;
+  const ignored = action?.stream === "logcat" && hasValidLogcatFilter(values.FILTER) ? ["TAG"] : [];
+  const validArrays = invalidArrayParams(params, values, ignored).length === 0;
+  const canRun = missingRequired(params, values).length === 0 && validArrays;
   const filledCount = params.filter(
     (p) => (values[p.id] ?? p.default ?? "") !== "",
   ).length;
@@ -196,7 +200,14 @@ export function ParamSheet() {
                     aria-pressed={selectedPreset === p.name || undefined}
                     title={p.name}
                     onClick={() => selectPreset(item.id, p.name)}
-                    onDoubleClick={() => runAction(item.id, p.values)}
+                    onDoubleClick={() => {
+                      const presetIgnored = action?.stream === "logcat" && hasValidLogcatFilter(p.values.FILTER) ? ["TAG"] : [];
+                      if (invalidArrayParams(params, p.values, presetIgnored).length) {
+                        selectPreset(item.id, p.name);
+                      } else {
+                        runAction(item.id, { ...p.values });
+                      }
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === "Enter" || e.key === " ") {
                         e.preventDefault();
@@ -238,7 +249,7 @@ export function ParamSheet() {
             </span>
             <div className="flex items-center gap-2">
               {!isWorkflow && (
-                <Button variant="outline" onClick={() => setSaveOpen(true)}>
+                <Button variant="outline" disabled={!validArrays} onClick={() => setSaveOpen(true)}>
                   {t("main.save")}
                 </Button>
               )}

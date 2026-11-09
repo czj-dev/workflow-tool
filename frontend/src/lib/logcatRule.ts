@@ -2,6 +2,7 @@
 // 语义与 spec 定稿（docs/superpowers/specs/2026-08-18-logcat-filter-chips-design.md）
 // 及 mockup 引擎 mockLogcat.ts 对照移植；求值在后端（Go 唯一求值器），此处只做编辑侧。
 import type { LogcatKey, LogcatOp, LogcatRule, LogcatToken } from "../types/events";
+import { parseStringList } from "./arrayParams";
 
 // key 别名：msg→message；其余 key 原样（spec：`message` 别名 `msg`，两者都接受）。
 // 未知 key 按裸词（any）处理（输入容错）。
@@ -97,9 +98,20 @@ export function tokenText(t: LogcatToken): string {
 // 后端 ParamFilter 同名常量）。legacy 键表达不了 chip 语言，FILTER 在则整体采用。
 const PARAM_FILTER = "FILTER";
 
+export function hasValidLogcatFilter(raw: string | undefined): boolean {
+  if (!raw?.trim()) return false;
+  try {
+    const rule: unknown = JSON.parse(raw);
+    return rule !== null && typeof rule === "object" &&
+      Array.isArray((rule as { tokens?: unknown }).tokens);
+  } catch {
+    return false;
+  }
+}
+
 // 启动参数 → 初始规则。优先解析 FILTER（JSON 可解析即整体采用，与后端
-// RuleFromParamsExt 同构；draft 剥离——运行态规则无草稿）；否则走 legacy 映射：
-// LEVEL→minLevel；TAG 按空白拆分为多个 tag contains token；INCLUDE/EXCLUDE→message
+// RuleFromParamsExt 同构；draft 剥离——运行态规则无草稿）；否则走简单字段映射：
+// LEVEL→minLevel；TAG 按 JSON 字符串数组解析；INCLUDE/EXCLUDE→message
 // 正/负 contains token；PACKAGE→package（只读 chip）。
 export function ruleFromParams(
   params: Record<string, unknown> | undefined,
@@ -127,40 +139,32 @@ export function ruleFromParams(
   }
   const lvlRaw = String(params?.LEVEL ?? "").trim().toUpperCase();
   // 不展开 EMPTY_LOGCAT_RULE（会共享其 tokens 数组引用），逐字段新建。
-  const rule: LogcatRule = {
-    tokens: [],
+  const include = String(params?.INCLUDE ?? "");
+  const exclude = String(params?.EXCLUDE ?? "");
+  return {
+    tokens: [
+      ...parseStringList(String(params?.TAG ?? "")).filter((tag) => tag.trim() !== "")
+        .map((tag): LogcatToken => ({ key: "tag", op: "contains", negated: false, value: tag })),
+      ...(include ? [{ key: "message", op: "contains", negated: false, value: include } as LogcatToken] : []),
+      ...(exclude ? [{ key: "message", op: "contains", negated: true, value: exclude } as LogcatToken] : []),
+    ],
     minLevel: lvlRaw && "VDIWEF".includes(lvlRaw[0]) ? lvlRaw[0] : "V",
     package: String(params?.PACKAGE ?? ""),
   };
-  for (const tag of String(params?.TAG ?? "").split(/\s+/)) {
-    if (tag) rule.tokens.push({ key: "tag", op: "contains", negated: false, value: tag });
-  }
-  const include = String(params?.INCLUDE ?? "");
-  if (include) {
-    rule.tokens.push({ key: "message", op: "contains", negated: false, value: include });
-  }
-  const exclude = String(params?.EXCLUDE ?? "");
-  if (exclude) {
-    rule.tokens.push({ key: "message", op: "contains", negated: true, value: exclude });
-  }
-  return rule;
 }
 
 // 规则 → preset 参数值（甲板「存为预设」用）。FILTER 承载全量规则（权威，
-// ruleFromParams 优先解析，往返无损）；legacy 键仅在可无损表达时写入——供表单
-// 展示与手写 yaml 阅读，避免语义错位（TAG 按空白拆分，值含空白不可表达即省略；
-// INCLUDE/EXCLUDE 单槽，恰一个 message contains 时写入）。
+// ruleFromParams 优先解析，往返无损）；简单字段仅在可无损表达时写入——供表单
+// 展示与手写 yaml 阅读；TAG 是 JSON 数组，INCLUDE/EXCLUDE 是单槽。
 // 空规则（无 tokens/包名/非 V 阈值）不写 FILTER，减少 yaml 噪音。
 export function ruleToParams(rule: LogcatRule): Record<string, string> {
   const tokens = rule.tokens.filter((tk) => tk.value);
   const values: Record<string, string> = { LEVEL: rule.minLevel || "V" };
   if (rule.package) values.PACKAGE = rule.package;
   const tagTok = tokens.filter((tk) => tk.key === "tag");
-  const tagPlain = tagTok.filter(
-    (tk) => tk.op === "contains" && !tk.negated && !/\s/.test(tk.value),
-  );
+  const tagPlain = tagTok.filter((tk) => tk.op === "contains" && !tk.negated);
   if (tagTok.length > 0 && tagTok.length === tagPlain.length)
-    values.TAG = tagPlain.map((tk) => tk.value).join(" ");
+    values.TAG = JSON.stringify(tagPlain.map((tk) => tk.value));
   const inc = tokens.filter(
     (tk) => tk.key === "message" && tk.op === "contains" && !tk.negated,
   );

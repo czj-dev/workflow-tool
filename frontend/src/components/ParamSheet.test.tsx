@@ -18,7 +18,7 @@ const {
   return {
     mockListActions: vi.fn(),
     mockListWorkflows: vi.fn(),
-    mockRunAction: vi.fn(() => Promise.resolve()),
+    mockRunAction: vi.fn<(_id: string, _params: Record<string, string>) => Promise<void>>().mockResolvedValue(undefined),
     mockRunWorkflow: vi.fn(() => Promise.resolve()),
     mockPickDirectory: vi.fn(() => Promise.resolve("D:/picked")),
     mockOn: vi.fn((name: string, cb: (e: unknown) => void) => {
@@ -229,6 +229,105 @@ describe("ParamSheet — action 形态", () => {
     const title = await screen.findByRole("button", { name: /A/ });
     await user.click(title);
     expect(screen.getByTestId("view-probe")).toHaveTextContent("edit");
+  });
+});
+
+describe("ParamSheet — JSON array fields", () => {
+  const arrayAction = {
+    ...action,
+    params: [
+      { id: "TAG", label: "Tag", type: "list", required: false, default: '["DVR A"]', options: [] },
+      { id: "ARGS", label: "参数", type: "arguments", required: false, default: '[{"flag":"--es","values":["key","hello world"]}]', options: [] },
+    ],
+    presets: [],
+  };
+
+  beforeEach(() => {
+    mockListActions.mockReset().mockResolvedValue({ actions: [arrayAction], errors: [] });
+  });
+
+  it("编辑值、增删行和值后按顺序提交 JSON", async () => {
+    const user = userEvent.setup();
+    mount(<ActionSetup />);
+    const tag = await screen.findByLabelText("Tag 1");
+    expect(tag).toHaveValue("DVR A");
+    await user.click(screen.getByRole("button", { name: "添加Tag" }));
+    await user.type(screen.getByLabelText("Tag 2"), "DVR B");
+    await user.click(screen.getByRole("button", { name: "添加参数" }));
+    await user.type(screen.getByLabelText("参数 2 flag"), "-W");
+    await user.click(screen.getByRole("button", { name: "添加参数 2 值" }));
+    await user.type(screen.getByLabelText("参数 2 值 1"), " spaced value ");
+    await user.click(screen.getByRole("button", { name: "运行" }));
+    const [, sent] = mockRunAction.mock.calls[0];
+    expect(JSON.parse(sent.TAG)).toEqual(["DVR A", "DVR B"]);
+    expect(JSON.parse(sent.ARGS)).toEqual([
+      { flag: "--es", values: ["key", "hello world"] },
+      { flag: "-W", values: [" spaced value "] },
+    ]);
+  });
+
+  it("支持重复 flag 及值和行的独立排序", async () => {
+    const user = userEvent.setup();
+    mount(<ActionSetup />);
+    await screen.findByLabelText("参数 1 flag");
+    await user.click(screen.getByRole("button", { name: "添加参数" }));
+    await user.type(screen.getByLabelText("参数 2 flag"), "--es");
+    await user.click(screen.getByRole("button", { name: "添加参数 2 值" }));
+    await user.type(screen.getByLabelText("参数 2 值 1"), "second");
+    await user.click(screen.getByRole("button", { name: "上移参数 2" }));
+    await user.click(screen.getByRole("button", { name: "下移参数 2 值 1" }));
+    await user.click(screen.getByRole("button", { name: "运行" }));
+    const [, sent] = mockRunAction.mock.calls[0];
+    expect(JSON.parse(sent.ARGS)).toEqual([
+      { flag: "--es", values: ["second"] },
+      { flag: "--es", values: ["hello world", "key"] },
+    ]);
+  });
+
+  it("空 arguments 字段运行时提交 JSON 空数组", async () => {
+    mockListActions.mockReset().mockResolvedValue({ actions: [{
+      ...arrayAction,
+      params: [{ ...arrayAction.params[1], default: "" }],
+    }], errors: [] });
+    const user = userEvent.setup();
+    mount(<ActionSetup />);
+    await user.click(await screen.findByRole("button", { name: "运行" }));
+    expect(mockRunAction).toHaveBeenCalledWith("a1", expect.objectContaining({ ARGS: "[]" }));
+  });
+
+  it("有效 FILTER 优先时允许旧 TAG 预设直接运行", async () => {
+    mockListActions.mockReset().mockResolvedValue({ actions: [{
+      ...arrayAction,
+      stream: "logcat",
+      presets: [{ name: "filter", values: { TAG: "old tag", FILTER: '{"tokens":[]}' } }],
+    }], errors: [] });
+    const user = userEvent.setup();
+    mount(<ActionSetup />);
+    await user.dblClick(await screen.findByRole("button", { name: "filter" }));
+    expect(mockRunAction).toHaveBeenCalledWith("a1", expect.objectContaining({ FILTER: '{"tokens":[]}' }));
+  });
+
+  it("双击旧格式预设时留在表单而不运行", async () => {
+    mockListActions.mockReset().mockResolvedValue({ actions: [{
+      ...arrayAction,
+      presets: [{ name: "old", values: { TAG: "DVR_A DVR_B" } }],
+    }], errors: [] });
+    const user = userEvent.setup();
+    mount(<ActionSetup />);
+    await user.dblClick(await screen.findByRole("button", { name: "old" }));
+    expect(mockRunAction).not.toHaveBeenCalled();
+    expect(screen.getByText("需要 JSON 字符串数组")).toBeInTheDocument();
+  });
+
+  it("无效旧 TAG 值显示错误且不能运行或保存", async () => {
+    mockListActions.mockReset().mockResolvedValue({ actions: [{ ...arrayAction, params: [{ ...arrayAction.params[0], default: "DVR_A DVR_B" }] }], errors: [] });
+    const user = userEvent.setup();
+    mount(<ActionSetup />);
+    expect(await screen.findByText("需要 JSON 字符串数组")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "运行" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "保存" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: "重置Tag" }));
+    expect(screen.queryByText("需要 JSON 字符串数组")).not.toBeInTheDocument();
   });
 });
 

@@ -36,9 +36,9 @@ func handleBatch(op *adb.OpContext) adb.OpResult {
 		return adb.OpResult{ExitCode: 2, Err: opErr, Stderr: opErr.Error()}
 	}
 
-	f, ok := buildFilter(op.ParamStr("LEVEL"), op.ParamStr("TAG"), op.ParamStr("INCLUDE"), op.ParamStr("EXCLUDE"))
-	if !ok {
-		opErr := adbcore.NewOperationError(opBatch, "invalid LEVEL (expect V/D/I/W/E/F or verbose/warn/error...)", op.ParamStr("LEVEL"), false)
+	f, err := buildFilter(op.ParamStr("LEVEL"), op.ParamStr("TAG"), op.ParamStr("INCLUDE"), op.ParamStr("EXCLUDE"))
+	if err != nil {
+		opErr := adbcore.NewOperationError(opBatch, "invalid filter parameters", err.Error(), false)
 		op.EmitStderr(opErr.Error())
 		return adb.OpResult{ExitCode: 2, Err: opErr, Stderr: opErr.Error()}
 	}
@@ -148,13 +148,13 @@ func resolvePids(op *adb.OpContext, pkg string) map[int]struct{} {
 // UTF-16 单位、仅正向 token）；omitempty——无正向 token 或无命中行不带字段，
 // 前端视为无高亮。ring 存干净原文，标注只在序列化出口打上。
 type logcatPayload struct {
-	Date    string   `json:"date"`
-	Time    string   `json:"time"`
-	Pid     int      `json:"pid"`
-	Tid     int      `json:"tid"`
-	Level   string   `json:"level"`
-	Tag     string   `json:"tag"`
-	Message string   `json:"message"`
+	Date    string  `json:"date"`
+	Time    string  `json:"time"`
+	Pid     int     `json:"pid"`
+	Tid     int     `json:"tid"`
+	Level   string  `json:"level"`
+	Tag     string  `json:"tag"`
+	Message string  `json:"message"`
 	Marks   [][]int `json:"marks,omitempty"`
 }
 

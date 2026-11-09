@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -78,10 +79,17 @@ func TestLogcatScenarioPresets(t *testing.T) {
 					t.Errorf("%s must explicitly clear global config, got %q (present: %t)", key, value, ok)
 				}
 			}
-			if strings.Join(strings.Fields(values["TAG"]), " ") != strings.Join(tc.tags, " ") {
+			var tags []string
+			if err := json.Unmarshal([]byte(values["TAG"]), &tags); err != nil {
+				t.Fatalf("invalid TAG JSON: %v", err)
+			}
+			if strings.Join(tags, " ") != strings.Join(tc.tags, " ") {
 				t.Fatalf("unexpected tags: %q", values["TAG"])
 			}
-			rule := logcat.RuleFromParamsExt(values["LEVEL"], values["TAG"], values["INCLUDE"], values["EXCLUDE"], values["PACKAGE"], values["FILTER"])
+			rule, err := logcat.RuleFromParamsExt(values["LEVEL"], values["TAG"], values["INCLUDE"], values["EXCLUDE"], values["PACKAGE"], values["FILTER"])
+			if err != nil {
+				t.Fatal(err)
+			}
 			compiled, err := logcat.CompileRule(rule)
 			if err != nil {
 				t.Fatal(err)

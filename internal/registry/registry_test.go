@@ -362,6 +362,12 @@ func TestValidateExported(t *testing.T) {
 	if err := Validate(bad); err == nil {
 		t.Fatal("非法 id 应被 Validate 拒绝")
 	}
+	for _, paramType := range []string{"list", "arguments"} {
+		withList := &ActionDef{ID: "a", Title: "A", Command: Command{Run: "echo"}, Params: []ParamSpec{{ID: "ARGS", Type: paramType}}}
+		if err := Validate(withList); err != nil {
+			t.Errorf("通用参数类型 %s 应合法: %v", paramType, err)
+		}
+	}
 }
 
 func TestAddPresetToYAML_NewPreset(t *testing.T) {

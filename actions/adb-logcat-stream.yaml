@@ -11,8 +11,9 @@ params:
     type: text
     default: V
   - id: TAG
-    label: Tag 过滤（多个空格分隔，可空）
-    type: text
+    label: Tag 过滤（可添加多个，可空）
+    type: list
+    default: '[]'
   - id: INCLUDE
     label: 消息包含（可空）
     type: text
@@ -22,7 +23,7 @@ params:
   - id: FILTER
     label: 规则 JSON（可空）
     type: textarea
-    description: 甲板「存为预设」写入的完整规则（含正则/取反/∨ 分组/pid，上面五个字段表达不了）。非空时整体生效并忽略上方字段；清空则回落到上方字段。
+    description: 甲板「存为预设」写入的完整规则（含正则/取反/∨ 分组/pid，上面五个字段表达不了）。有效 JSON 且含 tokens 数组时整体生效并忽略上方字段；清空或无效时回落到上方字段。
 command:
   adb:
     operation: logcat-stream
@@ -32,21 +33,21 @@ command:
 presets:
   - name: 指令下发
     description: 指令主链——InitService 仅保留 >==>> 指令行，WtNluBot/MixNlu/TinnoveIpc/SemanticDispatcher 全量；PACKAGE 留空以覆盖跨进程 TAG
-    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: "", TAG: "DVR_InitService DVR_WtNluBot DVR_MixNluArbiterImpl DVR_TinnoveIpc DVR_SemanticDispatcher", FILTER: '{"tokens":[{"key":"tag","op":"contains","negated":false,"value":"DVR_InitService"},{"key":"message","op":"contains","negated":false,"value":">==>>"},{"key":"tag","op":"contains","negated":false,"value":"DVR_WtNluBot","link":"or"},{"key":"tag","op":"contains","negated":false,"value":"DVR_MixNluArbiterImpl","link":"or"},{"key":"tag","op":"contains","negated":false,"value":"DVR_TinnoveIpc","link":"or"},{"key":"tag","op":"contains","negated":false,"value":"DVR_SemanticDispatcher","link":"or"}],"minLevel":"V","package":""}'}
+    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: "", TAG: '["DVR_InitService","DVR_WtNluBot","DVR_MixNluArbiterImpl","DVR_TinnoveIpc","DVR_SemanticDispatcher"]', FILTER: '{"tokens":[{"key":"tag","op":"contains","negated":false,"value":"DVR_InitService"},{"key":"message","op":"contains","negated":false,"value":">==>>"},{"key":"tag","op":"contains","negated":false,"value":"DVR_WtNluBot","link":"or"},{"key":"tag","op":"contains","negated":false,"value":"DVR_MixNluArbiterImpl","link":"or"},{"key":"tag","op":"contains","negated":false,"value":"DVR_TinnoveIpc","link":"or"},{"key":"tag","op":"contains","negated":false,"value":"DVR_SemanticDispatcher","link":"or"}],"minLevel":"V","package":""}'}
   - name: AI BOX
     description: AI BOX 仲裁链（R4 四件套 + 最终指令下发 TinnoveIpc）
-    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: "", TAG: "DVR_R4Arbiter DVR_R4ArbiterState DVR_R4SequentialSender DVR_MixNluArbiterImpl DVR_TinnoveIpc"}
+    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: "", TAG: '["DVR_R4Arbiter","DVR_R4ArbiterState","DVR_R4SequentialSender","DVR_MixNluArbiterImpl","DVR_TinnoveIpc"]'}
   - name: 多轮对话
     description: 多轮改写链（注册 MultiRoundRuleRegistrar → 派发 WtNluBot → DST 改写 NluModifyDeduceUnit → 转换 ProtocolConverterManager）
-    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: "", TAG: "DVR_MultiRoundRuleRegistrar DVR_WtNluBot DVR_NluModifyDeduceUnit DVR_ProtocolConverterManager"}
+    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: "", TAG: '["DVR_MultiRoundRuleRegistrar","DVR_WtNluBot","DVR_NluModifyDeduceUnit","DVR_ProtocolConverterManager"]'}
   - name: 用车 Agent
     description: 用车 Agent（SSE 投递 + TopQuery 入口拦截 + ComplexTask 主链路）
-    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: "", TAG: "DVR_SseAgentStreamRouter DVR_SseAgentBridge DVR_TopQueryInterceptor DVR_TopQueryInjection DVR_TopQueryUtil ernie_ComplexTaskDeviceModule ernie_CarManualStreamAgentVM"}
+    values: {EXCLUDE: "", INCLUDE: "", LEVEL: V, PACKAGE: "", TAG: '["DVR_SseAgentStreamRouter","DVR_SseAgentBridge","DVR_TopQueryInterceptor","DVR_TopQueryInjection","DVR_TopQueryUtil","ernie_ComplexTaskDeviceModule","ernie_CarManualStreamAgentVM"]'}
   - name: 手车互联
-    values: {FILTER: '{"tokens":[{"key":"tag","op":"contains","negated":false,"value":"DVR_PhoneLinkArb"},{"key":"tag","op":"contains","negated":false,"value":"DVR_ThirdAppAgentDeviceModule"},{"key":"tag","op":"contains","negated":false,"value":"DVR_PhoneLinkFallbackContextProvider"},{"key":"tag","op":"contains","negated":false,"value":"DVR_TinnoveIpc"},{"key":"tag","op":"contains","negated":false,"value":"DVR_SpeechServiceImpl","link":"or"}],"minLevel":"V","package":""}', LEVEL: V, TAG: DVR_PhoneLinkArb DVR_ThirdAppAgentDeviceModule DVR_PhoneLinkFallbackContextProvider DVR_TinnoveIpc DVR_SpeechServiceImpl}
+    values: {FILTER: '{"tokens":[{"key":"tag","op":"contains","negated":false,"value":"DVR_PhoneLinkArb"},{"key":"tag","op":"contains","negated":false,"value":"DVR_ThirdAppAgentDeviceModule"},{"key":"tag","op":"contains","negated":false,"value":"DVR_PhoneLinkFallbackContextProvider"},{"key":"tag","op":"contains","negated":false,"value":"DVR_TinnoveIpc"},{"key":"tag","op":"contains","negated":false,"value":"DVR_SpeechServiceImpl","link":"or"}],"minLevel":"V","package":""}', LEVEL: V, TAG: '["DVR_PhoneLinkArb","DVR_ThirdAppAgentDeviceModule","DVR_PhoneLinkFallbackContextProvider","DVR_TinnoveIpc","DVR_SpeechServiceImpl"]'}
   - name: VTS / TopQuery
     description: TopQuery 入口与可见即可说命中、控件筛选
-    values: {EXCLUDE: "", INCLUDE: "", FILTER: "", LEVEL: V, PACKAGE: "", TAG: "DVR_TopQueryInterceptor DVR_TopQueryUtil DVR_VtsManager DVR_VtsInterveneMatchImpl"}
+    values: {EXCLUDE: "", INCLUDE: "", FILTER: "", LEVEL: V, PACKAGE: "", TAG: '["DVR_TopQueryInterceptor","DVR_TopQueryUtil","DVR_VtsManager","DVR_VtsInterveneMatchImpl"]'}
   - name: 导航多轮
     description: 导航轮次、POI 状态、协议转换及下发
-    values: {EXCLUDE: "", INCLUDE: "", FILTER: "", LEVEL: V, PACKAGE: "", TAG: "DVR_NaviMultiRoundRule DVR_NavigationFlowDeviceModule DVR_ProtocolConverterManager DVR_TinnoveIpc"}
+    values: {EXCLUDE: "", INCLUDE: "", FILTER: "", LEVEL: V, PACKAGE: "", TAG: '["DVR_NaviMultiRoundRule","DVR_NavigationFlowDeviceModule","DVR_ProtocolConverterManager","DVR_TinnoveIpc"]'}

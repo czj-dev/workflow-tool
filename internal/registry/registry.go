@@ -30,7 +30,7 @@ type ActionDef struct {
 type ParamSpec struct {
 	ID          string   `json:"id" yaml:"id"`
 	Label       string   `json:"label" yaml:"label"`
-	Type        string   `json:"type" yaml:"type"` // text|bool|select|path|file
+	Type        string   `json:"type" yaml:"type"` // text|bool|select|path|file|textarea|list|arguments
 	Required    bool     `json:"required" yaml:"required"`
 	Default     string   `json:"default" yaml:"default"`
 	Options     []string `json:"options" yaml:"options"`
@@ -221,10 +221,10 @@ func Validate(def *ActionDef) error {
 	// params 校验
 	for i, p := range def.Params {
 		switch p.Type {
-		case "text", "bool", "select", "path", "file", "textarea":
+		case "text", "bool", "select", "path", "file", "textarea", "list", "arguments":
 			// 合法
 		default:
-			return fmt.Errorf("params[%d].type 非法 %q（应为 text/bool/select/path/file/textarea）", i, p.Type)
+			return fmt.Errorf("params[%d].type 非法 %q（应为 text/bool/select/path/file/textarea/list/arguments）", i, p.Type)
 		}
 		if p.Type == "select" && len(p.Options) == 0 {
 			return fmt.Errorf("params[%d] (%s) 是 select 必须提供 options", i, p.ID)

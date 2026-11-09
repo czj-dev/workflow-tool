@@ -3,6 +3,10 @@ package actionrun
 import (
 	"context"
 	"testing"
+	"time"
+
+	"workflow-tool/internal/registry"
+	"workflow-tool/internal/workflow"
 )
 
 // buildActionRunParams 原为 api.Service 的方法，WorkflowCallbacks 统一后迁到本包包级函数，
@@ -40,6 +44,26 @@ func TestBuildActionRunParamsExpandsEnv(t *testing.T) {
 	_, expandedEnv := buildActionRunParams(context.Background(), Deps{}, merged, env, nil)
 	if expandedEnv["DATA"] != "/data/files" {
 		t.Fatalf("env 的 ${ROOT} 应展开，got %v", expandedEnv["DATA"])
+	}
+}
+
+func TestWorkflowActionEmptyDefaultUsesEnvironment(t *testing.T) {
+	t.Setenv("FOO", "from-environment")
+	reg := &registry.Registry{Actions: map[string]registry.LoadedAction{
+		"example": {
+			Def: registry.ActionDef{
+				Params:  []registry.ParamSpec{{ID: "FOO"}},
+				Command: registry.Command{Run: "printf '%s\\n' \"${FOO}\""},
+			},
+			Timeout: time.Second,
+		},
+	}}
+	actionRun, _ := WorkflowCallbacks(reg, Deps{}, nil)
+	result := actionRun(workflow.ActionRequest{
+		Ctx: context.Background(), ActionID: "example", Emit: func(string, string) {},
+	})
+	if result.Err != nil || result.ExitCode != 0 || result.Stdout != "from-environment\n" {
+		t.Fatalf("empty default should not shadow environment: %+v", result)
 	}
 }
 

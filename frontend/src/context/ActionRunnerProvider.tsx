@@ -52,6 +52,7 @@ import { foldOutputLine } from "../lib/outputFold";
 import { treeFrameToText } from "../lib/treeFrame";
 import { expandVars } from "../lib/vars";
 import { resolveActionParams } from "../lib/params";
+import { invalidArrayParams, normalizeArrayParams } from "../lib/arrayParams";
 import {
   BUCKETS,
   decayAndBump,
@@ -60,7 +61,7 @@ import {
   type Bucket,
   type UsageByBucket,
 } from "../lib/usage";
-import { ruleFromParams, sortHistogram } from "../lib/logcatRule";
+import { hasValidLogcatFilter, ruleFromParams, sortHistogram } from "../lib/logcatRule";
 import type {
   OutputEventData,
   OutputLineItem,
@@ -844,16 +845,24 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   }, [currentId]);
 
   const runAction = async (id: string, params: Record<string, any> = {}, background = false) => {
-    setLastRunParams((prev) => ({ ...prev, [id]: params as Record<string, string> }));
-    setRunningIds((prev) => new Set(prev).add(id));
     const action = actions.find((a) => a.id === id);
+    const resolved = resolveActionParams(action?.params, globalConfig, params);
+    const ignored = action?.stream === "logcat" && hasValidLogcatFilter(resolved.FILTER) ? ["TAG"] : [];
+    if (invalidArrayParams(action?.params ?? [], resolved, ignored).length) {
+      setFormValues(resolved);
+      setCurrentId(id);
+      setFormSheetOpen(true);
+      return;
+    }
+    // 未显式提供的字段回填默认值；保留用户有意传入的空串。
+    const runParams = Object.fromEntries(
+      (action?.params ?? []).filter((p) => params[p.id] === undefined && p.default)
+        .map((p) => [p.id, p.default]),
+    );
+    const effectiveParams = normalizeArrayParams(action?.params ?? [], { ...runParams, ...params });
+    setLastRunParams((prev) => ({ ...prev, [id]: effectiveParams as Record<string, string> }));
+    setRunningIds((prev) => new Set(prev).add(id));
     recordUsage(action?.llm ? "llm-usage" : "action-usage", id);
-    // 用 spec.default 回填未提供的参数：双击 / rerun / grid 静默运行等绕过表单的路径也带上默认值，
-    // 避免命令里的 ${VAR} 被后端展开成空（后端不读 ParamSpec.Default，回填责任在前端）。
-    // 仅补 undefined 的 key——表单路径已逐项写入值（含空串），不覆盖用户清空的意图。
-    action?.params?.forEach((p) => {
-      if (params[p.id] === undefined && p.default) params[p.id] = p.default;
-    });
     // background=true（grid 卡片 run 按钮）：只登记 runningIds 驱动徽标，不切视图/不清输出，
     // 用户留在 grid 继续操作；要看输出就点卡片本体走前台路径（单缓冲不恢复是已知限制）。
     if (!background) {
@@ -873,7 +882,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         // 冻结本轮 prompt 快照（展开 ${VAR} 后与后端 ExpandParams 一致）+ 发送时刻，
         // 供聊天页气泡回显；切走再切回（focusRunning）时随面板状态一并保留。
         const promptParam = action.llm.promptParam;
-        setSentPrompt(expandVars((params[promptParam] as string) ?? "", params as Record<string, string>));
+        setSentPrompt(expandVars((effectiveParams[promptParam] as string) ?? "", effectiveParams as Record<string, string>));
         setSentAt(Date.now());
         setView("llm-chat");
       } else if (action?.stream === "logcat") {
@@ -881,7 +890,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         setLogcatEntries([]);
         // 把本次运行的服务端预过滤参数带入面板规则（映射见 ruleFromParams）。
         // 初始规则后端已从同一 params 编译，登记 synced 后防抖不再重复下发。
-        const rule = ruleFromParams(params);
+        const rule = ruleFromParams(effectiveParams);
         logcatRuleSyncedRef.current = rule;
         setLogcatRuleState(rule);
         setLogcatStats({ matched: 0, total: 0 });
@@ -896,7 +905,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     // 注册持久 done 订阅：无论用户是否切走，done 回调都能正确标记该 id 结束（清 runningIds）
     registerActionDone(id);
     try {
-      await RunAction(id, params);
+      await RunAction(id, effectiveParams);
     } catch (e) {
       // 后端判定该 action 已在运行（前端 runningIds 偶发与之不同步，
       // 或用户双击了运行中动作/预设）：此时上方的乐观状态
@@ -1054,11 +1063,16 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   // runWorkflow：先同步订阅事件再启动执行，确保不漏首帧。
   // background=true（grid 卡片 run 按钮）则不切视图/不订阅，仅登记徽标由 done 清理。
   const runWorkflow = async (id: string, params: Record<string, any> = {}, background = false) => {
-    // 用 spec.default 回填未提供的参数（双击 / rerun / grid 静默运行），语义同 runAction。
-    workflows.find((w) => w.id === id)?.params?.forEach((p) => {
-      if (params[p.id] === undefined && p.default) params[p.id] = p.default;
-    });
-    setLastRunParams((prev) => ({ ...prev, [id]: params as Record<string, string> }));
+    const specs = workflows.find((w) => w.id === id)?.params ?? [];
+    const defaults = Object.fromEntries(specs.filter((p) => p.default).map((p) => [p.id, p.default]));
+    const effectiveParams = normalizeArrayParams(specs, { ...defaults, ...params });
+    if (invalidArrayParams(specs, effectiveParams).length) {
+      setWorkflowFormValues(effectiveParams);
+      setCurrentId(id);
+      setFormSheetOpen(true);
+      return;
+    }
+    setLastRunParams((prev) => ({ ...prev, [id]: effectiveParams as Record<string, string> }));
     setRunningWorkflowId(id);
     recordUsage("workflow-usage", id);
     if (!background) {
@@ -1078,7 +1092,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       registerWorkflowDone(id);
     }
     try {
-      await RunWorkflow(id, params);
+      await RunWorkflow(id, effectiveParams);
     } catch {
       if (!background) setStatus("error");
       setRunningWorkflowId(null);
@@ -1183,7 +1197,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       currentId,
       name,
       description,
-      valuesOverride ?? formValues,
+      normalizeArrayParams(actions.find((action) => action.id === currentId)?.params ?? [], valuesOverride ?? formValues),
     );
     setActions((res && res.actions) || []);
     setErrors((res && res.errors) || []);

@@ -1,15 +1,38 @@
 id: adb-debug-activity
 title: 拉起测试页面
 icon: hi:test
-description: "adb shell am start DebugActivity"
+description: "adb shell am start 指定 Activity"
 params:
-  - id: EXEC_ID
-    label: 执行项目
+  - id: PACKAGE
+    label: 包名
     type: text
     required: true
-    default: "展示语音链路悬框"
+    default: com.baidu.che.codriver
+  - id: ACTIVITY
+    label: Activity
+    type: text
+    required: true
+    default: com.baidu.che.codriver.ui.DebugActivity
+  - id: ARGS
+    label: 启动参数
+    type: arguments
+    default: '[{"flag":"--es","values":["exec_button","展示语音链路悬框"]}]'
 command:
   run: |
-    S="${ADB_SERIAL}"
-    [ -n "$S" ] && adb -s "$S" shell am start -n com.baidu.che.codriver/com.baidu.che.codriver.ui.DebugActivity --es exec_button "${EXEC_ID}" || adb shell am start -n com.baidu.che.codriver/com.baidu.che.codriver.ui.DebugActivity --es exec_button "${EXEC_ID}"
+    command -v jq >/dev/null || { echo '缺少 jq：请先安装 jq 以解析 ARGS' >&2; exit 1; }
+    remote=$(jq -er --arg component "$PACKAGE/$ACTIVITY" '
+      if type != "array" or any(.[]; type != "object" or (.flag | type != "string") or (.values | type != "array" or any(.[]; type != "string")))
+      then error("ARGS 必须是含 flag 和 values 字符串数组的 JSON 数组")
+      else ["am", "start", "-n", $component] + [.[] | .flag, .values[]] | @sh
+      end
+    ' <<< "$ARGS")
+    selected_serial="${ADB_SERIAL}"
+    set -- shell "$remote"
+    if [ -n "$selected_serial" ]; then set -- -s "$selected_serial" "$@"; fi
+    adb "$@"
   timeout: 30s
+presets:
+  - name: DebugActivity
+    values: {ACTIVITY: com.baidu.che.codriver.ui.DebugActivity, ARGS: '[{"flag":"--es","values":["exec_button","展示语音链路悬框"]}]'}
+  - name: MainActivity
+    values: {ACTIVITY: com.baidu.che.codriver.ui.MainActivity, ARGS: '[]'}

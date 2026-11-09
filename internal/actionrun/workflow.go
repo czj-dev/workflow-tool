@@ -27,6 +27,16 @@ func makeActionRun(reg *registry.Registry, deps Deps, merged map[string]any) wor
 		}
 		// ${VAR} 展开必须在合并前完成（详见 buildActionRunParams 注释）。
 		runParams, expandedEnv := buildActionRunParams(req.Ctx, deps, merged, req.Env, req.Params)
+		withDefaults := make(map[string]any, len(la.Def.Params)+len(runParams))
+		for _, param := range la.Def.Params {
+			if param.Default != "" {
+				withDefaults[param.ID] = runner.Expand(req.Ctx, param.Default, merged, deps.Builtins)
+			}
+		}
+		for key, value := range runParams {
+			withDefaults[key] = value
+		}
+		runParams = withDefaults
 		r, err := Build(req.Ctx, la, deps, Options{
 			Params:          runParams,
 			ExtraEnv:        expandedEnv,

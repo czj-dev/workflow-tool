@@ -455,7 +455,7 @@ describe("ActionRunnerProvider", () => {
     const { result } = renderHook(() => useActionRunner(), { wrapper });
     await act(() => Promise.resolve());
     await act(async () => {
-      await result.current.runAction("a1", { LEVEL: "W", TAG: "Foo Bar", INCLUDE: "zz" });
+      await result.current.runAction("a1", { LEVEL: "W", TAG: '["Foo","Bar"]', INCLUDE: "zz" });
     });
     expect(result.current.view).toBe("logcat");
     expect(result.current.logcatRule).toEqual({
@@ -781,6 +781,31 @@ describe("ActionRunnerProvider", () => {
     expect(mockRunWorkflow).toHaveBeenCalledWith("w1", {});
     expect(mockOn).toHaveBeenCalledWith("workflow:w1:output", expect.any(Function));
     expect(mockOn).toHaveBeenCalledWith("workflow:w1:done", expect.any(Function));
+  });
+
+  it("workflow 直跑拒绝旧式数组且不改变传入参数", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    mockListWorkflows.mockResolvedValue({ workflows: [{
+      id: "w1", title: "W1", params: [{ id: "TAG", type: "list", default: "[]" }],
+    }], errors: [] });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    const params = { TAG: "old tag" };
+    await act(() => result.current.runWorkflow("w1", params));
+    expect(mockRunWorkflow).not.toHaveBeenCalled();
+    expect(result.current.formSheetOpen).toBe(true);
+    expect(params).toEqual({ TAG: "old tag" });
+  });
+
+  it("workflow 直跑将空 list 归一化为 JSON 空数组", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    mockListWorkflows.mockResolvedValue({ workflows: [{
+      id: "w1", title: "W1", params: [{ id: "TAG", type: "list", default: "" }],
+    }], errors: [] });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(() => result.current.runWorkflow("w1", {}));
+    expect(mockRunWorkflow).toHaveBeenCalledWith("w1", { TAG: "[]" });
   });
 
   it("step-start/stdout/step-done 协议帧驱动 workflowSteps", async () => {

@@ -16,7 +16,7 @@ env:                           # 可选，workflow 级默认环境变量，注�
 params:                        # 可选，工作流级参数（注入所有 step）
   - id: WF_MSG
     label: 消息
-    type: text                 # text | bool | select | path
+    type: text                 # text | bool | select | path | file | textarea | list | arguments
     required: true
     default: hello
     options: []                # select 必填
@@ -55,7 +55,8 @@ steps:
   - action: adb-install
   - action: adb-debug-activity
     params:                    # 覆盖该 action 的参数值
-      PAGE: main
+      ACTIVITY: com.baidu.che.codriver.ui.MainActivity
+      ARGS: '[]'
 ```
 
 参数解析顺序：step 的 `params` > 工作流的 `params` > 全局配置 > 环境变量。
@@ -213,7 +214,7 @@ workflow 级 `env` 注入所有 step（优先级低于 params、高于 config.ya
 
 ## 工作流参数
 
-工作流可自带 `params`，字段格式与 action 的 `params` 完全一致（`text` / `bool` / `select` / `path`，均支持可选 `description` 说明文案）。
+工作流可自带 `params`，字段格式与 action 的 `params` 一致（`text` / `bool` / `select` / `path` / `file` / `textarea` / `list` / `arguments`，均支持可选 `description` 说明文案）。`list` 与 `arguments` 的默认值及 step `params` 覆盖值使用 JSON 字符串：`TAG: '["DVR_A","DVR_B"]'`、`ARGS: '[{"flag":"--es","values":["exec_button","展示语音链路悬框"]}]'`；可重复 flag 并保留行顺序。
 
 **关键区别**：工作流参数不从引用的 action 聚合，需自行声明；运行时作为全局变量注入**所有** step，包括 action step 和 inline run step。
 
@@ -244,7 +245,7 @@ steps:
 
 ### 全功能演示
 
-覆盖 `params` 四类型、`action`/`sleep`/`run` 三形态、`env`、`if` 条件与 `outputs` 引用、`SKIPPED`、`retry`、`continue_on_error`：
+演示四种常用参数类型、`action`/`sleep`/`run` 三形态、`env`、`if` 条件与 `outputs` 引用、`SKIPPED`、`retry`、`continue_on_error`：
 
 ```yaml
 id: demo-all-features
@@ -351,6 +352,8 @@ id: xdzs-install-broadcast
 title: 安装后拉起测试页面
 icon: hi:package
 description: "安装 APK → 等待 5s → 拉起 DebugActivity"
+env:
+  ARGS: '[{"flag":"--es","values":["exec_button","展示语音链路悬框"]}]'
 steps:
   - id: install
     name: 安装 APK
@@ -368,6 +371,8 @@ id: xdzs-debug-chain
 title: 调试一键链
 icon: hi:flash
 description: "设备初始化 → 编译 Debug → 安装 APK → 拉起测试页面"
+env:
+  ARGS: '[{"flag":"--es","values":["exec_button","展示语音链路悬框"]}]'
 steps:
   - id: device-init
     name: 设备初始化
@@ -395,7 +400,7 @@ steps:
 - step 的 `shell` 修饰字段只能搭配 `run` 形态；值必须是内置名（`bash`/`sh`/`pwsh`/`powershell`/`python`/`node`/`cmd`）或含 `{0}` 的自定义模板
 - step 的 `id` 若填写必须匹配 `^[a-z0-9-]+$` 且同一 workflow 内唯一
 - `params[].id` 必填，且不能是保留字 `steps` / `env` / `params` / `config`
-- `params[].type` 只允许 `text` / `bool` / `select` / `path`
+- `params[].type` 只允许 `text` / `bool` / `select` / `path` / `file` / `textarea` / `list` / `arguments`
 - `select` 类型必须提供 `options`
 - 同一目录下 id 不可重复
 

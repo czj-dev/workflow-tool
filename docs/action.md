@@ -26,7 +26,7 @@ command:
 params:                        # 可选，参数表单
   - id: URL                    # 参数 ID，用于 ${URL} 引用
     label: 网址                # 表单标签
-    type: text                 # text | bool | select | path | file | textarea
+    type: text                 # text | bool | select | path | file | textarea | list | arguments
     required: true             # 未填时「运行」按钮禁用
     default: ""                # 默认值
     options: []                # select 类型必填
@@ -75,8 +75,10 @@ presets:                       # 可选，预设参数组合
 | `path` | 路径输入 + 选择按钮 | 调用系统**目录**对话框（选目录），支持拖拽（多选只取第一个） |
 | `file` | 路径输入 + 选择按钮 | 调用系统**文件**对话框（选单个文件），支持拖拽（多选只取第一个）。需选文件的参数（如 `adb-push` 的 LOCAL_PATH、`adb-install` 的 APK_PATH）用此类型 |
 | `textarea` | 多行文本域 | 自适应高度、等宽字体；用于 LLM prompt 模板、长脚本片段等多行内容 |
+| `list` | 可增删、排序的字符串行 | 值为 JSON 字符串数组，如 `'["DVR_A","DVR_B"]'`；空值用 `'[]'` |
+| `arguments` | 可增删、排序的 flag/多值行 | 值为 JSON 数组字符串，如 `'[{"flag":"--es","values":["key","hello world"]},{"flag":"-W","values":[]}]'`；重复 flag 与行顺序保留 |
 
-参数值在命令中用 `${ID}` 引用。
+`list` / `arguments` 的 `default` 和 `presets[].values` 都须写成 **JSON 字符串**（外层 YAML 引号），不是 YAML 数组；解析后各元素必须是字符串。`arguments` 的每行含 `flag` 字符串和 `values` 字符串数组，无值 flag 用空数组。参数值在命令中用 `${ID}` 引用；若是 `command.run`，可从对应的 `$ID` 环境变量读 JSON，避免直接拼接到脚本源码。
 
 可选 `description`：渲染在该字段控件下方的灰色说明文案（bool 类型渲染在 label 下方），用于写清取值示例或注意事项。不填则不占位。
 
@@ -365,9 +367,9 @@ command:
 | `logcat-stream` | `PACKAGE`、`LEVEL`、`TAG`、`INCLUDE`、`EXCLUDE`、`FILTER` | 前台实时流式；手动停止 |
 | `logcat-batch` | `LOGS_DIR`(path,必填)、`PACKAGE`、`LEVEL`、`TAG`、`INCLUDE`、`EXCLUDE`、`CLEAR_BUFFER`(bool) | 抓取到 `logcat_<时间戳>.log`；`CLEAR_BUFFER=true` 才在抓取前 `logcat -c`（默认不清空，避免丢历史） |
 
-过滤语义：`LEVEL` 为最低阈值（单字母 V/D/I/W/E/F，行 level ≥ 阈值才通过）；`TAG` 多个空格分隔、任一子串命中即通过；`INCLUDE`/`EXCLUDE` 对 message 做子串包含/排除。`PACKAGE` 仿 Android Studio Logcat 的包名过滤：启动时 `adb shell pidof <pkg>` 解析为 pid（多进程应用可返回多个 pid），Go 端按 pid 过滤。`logcat-stream` 额外每 5s 重试解析，故可在应用启动前先开 logcat、应用重启后自动跟上（app 未运行时该包无输出）。`logcat-stream` 配 `stream: logcat` 时**只有一个求值器（后端）**：上述五个参数（或 `FILTER`）只是启动初值，运行期由 logcat 甲板经 `UpdateLogcatFilter` 整体下发新规则，后端重筛整个 raw ring（容量由 `internal/adb/logcat/stream.go` 的 `ringCap` 决定，当前 10000 条，未写满时按实际条数）并以 `logcat-replace` 帧整体重发——放宽条件能找回 ring 内的历史行。前端不做任何过滤求值，改规则无需重启动作。规则非法（未知 key、非法正则、pid/tid 非整数、未知 link）时后端拒绝并沿用旧规则，拒绝原因回显在甲板上，不静默降级。
+过滤语义：`LEVEL` 为最低阈值（单字母 V/D/I/W/E/F，行 level ≥ 阈值才通过）；`TAG` 为 `list` 类型，以 JSON 字符串数组传入（如 `'["DVR_A","DVR_B"]'`，空值 `'[]'`），任一 tag 子串命中即通过，带空格的 tag 仍是一个元素；非空旧式空格分隔字符串不再接受；`INCLUDE`/`EXCLUDE` 对 message 做子串包含/排除。`PACKAGE` 仿 Android Studio Logcat 的包名过滤：启动时 `adb shell pidof <pkg>` 解析为 pid（多进程应用可返回多个 pid），Go 端按 pid 过滤。`logcat-stream` 额外每 5s 重试解析，故可在应用启动前先开 logcat、应用重启后自动跟上（app 未运行时该包无输出）。`logcat-stream` 配 `stream: logcat` 时**只有一个求值器（后端）**：上述五个参数（或 `FILTER`）只是启动初值，运行期由 logcat 甲板经 `UpdateLogcatFilter` 整体下发新规则，后端重筛整个 raw ring（容量由 `internal/adb/logcat/stream.go` 的 `ringCap` 决定，当前 10000 条，未写满时按实际条数）并以 `logcat-replace` 帧整体重发——放宽条件能找回 ring 内的历史行。前端不做任何过滤求值，改规则无需重启动作。规则非法（未知 key、非法正则、pid/tid 非整数、未知 link）时后端拒绝并沿用旧规则，拒绝原因回显在甲板上，不静默降级。
 
-`FILTER`（仅 `logcat-stream`）是完整规则的 JSON 载体，由 logcat 甲板「存为预设」写入：`{"tokens":[{"key":"tag|message|pid|tid|any","op":"contains|exact|regex","negated":bool,"value":"…","link":"or"}],"minLevel":"V","package":""}`。非空且 JSON 合法时**整体生效**，`LEVEL`/`TAG`/`INCLUDE`/`EXCLUDE`/`PACKAGE` 全部忽略（后端 `RuleFromParamsExt`）；非法 JSON 或为空则退化到上述五个 legacy 字段。表单里改 legacy 字段而 `FILTER` 非空时改动不生效——需先清空 `FILTER`。
+`FILTER`（仅 `logcat-stream`）是完整规则的 JSON 载体，由 logcat 甲板「存为预设」写入：`{"tokens":[{"key":"tag|message|pid|tid|any","op":"contains|exact|regex","negated":bool,"value":"…","link":"or"}],"minLevel":"V","package":""}`。非空、JSON 合法且含 `tokens` 数组时**整体生效**，`LEVEL`/`TAG`/`INCLUDE`/`EXCLUDE`/`PACKAGE` 全部忽略（后端 `RuleFromParamsExt`）；非法 JSON、缺少 `tokens` 数组或为空则退化到上述五个启动字段。表单里改启动字段而有效 `FILTER` 仍存在时改动不生效——需先清空 `FILTER`。
 
 `link` 是条件组连接符：`"or"` 表示该 token **另起一个条件组**，组间任一组完全命中即通过；缺省或 `"and"` 表示并入当前组。组内语义是同 key OR、跨 key AND（每组按 key 建桶）。取反 token（`negated: true`）是全局排除，不参与分组、其 `link` 被忽略。首个正向 token 的 `link` 无前组可切，等同并入。无任何 `"or"` 的规则退化为单组，与旧语义一致。正向 token 的未知 `link` 值后端硬失败（取反 token 的 `link` 如上所述被忽略，不校验）。
 
@@ -440,6 +442,22 @@ command:
 
 ## 实际示例
 
+### 拉起 Activity（重复 flag）
+
+`adb-debug-activity` 保留普通 `PACKAGE` / `ACTIVITY` 字段；`ARGS` 为 `arguments` 类型。默认拉起 DebugActivity 并传入 `--es exec_button 展示语音链路悬框`；显式的 `DebugActivity` 预设保持这一效果，`MainActivity` 预设将 `ACTIVITY` 改为 `com.baidu.che.codriver.ui.MainActivity`、`ARGS` 改为 `'[]'`。例如另加多个参数时：
+
+```yaml
+params:
+  - { id: PACKAGE, label: 包名, type: text, default: com.baidu.che.codriver }
+  - { id: ACTIVITY, label: Activity, type: text, default: com.baidu.che.codriver.ui.DebugActivity }
+  - id: ARGS
+    label: 启动参数
+    type: arguments
+    default: '[{"flag":"--es","values":["exec_button","展示语音链路悬框"]},{"flag":"--es","values":["note","hello world"]}]'
+```
+
+该动作的 `command.run` 需要本机 `jq`；运行前校验 `ARGS`，用 `jq @sh` 为设备侧 shell 逐参数引用，再用 Bash 位置参数构造本地 `adb` argv（`adb "$@"`）。缺少 `jq` 或 JSON 非法时直接报错，不会启动 Activity；有设备 serial 时只用所选设备执行，ADB 失败不会改用默认设备重试。
+
 ### 最简动作
 
 ```yaml
@@ -506,7 +524,7 @@ command:
 - `run` 与 `script` 与 `adb.operation` 与 `llm.prompt` **四选一、互斥**
 - `command.shell` 只允许搭配 `run`/`script` 形态；值必须是内置名（`bash`/`sh`/`pwsh`/`powershell`/`python`/`node`/`cmd`）或含 `{0}` 的自定义模板
 - `script` 必须带受支持的扩展名（`.sh` / `.ps1` / `.py` / `.js`）；显式写了 `command.shell` 时不校验扩展名
-- `params[].type` 只允许 `text` / `bool` / `select` / `path` / `file` / `textarea`
+- `params[].type` 只允许 `text` / `bool` / `select` / `path` / `file` / `textarea` / `list` / `arguments`
 - `select` 类型必须提供 `options`
 - `stream` 只允许空 或 `"logcat"`
 - `command.llm.prompt` 必填时对应 param 必须存在于 `params` 中；`command.llm.system` 非空时同样校验
