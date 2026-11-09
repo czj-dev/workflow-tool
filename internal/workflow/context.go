@@ -12,6 +12,7 @@ type StepContext struct {
 	Env    map[string]string // workflow.env 合并 step.env 后的展开值
 	Params map[string]any    // 表单参数（含全局 config 合并结果，params 侧命名空间）
 	Config map[string]string // config.yaml 原样（保留通道，暂供 expr 查询）
+	Node   map[string]any    // 树叶点击时的节点；workflow step 中为空
 }
 
 // Flatten 展平为 expr.Eval 的 env map：顶层 key 为 steps/env/params/config，
@@ -42,5 +43,6 @@ func (c *StepContext) Flatten() map[string]any {
 		"env":    envMap,
 		"params": paramsMap,
 		"config": configMap,
+		"node":   c.Node,
 	}
 }

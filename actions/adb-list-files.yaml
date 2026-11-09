@@ -16,6 +16,8 @@ params:
     label: 显示隐藏文件
     type: bool
     default: "false"
+hmi:
+  tree: {}
 command:
   adb:
     operation: list-files

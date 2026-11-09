@@ -147,7 +147,7 @@ steps:
 
 stdout 中 `##[output key=value]` 行会被解析为 `steps.<id>.outputs.key`。
 
-另有 `##[progress 文本]` 协议行：不产出 outputs，而是让该文本在 Pipeline Spine 的 step 输出里原地覆盖上一条进度行（长任务的单行滚动读数）。`##[tree <json>]` 以树帧显示在输出流中；内联 `run` 和引用的 action 共用 [action.md 的树帧协议](action.md#树帧tree)，帧级 `defaultExpandAll: true` 表示初始展开全部节点，缺省仍为两层。这些协议行均不进入 stdout 捕获。
+另有 `##[progress 文本]` 协议行：不产出 outputs，而是让该文本在 Pipeline Spine 的 step 输出里原地覆盖上一条进度行（长任务的单行滚动读数）。`##[tree <json>]` 使用 [action.md 的树帧协议](action.md#树帧tree)：引用的 action 声明 `hmi.tree` 时渲染为树，叶子可按该 action 的 `click` 声明启动独立 action 输出页；未声明以及内联 `run` step 的 tree 流按普通文本显示。帧级 `defaultExpandAll: true` 表示初始展开全部节点，缺省仍为两层。这些协议行均不进入 stdout 捕获。
 
 ### LLM step（stream: llm）
 

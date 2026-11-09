@@ -12,6 +12,7 @@ export interface FoldOpts {
   stderrPrefix: string;
   // 树帧 JSON 解析失败时的降级文案（i18n 由调用方注入，fold 层保持纯函数）
   treeErrLabel?: string;
+  isTreeEnabled?: (actionId: string | undefined) => boolean;
 }
 
 // 每桶 lines 需要跟踪「上一行是否是 progress」——单条 boolean 状态跟着桶走，
@@ -50,6 +51,10 @@ function applyOne(state: FoldState, d: OutputEventData, opts: FoldOpts): FoldSta
   }
   if (d.stream === "tree") {
     const frame = parseTreeFrame(d.line || "", opts.treeErrLabel ?? "##[tree] parse failed");
+    if (opts.isTreeEnabled && !opts.isTreeEnabled(frame.source?.actionId)) {
+      const text = frame.source?.protocol === "adb" ? d.line : `##[tree ${d.line}]`;
+      return { ...state, lines: [...state.lines, { kind: "text", text }], lastWasProgress: false };
+    }
     return {
       ...state,
       lines: [...state.lines, { kind: "tree", id: state.treeSeq ?? 0, frame }],

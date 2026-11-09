@@ -138,8 +138,8 @@ describe("ActionRunnerProvider", () => {
   });
 
   // ##[tree] 协议行：stream=tree 解析为树帧行项入桶，不落文本行
-  it("收到 tree 流追加树帧行项（id 从 0 递增）", async () => {
-    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+  it("声明 hmi.tree 后 tree 流追加树帧行项（id 从 0 递增）", async () => {
+    mockListActions.mockResolvedValue({ actions: [{ id: "a1", hmi: { tree: {} } }], errors: [] });
     const { result } = renderHook(() => useActionRunner(), { wrapper });
     await act(() => Promise.resolve());
     await act(async () => {
@@ -149,13 +149,13 @@ describe("ActionRunnerProvider", () => {
       _emitForTest("action:a1:output", {
         data: {
           stream: "tree",
-          line: JSON.stringify({ title: "T", nodes: [{ label: "n", kind: "dir" }] }),
+          line: JSON.stringify({ title: "T", nodes: [{ label: "n", kind: "dir" }], source: { actionId: "a1", params: {}, protocol: "script" } }),
         },
       });
       _emitForTest("action:a1:output", {
         data: {
           stream: "tree",
-          line: JSON.stringify({ nodes: [{ label: "m" }] }),
+          line: JSON.stringify({ nodes: [{ label: "m" }], source: { actionId: "a1", params: {}, protocol: "script" } }),
         },
       });
     });
@@ -163,6 +163,16 @@ describe("ActionRunnerProvider", () => {
     expect(trees).toHaveLength(2);
     expect(trees[0]).toMatchObject({ kind: "tree", id: 0 });
     expect(trees[1]).toMatchObject({ kind: "tree", id: 1 });
+  });
+
+  it("未声明 hmi.tree 的 tree 流作为普通文本显示", async () => {
+    mockListActions.mockResolvedValue({ actions: [{ id: "a1" }], errors: [] });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => { await result.current.runAction("a1"); });
+    const frame = JSON.stringify({ nodes: [{ label: "n" }], source: { actionId: "a1", params: {}, protocol: "script" } });
+    act(() => { _emitForTest("action:a1:output", { data: { stream: "tree", line: frame } }); });
+    expect(result.current.lines).toEqual([{ kind: "text", text: `##[tree ${frame}]` }]);
   });
 
   it("收到 done 事件（exitCode 0）置 status=done", async () => {

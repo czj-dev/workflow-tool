@@ -109,6 +109,15 @@ describe("foldOutputLine", () => {
     expect(state.lastWasProgress).toBe(false);
   });
 
+  it("未声明 hmi.tree 时把 tree 事件显示为文本", () => {
+    const raw = JSON.stringify({ nodes: [{ label: "file" }] });
+    const state = foldOutputLine(emptyFoldState(), treeLine(1, raw), {
+      ...opts,
+      isTreeEnabled: () => false,
+    });
+    expect(state.lines).toEqual([{ kind: "text", text: `##[tree ${raw}]` }]);
+  });
+
   it("tree 后跟 progress 不覆盖树帧（lastWasProgress 已复位）", () => {
     let state = emptyFoldState();
     state = foldOutputLine(
