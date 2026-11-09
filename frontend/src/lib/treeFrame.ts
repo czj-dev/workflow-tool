@@ -23,22 +23,33 @@ export interface TreeNode {
   children?: TreeNode[];
 }
 
+export interface TreeSource {
+  actionId: string;
+  params: Record<string, unknown>;
+  protocol?: "script" | "adb";
+}
+
 export interface TreeFrame {
   title?: string;
   nodes: TreeNode[];
   defaultExpandAll?: boolean;
+  source?: TreeSource;
 }
 
 // parseTreeFrame 把树 JSON 原文解析成帧；失败不炸——降级为单错误节点帧
 // （label 由调用方传入，i18n 归组件层），detail 带原文片段便于排查。
 export function parseTreeFrame(raw: string, errLabel: string): TreeFrame {
   try {
-    const v = JSON.parse(raw) as { title?: unknown; nodes?: unknown; defaultExpandAll?: unknown };
+    const v = JSON.parse(raw) as { title?: unknown; nodes?: unknown; defaultExpandAll?: unknown; source?: unknown };
     if (v && Array.isArray(v.nodes)) {
+      const source = v.source as Partial<TreeSource> | null;
       return {
         title: typeof v.title === "string" ? v.title : undefined,
         nodes: v.nodes as TreeNode[],
         ...(typeof v.defaultExpandAll === "boolean" && { defaultExpandAll: v.defaultExpandAll }),
+        ...(source && typeof source.actionId === "string" && source.params &&
+          typeof source.params === "object" && !Array.isArray(source.params) &&
+          { source: source as TreeSource }),
       };
     }
   } catch {

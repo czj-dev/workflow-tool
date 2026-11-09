@@ -1,6 +1,8 @@
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import type { OutputLineItem } from "../types/events";
+import { ResolveTreeClick } from "../../bindings/workflow-tool/internal/api/service.js";
+import { useActionRunner } from "../hooks/useActionRunner";
 import { TreeBlock } from "./TreeBlock";
 
 // 共享的输出行渲染：action 的 OutputConsole 与 workflow step 卡片都用它，
@@ -15,6 +17,7 @@ interface OutputLinesProps {
 
 export function OutputLines({ lines, exitCode, className }: OutputLinesProps) {
   const { t } = useTranslation();
+  const { actions, runAction, isRunning } = useActionRunner();
   const stderrPrefix = t("output.stderrPrefix");
   const lastIdx = lines.length - 1;
 
@@ -22,7 +25,13 @@ export function OutputLines({ lines, exitCode, className }: OutputLinesProps) {
     <>
       {lines.map((item, i) => {
         if (item.kind === "tree") {
-          return <TreeBlock key={`tree-${item.id}`} frame={item.frame} />;
+          const source = item.frame.source;
+          const click = actions.find((action) => action.id === source?.actionId)?.hmi?.tree?.click;
+          return <TreeBlock key={`tree-${item.id}`} frame={item.frame} onLeafClick={click && source ? async (node) => {
+            const result = await ResolveTreeClick(source.actionId, node as unknown as Record<string, unknown>, source.params);
+            if (isRunning(result.action)) throw new Error(t("tree.actionRunning"));
+            await runAction(result.action, result.params);
+          } : undefined} />;
         }
         let cls = "text-foreground";
         if (exitCode !== undefined && i === lastIdx) {

@@ -67,6 +67,37 @@ func TestWorkflowActionEmptyDefaultUsesEnvironment(t *testing.T) {
 	}
 }
 
+func TestBuildActionRunParamsExpandsWorkflowBaseParams(t *testing.T) {
+	merged := map[string]any{"LOGS_DIR": "/logs", "OUT_DIR": "${LOGS_DIR}"}
+	got, _ := buildActionRunParams(context.Background(), Deps{}, merged, nil, nil)
+	if got["OUT_DIR"] != "/logs" {
+		t.Fatalf("workflow 基础参数未展开: %#v", got)
+	}
+	if merged["OUT_DIR"] != "${LOGS_DIR}" {
+		t.Fatal("不得修改传入的基础参数")
+	}
+}
+
+func TestActionDefaultsFillMissingWorkflowParams(t *testing.T) {
+	params := map[string]any{"ZIP_NAME": "logs.zip", "MODEL": "518", "INNER_PATH": "", "LOGS_DIR": "/logs"}
+	specs := []registry.ParamSpec{
+		{ID: "MODEL", Default: "5181"},
+		{ID: "OUT_DIR", Default: "${LOGS_DIR}"},
+		{ID: "INNER_PATH"},
+		{ID: "MISSING_OPTIONAL"},
+	}
+	got := withActionDefaults(context.Background(), Deps{}, params, specs)
+	if got["MODEL"] != "518" || got["OUT_DIR"] != "/logs" || got["INNER_PATH"] != "" {
+		t.Fatalf("默认值与显式输入未正确合并: %#v", got)
+	}
+	if _, ok := params["OUT_DIR"]; ok {
+		t.Fatal("不得修改传入的参数")
+	}
+	if _, ok := got["MISSING_OPTIONAL"]; ok {
+		t.Fatal("没有默认值的可选参数不能覆盖子进程原有环境变量")
+	}
+}
+
 // 非字符串 step.param（如 bool）保持原类型。
 func TestBuildActionRunParamsKeepsNonString(t *testing.T) {
 	merged := map[string]any{"PACKAGE": "p"}

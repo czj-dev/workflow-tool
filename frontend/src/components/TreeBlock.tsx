@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
-import { flattenTree, searchTree, type FlatNode, type TreeFrame } from "../lib/treeFrame";
+import { flattenTree, searchTree, type FlatNode, type TreeFrame, type TreeNode } from "../lib/treeFrame";
 import { TreePropertiesPanel } from "./TreePropertiesPanel";
 
 // ##[tree] 内联树块（mockup v2.4 定稿视觉，样式见 index.css 的 .treeblock 一节）：
@@ -17,6 +17,7 @@ const DEFAULT_DEPTH = 2;
 
 interface TreeBlockProps {
   frame: TreeFrame;
+  onLeafClick?: (node: TreeNode) => Promise<void>;
 }
 
 // copyText 剪贴板写入：clipboard API 优先（Wails 安全上下文可用），
@@ -43,7 +44,7 @@ async function writeClipboard(text: string): Promise<boolean> {
   }
 }
 
-export function TreeBlock({ frame }: TreeBlockProps) {
+export function TreeBlock({ frame, onLeafClick }: TreeBlockProps) {
   const { t } = useTranslation();
   const flat = useMemo(() => flattenTree(frame.nodes ?? []), [frame]);
   const defaultDepth = frame.defaultExpandAll ? Infinity : DEFAULT_DEPTH;
@@ -108,13 +109,21 @@ export function TreeBlock({ frame }: TreeBlockProps) {
   };
 
   const onRowClick = async (f: FlatNode) => {
-    if (f.node.children?.length) {
+    if (f.node.kind === "dir" || (f.node.children?.length ?? 0) > 0) {
       // 非叶子：切换自身折叠
       setOverrides((prev) => {
         const next = new Map(prev);
         next.set(f.key, !(prev.get(f.key) ?? f.depth >= depthLimit));
         return next;
       });
+      return;
+    }
+    if (onLeafClick) {
+      try {
+        await onLeafClick(f.node);
+      } catch (error) {
+        showToast(String(error));
+      }
       return;
     }
     // 叶子：复制完整路径（path 优先，面包屑兜底）
@@ -175,7 +184,7 @@ export function TreeBlock({ frame }: TreeBlockProps) {
       <div className="treeblock-body" role="tree">
         {flat.map((f) => {
           if (!visibleKeys.has(f.key)) return null;
-          const isLeaf = !f.node.children?.length;
+          const isLeaf = f.node.kind !== "dir" && !f.node.children?.length;
           const dimmed = search?.dim.has(f.key);
           const showLabel = (f.node.label ?? "") !== "" && f.node.label !== f.node.kind;
           return (
@@ -184,7 +193,7 @@ export function TreeBlock({ frame }: TreeBlockProps) {
                 className={cn("tree-row", isLeaf ? "leaf" : "branch", dimmed && "dimmed")}
                 role="button"
                 tabIndex={0}
-                title={isLeaf ? t("tree.copyHint", { path: f.copyText }) : undefined}
+                title={isLeaf && !onLeafClick ? t("tree.copyHint", { path: f.copyText }) : undefined}
                 onClick={() => void onRowClick(f)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {

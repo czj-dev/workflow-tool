@@ -353,6 +353,30 @@ func TestParseActionExported(t *testing.T) {
 	}
 }
 
+func TestParseActionHMITree(t *testing.T) {
+	def, err := ParseAction([]byte(`id: download
+title: Download
+command:
+  run: echo ok
+hmi:
+  tree:
+    click:
+      action: download
+      params:
+        INNER_PATH: '${{ node.path }}'
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Validate(def); err != nil {
+		t.Fatal(err)
+	}
+	if def.HMI == nil || def.HMI.Tree == nil || def.HMI.Tree.Click == nil ||
+		def.HMI.Tree.Click.Params["INNER_PATH"] != "${{ node.path }}" {
+		t.Fatalf("HMI tree click 未保留: %+v", def.HMI)
+	}
+}
+
 func TestValidateExported(t *testing.T) {
 	legal := &ActionDef{ID: "a", Title: "A", Command: Command{Run: "echo"}}
 	if err := Validate(legal); err != nil {

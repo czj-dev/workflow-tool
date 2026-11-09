@@ -462,6 +462,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   // 当前查看的 id（供持久 done 回调判断是否该更新可见 UI，不触发重渲染）
   const currentIdRef = useRef<string | null>(null);
   currentIdRef.current = currentId;
+  const viewRef = useRef(view);
+  viewRef.current = view;
   // 后台仍在运行的 action id 集合。后端按 id 并发（不同 id 可同时跑），
   // 故运行态必须按 id 记录，不能只靠单一 status——否则切走再回来会丢失「运行中」。
   const [runningIds, setRunningIds] = useState<Set<string>>(new Set());
@@ -617,7 +619,10 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
             treeSeq: target.treeSeq,
           },
           d,
-          { stderrPrefix: t("output.stderrPrefix"), treeErrLabel: t("tree.parseError") },
+          {
+            stderrPrefix: t("output.stderrPrefix"), treeErrLabel: t("tree.parseError"),
+            isTreeEnabled: (actionId) => !!actionsRef.current.find((a) => a.id === actionId)?.hmi?.tree,
+          },
         );
         return list.map((s) =>
           s.index === target!.index
@@ -634,8 +639,10 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
 
     const onDone = (e: unknown) => {
       const d = (((e as { data?: unknown })?.data) || {}) as DoneEventData;
-      setStatus(d.exitCode === 0 ? "done" : "error");
-      setExitInfo(d);
+      if (viewRef.current === "workflow" && currentIdRef.current === wfid) {
+        setStatus(d.exitCode === 0 ? "done" : "error");
+        setExitInfo(d);
+      }
       setRunningWorkflowId(null);
     };
 
@@ -702,7 +709,10 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
             treeSeq: treeSeqRef.current,
           },
           d,
-          { stderrPrefix: t("output.stderrPrefix"), treeErrLabel: t("tree.parseError") },
+          {
+            stderrPrefix: t("output.stderrPrefix"), treeErrLabel: t("tree.parseError"),
+            isTreeEnabled: (actionId) => !!actionsRef.current.find((a) => a.id === actionId)?.hmi?.tree,
+          },
         );
         treeSeqRef.current = folded.treeSeq ?? 0;
         lastWasProgressRef.current = folded.lastWasProgress;
@@ -854,13 +864,14 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       setFormSheetOpen(true);
       return;
     }
-    // 未显式提供的字段回填默认值；保留用户有意传入的空串。
-    const runParams = Object.fromEntries(
-      (action?.params ?? []).filter((p) => params[p.id] === undefined && p.default)
-        .map((p) => [p.id, p.default]),
-    );
-    const effectiveParams = normalizeArrayParams(action?.params ?? [], { ...runParams, ...params });
-    setLastRunParams((prev) => ({ ...prev, [id]: effectiveParams as Record<string, string> }));
+    // 只补缺失的默认值；本轮输入作为快照保存，不修改调用者的参数对象。
+    const effectiveParams = normalizeArrayParams(action?.params ?? [], {
+      ...Object.fromEntries((action?.params ?? [])
+        .filter((p) => params[p.id] === undefined && p.default)
+        .map((p) => [p.id, p.default])),
+      ...params,
+    });
+    setLastRunParams((prev) => ({ ...prev, [id]: { ...effectiveParams } }));
     setRunningIds((prev) => new Set(prev).add(id));
     recordUsage(action?.llm ? "llm-usage" : "action-usage", id);
     // background=true（grid 卡片 run 按钮）：只登记 runningIds 驱动徽标，不切视图/不清输出，

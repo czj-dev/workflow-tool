@@ -102,3 +102,17 @@ run/script 形态的 stdout 协议行（`internal/runner/output.go`）：`##[out
 - 新增前端静态文案只改 `frontend/src/i18n/locales/{zh,en}.json`；动作 `title/description` 与后端 stdout/stderr 不参与 i18n。
 - 前端组件优先复用已装 shadcn 原子（`components/ui/` 下 25 个）；`IconButton` 是项目封装（Button + Tooltip + aria-label），需要图标按钮时优先用它，避免重新手写 `<button>` + tailwind。
 - 修改 action / workflow 的 **YAML schema**（字段增删改、校验逻辑变动）后，**必须同步更新** `docs/action.md` 和 `docs/workflow.md`——这两份文档是面向使用者的完整字段参考，schema 改了文档不跟等于挖坑。
+
+## Agent skills
+
+### Issue tracker
+
+事项与规格记录在 GitHub Issues。见 `docs/agents/issue-tracker.md`。
+
+### Triage labels
+
+使用五个默认 triage 标签。见 `docs/agents/triage-labels.md`。
+
+### Domain docs
+
+采用单仓领域文档布局。见 `docs/agents/domain.md`。

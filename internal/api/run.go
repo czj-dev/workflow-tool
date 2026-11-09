@@ -108,7 +108,17 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 		ev.DoneUnordered(-1, err.Error(), 0)
 		return
 	}
-	res := r.Run(ctx, params, ev.EmitFunc())
+	protocol := "script"
+	if la.Def.Command.Adb.Operation != "" {
+		protocol = "adb"
+	}
+	emit := runner.WithoutTreeHMI(ev.EmitFunc(), protocol)
+	if la.Def.HMI != nil && la.Def.HMI.Tree != nil {
+		emit = runner.WithTreeSource(ev.EmitFunc(), runner.TreeSource{
+			ActionID: id, Params: params, Protocol: protocol,
+		})
+	}
+	res := r.Run(ctx, params, emit)
 
 	// LLM 形态提取终点读数（cost/tokens/session_id），随 done 事件下发。
 	var readout map[string]any

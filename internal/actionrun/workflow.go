@@ -27,16 +27,7 @@ func makeActionRun(reg *registry.Registry, deps Deps, merged map[string]any) wor
 		}
 		// ${VAR} 展开必须在合并前完成（详见 buildActionRunParams 注释）。
 		runParams, expandedEnv := buildActionRunParams(req.Ctx, deps, merged, req.Env, req.Params)
-		withDefaults := make(map[string]any, len(la.Def.Params)+len(runParams))
-		for _, param := range la.Def.Params {
-			if param.Default != "" {
-				withDefaults[param.ID] = runner.Expand(req.Ctx, param.Default, merged, deps.Builtins)
-			}
-		}
-		for key, value := range runParams {
-			withDefaults[key] = value
-		}
-		runParams = withDefaults
+		runParams = withActionDefaults(req.Ctx, deps, runParams, la.Def.Params)
 		r, err := Build(req.Ctx, la, deps, Options{
 			Params:          runParams,
 			ExtraEnv:        expandedEnv,
@@ -47,8 +38,32 @@ func makeActionRun(reg *registry.Registry, deps Deps, merged map[string]any) wor
 			return runner.Result{ExitCode: -1, Err: err,
 				Outputs: map[string]string{"exit_code": "-1", "success": "false"}}
 		}
-		return r.Run(req.Ctx, runParams, req.Emit)
+		protocol := "script"
+		if la.Def.Command.Adb.Operation != "" {
+			protocol = "adb"
+		}
+		emit := runner.WithoutTreeHMI(req.Emit, protocol)
+		if la.Def.HMI != nil && la.Def.HMI.Tree != nil {
+			emit = runner.WithTreeSource(req.Emit, runner.TreeSource{
+				ActionID: req.ActionID, Params: runParams, Protocol: protocol,
+			})
+		}
+		return r.Run(req.Ctx, runParams, emit)
 	}
+}
+
+// withActionDefaults 与直接运行动作的表单默认值语义一致，同时保留空值参数。
+func withActionDefaults(ctx context.Context, deps Deps, params map[string]any, specs []registry.ParamSpec) map[string]any {
+	result := make(map[string]any, len(params)+len(specs))
+	for key, value := range params {
+		result[key] = value
+	}
+	for _, spec := range specs {
+		if _, exists := result[spec.ID]; !exists && spec.Default != "" {
+			result[spec.ID] = runner.Expand(ctx, spec.Default, params, deps.Builtins)
+		}
+	}
+	return result
 }
 
 // makeShellRun 构造 workflow 中 inline shell step 的执行回调。
@@ -97,20 +112,21 @@ func parseShellTimeout(s string) time.Duration {
 // 展开变量源必须是 merged 而非合并结果——否则 step.params 里 { PACKAGE: "${PACKAGE}" }
 // 这类自引用会展开成自身原值，拿不到 merged 里的真实包名。
 func buildActionRunParams(ctx context.Context, deps Deps, merged map[string]any, env map[string]string, stepParams map[string]any) (map[string]any, map[string]string) {
-	runParams := make(map[string]any, len(merged)+len(stepParams))
-	for k, v := range merged {
+	baseParams := runner.ExpandParams(ctx, merged, deps.Builtins)
+	runParams := make(map[string]any, len(baseParams)+len(stepParams))
+	for k, v := range baseParams {
 		runParams[k] = v
 	}
 	for k, v := range stepParams {
 		if sv, ok := v.(string); ok {
-			runParams[k] = runner.Expand(ctx, sv, merged, deps.Builtins)
+			runParams[k] = runner.Expand(ctx, sv, baseParams, deps.Builtins)
 		} else {
 			runParams[k] = v
 		}
 	}
 	expandedEnv := make(map[string]string, len(env))
 	for k, v := range env {
-		expandedEnv[k] = runner.Expand(ctx, v, merged, deps.Builtins)
+		expandedEnv[k] = runner.Expand(ctx, v, baseParams, deps.Builtins)
 	}
 	return runParams, expandedEnv
 }
