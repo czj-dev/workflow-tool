@@ -20,6 +20,7 @@ type ActionItem struct {
 	Params      []registry.ParamSpec `json:"params"`
 	Presets     []registry.Preset    `json:"presets"`
 	Stream      string               `json:"stream"`
+	HMI         *registry.HMI        `json:"hmi,omitempty"`
 	// LLM 非 nil 表示该动作是 command.llm 形态：前端据此走 LlmForm（system/prompt 主次布局）
 	// + LlmView（流式回答视图）；nil 走通用 ParamForm。
 	LLM *LLMInfo `json:"llm,omitempty"`
@@ -56,6 +57,7 @@ func (s *Service) buildListResult() ListResult {
 			Params:      la.Def.Params,
 			Presets:     la.Def.Presets,
 			Stream:      la.Def.Command.Stream,
+			HMI:         la.Def.HMI,
 			LLM:         llmInfoOf(la.Def.Command),
 		})
 	}

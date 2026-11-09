@@ -13,6 +13,7 @@ spec = importlib.util.spec_from_file_location(
 )
 mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(mod)
+TEST_TMP_ROOT = pathlib.Path(tempfile.gettempdir()).resolve()
 
 # ---- 车型 → SPM 归档目录：默认 5181，支持 518 / 216-C ----
 assert mod.resolve_model("") == "5181"
@@ -128,10 +129,108 @@ assert mod.hint_entries(ENTRIES, "zzzzzz") == ("", [], 0)
 assert mod.local_path("/tmp", "log_X.zip", "resources/a/b.gz") == "/tmp/log_X/resources/a/b.gz"
 assert mod.local_path("/tmp", "log_X", "a.gz") == "/tmp/log_X/a.gz"  # 无 .zip 后缀
 assert mod.local_path("/tmp", "X.ZIP", "a") == "/tmp/X/a"  # 后缀大小写
-assert mod.local_path("/tmp", "x.zip", "/a/b.gz") == "/tmp/x/a/b.gz"  # 前导斜杠不产生空段
+assert mod.local_path("/tmp", "x.zip", "/resources/a.gz") == "/tmp/x/resources/a.gz"
+assert mod.local_path("/tmp", "x.zip", "./resources/b.gz") == "/tmp/x/resources/b.gz"
+assert mod.local_path("/tmp", "x.zip", "resources//a.gz") == "/tmp/x/resources/a.gz"
+# 远端归档路径不能逃逸输出目录（含 Windows 盘符/反斜杠和已存在的软链接）。
+for zip_name, entry_path in (
+    ("x.zip", "/../escaped.txt"),
+    ("x.zip", "../../escaped.txt"),
+    ("../x.zip", "a.txt"),
+    ("x.zip", r"C:\\temp\\a.txt"),
+    ("x.zip", r"a\\..\\escaped.txt"),
+):
+    try:
+        mod.local_path("/tmp", zip_name, entry_path)
+    except ValueError:
+        pass
+    else:
+        raise AssertionError(f"不安全的归档路径必须拒绝: {zip_name} {entry_path}")
+with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as d:
+    root = pathlib.Path(d, "x")
+    root.mkdir()
+    (root / "linked").symlink_to(pathlib.Path(d).parent, target_is_directory=True)
+    try:
+        mod.local_path(d, "x.zip", "linked/escaped.txt")
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("软链接不能指向输出目录外")
+
+# .part 硬链接不得让分块写入修改输出目录外的文件。
+with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as d:
+    root = pathlib.Path(d, "x")
+    root.mkdir()
+    outside = pathlib.Path(d, "outside")
+    outside.write_bytes(b"old")
+    (root / "a.part").hardlink_to(outside)
+    original_post = mod.post
+    mod.post = lambda *_args, **_kwargs: {"data": {"content": [110, 101, 119]}}
+    try:
+        mod.fetch_entry("sid", "archive.zip", entry("a", 3),
+                        mod.local_path(d, "x.zip", "a"), mod.Progress(3, 1), d)
+    finally:
+        mod.post = original_post
+    assert outside.read_bytes() == b"old"
+    assert (root / "a").read_bytes() == b"new"
+
+# 临时名不能把合法长文件名再次拼进去而超出文件系统单个文件名限制。
+with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as d:
+    long_name = "a" * 230
+    dest = mod.local_path(d, "x.zip", long_name)
+    mod.fetch_entry("sid", "archive.zip", entry(long_name, 0), dest, mod.Progress(0, 1), d)
+    assert pathlib.Path(dest).is_file()
+
+# 路径校验后父目录被替换成软链接，不能在输出目录外新建文件。
+with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as d:
+    outside = pathlib.Path(d, "outside")
+    outside.mkdir()
+    root = pathlib.Path(d, "x")
+    root.mkdir()
+    dest = mod.local_path(d, "x.zip", "sub/a")
+    root.rename(pathlib.Path(d, "old-root"))
+    root.symlink_to(outside, target_is_directory=True)
+    try:
+        mod.fetch_entry("sid", "archive.zip", entry("sub/a", 0), dest, mod.Progress(0, 1), d)
+    except (ValueError, OSError):
+        pass
+    assert not (outside / "sub" / "a").exists()
+
+# 输出目录自身在校验后换成软链接时也不得跟随。
+with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as parent:
+    out_dir = pathlib.Path(parent, "output")
+    out_dir.mkdir()
+    outside = pathlib.Path(parent, "outside")
+    outside.mkdir()
+    dest = mod.local_path(str(out_dir), "x.zip", "a")
+    out_dir.rename(pathlib.Path(parent, "old-output"))
+    out_dir.symlink_to(outside, target_is_directory=True)
+    try:
+        mod.fetch_entry("sid", "archive.zip", entry("a", 0), dest,
+                        mod.Progress(0, 1), str(out_dir))
+    except (ValueError, OSError):
+        pass
+    assert not (outside / "x" / "a").exists()
+
+# 输出目录的父目录被替换为软链接，也不能穿过父目录写到外部。
+with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as parent:
+    base = pathlib.Path(parent, "base")
+    out_dir = base / "output"
+    out_dir.mkdir(parents=True)
+    outside = pathlib.Path(parent, "outside")
+    (outside / "output").mkdir(parents=True)
+    dest = mod.local_path(str(out_dir), "x.zip", "a")
+    base.rename(pathlib.Path(parent, "old-base"))
+    base.symlink_to(outside, target_is_directory=True)
+    try:
+        mod.fetch_entry("sid", "archive.zip", entry("a", 0), dest,
+                        mod.Progress(0, 1), str(out_dir))
+    except (ValueError, OSError):
+        pass
+    assert not (outside / "output" / "x" / "a").exists()
 
 # ---- 跳过判定：大小相符才算完成，不符必须重下 ----
-with tempfile.TemporaryDirectory() as d:
+with tempfile.TemporaryDirectory(dir=TEST_TMP_ROOT) as d:
     f = pathlib.Path(d, "f.bin")
     f.write_bytes(b"abc")
     assert mod.is_complete(str(f), 3)

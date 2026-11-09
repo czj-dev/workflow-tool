@@ -22,6 +22,8 @@ presets:
   - name: 仅 View 树
     description: uiautomator 无障碍树
     values: { ACTIVITY: false, WINDOWS: false, VIEW_TREE: true }
+hmi:
+  tree: {}
 command:
   adb:
     operation: foreground-info

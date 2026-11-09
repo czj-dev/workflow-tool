@@ -24,6 +24,20 @@ type ActionDef struct {
 	Command     Command     `yaml:"command"`
 	Params      []ParamSpec `yaml:"params"`
 	Presets     []Preset    `yaml:"presets"`
+	HMI         *HMI        `json:"hmi,omitempty" yaml:"hmi"`
+}
+
+type HMI struct {
+	Tree *TreeHMI `json:"tree,omitempty" yaml:"tree"`
+}
+
+type TreeHMI struct {
+	Click *TreeClick `json:"click,omitempty" yaml:"click"`
+}
+
+type TreeClick struct {
+	Action string            `json:"action" yaml:"action"`
+	Params map[string]string `json:"params" yaml:"params"`
 }
 
 // ParamSpec 描述一个运行时参数（前端据此渲染表单）。
@@ -181,6 +195,17 @@ func Validate(def *ActionDef) error {
 	}
 	if def.Title == "" {
 		return fmt.Errorf("title 必填")
+	}
+	if def.HMI != nil && def.HMI.Tree != nil && def.HMI.Tree.Click != nil {
+		click := def.HMI.Tree.Click
+		if !idPattern.MatchString(click.Action) {
+			return fmt.Errorf("hmi.tree.click.action 必须是有效的 action id")
+		}
+		for key := range click.Params {
+			if key == "" {
+				return fmt.Errorf("hmi.tree.click.params 参数名不能为空")
+			}
+		}
 	}
 	// command 四选一互斥：run / script / adb.operation / llm.prompt
 	commandForms := 0

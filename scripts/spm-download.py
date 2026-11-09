@@ -21,9 +21,13 @@ resources/debuglogger/mobilelog/
     MODEL=518 python3 spm-download.py log_1788599460103_LS6ANE0P0TK534164.zip 170216 /tmp/logs
 """
 import concurrent.futures as cf
+import contextlib
 import json
+import ntpath
 import os
+import secrets
 import sys
+import tempfile
 import threading
 import urllib.error
 import urllib.request
@@ -133,8 +137,26 @@ def zip_stem(zip_name: str) -> str:
 
 
 def local_path(out_dir: str, zip_name: str, entry_path: str) -> str:
-    """<输出目录>/<zip名去后缀>/<zip内相对路径>。"""
-    return os.path.join(out_dir, zip_stem(zip_name), *entry_path.lstrip("/").split("/"))
+    """校验远端路径后将条目限定在 <输出目录>/<zip名去后缀> 内。"""
+    stem = zip_stem(zip_name)
+    relative_path = entry_path.lstrip("/")
+    while relative_path.startswith("./"):
+        relative_path = relative_path[2:]
+    parts = [part for part in relative_path.split("/") if part]
+    if (not stem or stem in (".", "..") or "/" in stem or "\\" in stem
+            or ntpath.splitdrive(stem)[0] or "\\" in entry_path
+            or ntpath.splitdrive(entry_path)[0] or not parts or relative_path.endswith("/")
+            or any(part in (".", "..") for part in parts)):
+        raise ValueError("zip 文件名或条目路径不安全")
+    root = os.path.join(out_dir, stem)
+    dest = os.path.join(root, *parts)
+    output_root = os.path.realpath(out_dir)
+    tree_root = os.path.realpath(root)
+    if (os.path.commonpath((output_root, tree_root)) != output_root
+            or any(os.path.commonpath((tree_root, os.path.realpath(path))) != tree_root
+                   for path in (dest, dest + ".part"))):
+        raise ValueError("zip 条目路径超出输出目录")
+    return dest
 
 
 def is_complete(path: str, size: int) -> bool:
@@ -172,25 +194,72 @@ class Progress:
         )
 
 
-def fetch_entry(sid: str, zip_path: str, entry: dict, dest: str, progress: Progress) -> None:
-    """分块拉取单个文件；先写 .part 再原子改名，避免被杀后的半截文件被当成已完成而永久跳过。"""
-    os.makedirs(os.path.dirname(dest), exist_ok=True)
-    total, tmp = entry["size"], dest + ".part"
-    with open(tmp, "wb") as f:
-        for off in range(0, total, CHUNK_SIZE):
-            r = post(
-                f"/api/storage/{sid}/archive/file",
-                {
-                    "archive_path": zip_path,
-                    "file_path": entry["path"],
-                    "content_offset": off,
-                    "content_length": min(CHUNK_SIZE, total - off),
-                },
-            )
-            chunk = bytes(r["data"]["content"])
-            f.write(chunk)
-            progress.add_bytes(len(chunk))
-    os.replace(tmp, dest)
+def write_entry_chunks(sid: str, zip_path: str, entry: dict, f, progress: Progress) -> None:
+    for off in range(0, entry["size"], CHUNK_SIZE):
+        r = post(
+            f"/api/storage/{sid}/archive/file",
+            {
+                "archive_path": zip_path,
+                "file_path": entry["path"],
+                "content_offset": off,
+                "content_length": min(CHUNK_SIZE, entry["size"] - off),
+            },
+        )
+        chunk = bytes(r["data"]["content"])
+        f.write(chunk)
+        progress.add_bytes(len(chunk))
+
+
+def open_output_dir(out_dir: str, parts: list[str], stack: contextlib.ExitStack) -> int:
+    directory = os.open(os.sep, os.O_RDONLY | os.O_DIRECTORY)
+    stack.callback(os.close, directory)
+    for part in os.path.abspath(out_dir).split(os.sep)[1:] + parts:
+        if not part:
+            continue
+        try:
+            os.mkdir(part, dir_fd=directory)
+        except FileExistsError:
+            pass
+        directory = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW,
+                            dir_fd=directory)
+        stack.callback(os.close, directory)
+    return directory
+
+
+def fetch_entry(sid: str, zip_path: str, entry: dict, dest: str,
+                progress: Progress, out_dir: str) -> None:
+    """目录句柄限定写入位置，临时文件独占创建后原子改名。"""
+    relative = os.path.relpath(dest, out_dir)
+    parts = relative.split(os.sep)
+    if any(part in ("", ".", "..") for part in parts):
+        raise ValueError("目标路径超出输出目录")
+    if os.name == "nt":
+        os.makedirs(os.path.dirname(dest), exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".spm-", suffix=".part",
+                                    dir=os.path.dirname(dest))
+        try:
+            with os.fdopen(fd, "wb") as f:
+                write_entry_chunks(sid, zip_path, entry, f, progress)
+            os.replace(tmp, dest)
+        finally:
+            if os.path.exists(tmp):
+                os.unlink(tmp)
+        return
+    with contextlib.ExitStack() as stack:
+        directory = open_output_dir(out_dir, parts[:-1], stack)
+        name = parts[-1]
+        tmp_name = f".spm-{secrets.token_hex(16)}.part"
+        tmp_fd = os.open(tmp_name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+                         0o600, dir_fd=directory)
+        try:
+            with os.fdopen(tmp_fd, "wb") as f:
+                write_entry_chunks(sid, zip_path, entry, f, progress)
+            os.replace(tmp_name, name, src_dir_fd=directory, dst_dir_fd=directory)
+        finally:
+            try:
+                os.unlink(tmp_name, dir_fd=directory)
+            except FileNotFoundError:
+                pass
 
 
 def load_entries(sid: str, zip_path: str) -> tuple[list[dict], int]:
@@ -284,7 +353,7 @@ def main() -> None:
     args = resolve_args(sys.argv, os.environ)
     zip_name = args[0]
     fragment = args[1] if len(args) > 1 else ""
-    out_dir = args[2] if len(args) > 2 else os.getcwd()
+    out_dir = os.path.realpath(args[2] if len(args) > 2 else os.getcwd())
 
     try:
         zip_path = archive_path(os.environ.get("MODEL"), zip_name)
@@ -315,7 +384,7 @@ def main() -> None:
         if is_complete(dest, entry["size"]):
             progress.add_bytes(entry["size"])
             return True
-        fetch_entry(sid, zip_path, entry, dest, progress)
+        fetch_entry(sid, zip_path, entry, dest, progress, out_dir)
         return False
 
     with cf.ThreadPoolExecutor(WORKERS) as pool:

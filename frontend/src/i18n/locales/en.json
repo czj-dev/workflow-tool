@@ -35,6 +35,7 @@
   "tree.expand": "Expand",
   "tree.copied": "Copied {{path}}",
   "tree.copyHint": "Click to copy: {{path}}",
+  "tree.actionRunning": "Action is running. Try again when it finishes.",
   "tree.properties": "Properties",
   "global.title": "Global Config",
   "global.desc": "Reference these as ${VAR} in action commands",

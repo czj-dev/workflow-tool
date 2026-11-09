@@ -175,6 +175,33 @@ describe("TreeBlock", () => {
     expect(await screen.findByRole("status")).toHaveTextContent("已复制 root.zip/a.txt");
   });
 
+  it("配置点击事件时执行回调而不复制，目录仍只折叠", async () => {
+    const user = userEvent.setup();
+    stubClipboard();
+    const onLeafClick = vi.fn().mockResolvedValue(undefined);
+    render(<TreeBlock frame={{ nodes: zipNodes }} onLeafClick={onLeafClick} />);
+    await user.click(screen.getByText("sub"));
+    expect(onLeafClick).not.toHaveBeenCalled();
+    await user.click(screen.getByText("a.txt"));
+    expect(onLeafClick).toHaveBeenCalledWith(zipNodes[0].children![0]);
+    expect(writeText).not.toHaveBeenCalled();
+  });
+
+  it("带空 children 的文件仍按叶子点击", async () => {
+    const onLeafClick = vi.fn().mockResolvedValue(undefined);
+    const file = { label: "a.log", kind: "file", path: "a.log", children: [] };
+    render(<TreeBlock frame={{ nodes: [file] }} onLeafClick={onLeafClick} />);
+    await userEvent.click(screen.getByText("a.log"));
+    expect(onLeafClick).toHaveBeenCalledWith(file);
+  });
+
+  it("空目录点击不触发叶子动作", async () => {
+    const onLeafClick = vi.fn().mockResolvedValue(undefined);
+    render(<TreeBlock frame={{ nodes: [{ label: "empty", kind: "dir", children: [] }] }} onLeafClick={onLeafClick} />);
+    await userEvent.click(screen.getByText("empty"));
+    expect(onLeafClick).not.toHaveBeenCalled();
+  });
+
   it("面包屑兜底：无 path 的叶子复制根到叶 label 路径", async () => {
     const user = userEvent.setup();
     stubClipboard();

@@ -36,6 +36,14 @@ presets:                       # 可选，预设参数组合
   - name: 首页
     description: 可选描述
     values: { URL: https://example.com }
+
+hmi:                           # 可选，声明动作输出的交互视图
+  tree: {}                      # 声明后才将 tree 流渲染为树；无 click 时叶子复制路径
+  # tree:
+  #   click:
+  #     action: other-action    # 点击叶子后运行的目标动作，可跨 action
+  #     params:
+  #       FILE: '${{ node.path }}'  # 显式映射，不自动继承来源参数
 ```
 
 ## 字段详解
@@ -271,7 +279,7 @@ command:
 |---|---|
 | `##[output key=value]` | 解析为该 step 的 `outputs.key`，供 workflow 后续 step 用 `${{ steps.<id>.outputs.key }}` 引用。该行**仍会**照常显示在输出里 |
 | `##[progress 文本]` | 文本以「进度流」推送，前端**原地覆盖**上一条进度行（模拟终端 `\r` 刷新）。该行不显示协议壳、不进 stdout 捕获，因此不污染 `outputs.stdout` |
-| `##[tree <json>]` | JSON 解析为树帧后以 `stream: "tree"` 推送，前端在流内位置原地渲染可交互树块（折叠/搜索/叶子复制）。该行不显示协议壳、不进 stdout 捕获，不污染 `outputs.stdout`；schema 见下节 |
+| `##[tree <json>]` | 以 `stream: "tree"` 推送；仅声明 `hmi.tree` 的 action 渲染为可交互树，未声明时作为普通文本显示。该行不进 stdout 捕获；schema 见下节 |
 
 进度协议的用途是长任务的单行滚动读数（下载百分比、逐块计数等）。裸 `\r` 不行：宿主的行扫描把 `\r` 也当行结束符（见 `internal/runner/exec.go` 的 `splitLines`），于是每次刷新都变成追加一行。
 
@@ -289,7 +297,7 @@ Python 脚本更稳的做法是在 wrapper 里加 `-u`（`python3 -u foo.py`）�
 
 ### 树帧（##[tree]）
 
-树帧是输出流的第三种内容形态（文本行 / progress 单行之外）：一帧 = 一棵完整树，前端输出控制台在流内位置原地渲染树块。JSON 必须单行（换行会破坏协议行识别），schema 与 `internal/adb/tree.go` 对齐（`label` 必填，其余可选）：
+树帧是输出流的第三种内容形态（文本行 / progress 单行之外）：一帧 = 一棵完整树。只有 action 声明 `hmi.tree` 才渲染；未声明时 script 的协议行或 ADB 的 JSON 作为普通文本显示。JSON 必须单行（换行会破坏协议行识别），schema 与 `internal/adb/tree.go` 对齐（`label` 必填，其余可选）：
 
 ```json
 {
@@ -313,7 +321,7 @@ Python 脚本更稳的做法是在 wrapper 里加 `-u`（`python3 -u foo.py`）�
 - `children`：空即叶子
 - `properties`：可选的通用只读属性对象。字符串空值省略，布尔值保留显式 `false`；对象值按 key/value 递归展示。`foreground-info` 的 View 树使用 `class`、`text`、`content-desc`、`resource-id`、`package`、`index`、`drawing-order`、`bounds` 以及主要交互状态字段；`bounds` 为 `{left, top, right, bottom}`。
 
-树块交互：省略 `defaultExpandAll` 时默认展开 2 层；设置为 `true` 的帧（如 View 树、设备文件树）默认展开全部节点；非叶子行点击折叠/展开子树，「折叠/展开」按钮改全局深度；属性面板默认折叠，不参与树层级、搜索或复制文本；块内搜索命中 label 或 detail（命中+祖先保留，仅 detail 命中的行降透明）；叶子行点击复制 `path` 并弹 toast。深层树可横向滚动查看完整缩进。`MaxTreeNodes=5000` 是数据源可选用的截断工具，并非树帧发送器的全局硬限制；设备文件列表不设置节点数上限，由扫描时限控制。
+树块交互：省略 `defaultExpandAll` 时默认展开 2 层；设置为 `true` 的帧（如 View 树、设备文件树）默认展开全部节点；非叶子行点击折叠/展开子树，「折叠/展开」按钮改全局深度；属性面板默认折叠，不参与树层级、搜索或复制文本；块内搜索命中 label 或 detail（命中+祖先保留，仅 detail 命中的行降透明）；叶子默认复制 `path` 并弹 toast；声明 `hmi.tree.click` 后，叶子改为运行其 `action`，并将 `params` 里的 `${{ node.path }}`、`${{ params.ZIP_NAME }}` 等表达式按当前节点和生成该帧的本次 action 参数求值。映射仅传显式列出的参数，目标 action 未映射的参数由其自身默认值处理；求值失败留在树页提示错误，成功运行切至目标 action 的独立输出页。目录始终只折叠/展开；同一动作输出的所有树共用此规则。workflow 引用该 action 的 step 也读取此声明，内联 `run` 无 action HMI。深层树可横向滚动查看完整缩进。`MaxTreeNodes=5000` 是数据源可选用的截断工具，并非树帧发送器的全局硬限制；设备文件列表不设置节点数上限，由扫描时限控制。
 
 adb 域（`list-files`、`foreground-info` 的 View 树）不经协议行——Go 侧直接构造同构帧以 `stream: "tree"` 发射；script/run 动作用 `##[tree` 协议行进入同一通道：
 
