@@ -51,6 +51,7 @@ import {
 import { foldOutputLine } from "../lib/outputFold";
 import { treeFrameToText } from "../lib/treeFrame";
 import { expandVars } from "../lib/vars";
+import { resolveActionParams } from "../lib/params";
 import {
   BUCKETS,
   decayAndBump,
@@ -1117,12 +1118,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     const a = actions.find((x) => x.id === actionId);
     if (!a) return;
     const p = a.presets?.find((x) => x.name === presetName);
-    const vals: Record<string, string> = {};
-    a.params?.forEach((spec) => {
-      vals[spec.id] = spec.default || globalConfig[spec.id] || "";
-    });
-    if (p) Object.assign(vals, p.values);
-    setFormValues(vals);
+    setFormValues(resolveActionParams(a.params, globalConfig, p?.values));
     setCurrentId(actionId);
     setSelectedPreset(presetName || null); // 记住选中的 preset，子项据此高亮、父项取消高亮
     // 进表单=准备新配置，清除上次运行的 status/exitInfo，避免选中动作残留 error/done 徽标

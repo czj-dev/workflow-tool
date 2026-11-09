@@ -170,6 +170,8 @@
   "grid.paramsCount": "{{count}} 参数",
   "grid.presetsCount": "{{count}} 预设",
   "grid.editParams": "编辑参数",
+  "grid.ringOpen": "选择预设",
+  "grid.ringSelected": "已选择 {{name}}",
   "grid.editPreset": "编辑预设参数",
   "grid.wfTitle": "全部工作流",
   "grid.stepsCount": "{{count}} 步",

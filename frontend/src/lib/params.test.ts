@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { hasFormFields, missingRequired } from "./params";
+import { resolveActionParams, hasFormFields, missingRequired } from "./params";
 import type { ParamSpec } from "../../bindings/workflow-tool/internal/registry/models.js";
 
 const mk = (p: Partial<ParamSpec>): ParamSpec => ({
@@ -61,5 +61,41 @@ describe("missingRequired", () => {
 
   it("无必填项时返回空", () => {
     expect(missingRequired([mk({ id: "a" })], {})).toEqual([]);
+  });
+});
+
+describe("resolveActionParams", () => {
+  it("prefers preset values, including an explicit empty string, over defaults and global config", () => {
+    const specs = [mk({ id: "NAME", default: "spec" }), mk({ id: "OUTPUT_DIR", default: "dir" })];
+    const preset = { NAME: "preset", OUTPUT_DIR: "" };
+    const config = { NAME: "global", OUTPUT_DIR: "global-dir" };
+
+    expect(resolveActionParams(specs, config, preset)).toEqual({ NAME: "preset", OUTPUT_DIR: "" });
+    expect(preset).toEqual({ NAME: "preset", OUTPUT_DIR: "" });
+    expect(config).toEqual({ NAME: "global", OUTPUT_DIR: "global-dir" });
+  });
+
+  it("fills missing values from default, then global config, then empty string", () => {
+    expect(resolveActionParams([
+      mk({ id: "DEFAULT", default: "spec" }),
+      mk({ id: "GLOBAL" }),
+      mk({ id: "EMPTY" }),
+    ], { DEFAULT: "global", GLOBAL: "config" })).toEqual({
+      DEFAULT: "spec", GLOBAL: "config", EMPTY: "",
+    });
+  });
+
+  it("keeps extra preset keys and ignores undefined values without suppressing fallback", () => {
+    expect(resolveActionParams(
+      [mk({ id: "NAME", default: "spec" }), mk({ id: "PATH" })],
+      { PATH: "global", FILTER: "not-in-spec" },
+      { NAME: undefined, PATH: undefined, FILTER: "tag:中文'✨", UNUSED: undefined },
+    )).toEqual({ NAME: "spec", PATH: "global", FILTER: "tag:中文'✨" });
+  });
+
+  it("handles absent specs and preset without copying unrelated global keys", () => {
+    expect(resolveActionParams(undefined, { GLOBAL: "x" }, { FILTER: "" })).toEqual({ FILTER: "" });
+    expect(resolveActionParams(null, { GLOBAL: "x" }, null)).toEqual({});
+    expect(resolveActionParams([], {})).toEqual({});
   });
 });

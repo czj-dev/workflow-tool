@@ -1,5 +1,19 @@
 import type { ParamSpec } from "../../bindings/workflow-tool/internal/registry/models.js";
 
+export function resolveActionParams(
+  params: ParamSpec[] | null | undefined,
+  globalConfig: Record<string, string>,
+  presetValues?: Record<string, string | undefined> | null,
+): Record<string, string> {
+  const defaults = Object.fromEntries(
+    (params ?? []).map((spec) => [spec.id, spec.default || globalConfig[spec.id] || ""]),
+  );
+  const preset = Object.fromEntries(
+    Object.entries(presetValues ?? {}).filter((entry): entry is [string, string] => entry[1] !== undefined),
+  );
+  return { ...defaults, ...preset };
+}
+
 // missingRequired 返回未填的 required 参数（供父组件禁用运行按钮）。
 export function missingRequired(
   params: ParamSpec[],

@@ -45,8 +45,8 @@ fragments:
       content: https://portal.auto-pai.com/spm-data/#/browse?path=autopai-tlc/platform/C5181/log/${LOG_FILE}
       tags:
         - Link
-    - title: 车辆信号
-      content: DVR_UploadAgentSignalRequest
+    - title: App 信息上传
+      content: 'DVR_CarAppInfoRequest.*?:|DVR_okhttp.OkHttpClient.*?:'
       tags:
         - Log
     - title: Asr_sn_filter

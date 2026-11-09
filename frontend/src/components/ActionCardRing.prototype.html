@@ -1,0 +1,401 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>动作预设环 · 交互原型</title>
+  <style>
+    :root {
+      color-scheme:dark;
+      font-family:"Noto Sans Variable","PingFang SC",system-ui,sans-serif;
+      --background:oklch(0.165 0.008 245);
+      --foreground:oklch(0.95 0.003 240);
+      --card:oklch(0.205 0.01 245);
+      --sidebar:oklch(0.185 0.008 245);
+      --muted:oklch(0.245 0.012 245);
+      --muted-foreground:oklch(0.62 0.012 240);
+      --primary:oklch(0.8 0.155 70);
+      --primary-foreground:oklch(0.2 0.04 70);
+      --success:oklch(0.78 0.13 165);
+      --border:oklch(1 0 0 / 8%);
+      --font-mono:"JetBrains Mono Variable","Cascadia Code",Consolas,monospace;
+    }
+    * { box-sizing:border-box }
+    body { margin:0; background:var(--background); color:var(--foreground) }
+    button,input { font:inherit }
+    button { cursor:pointer }
+    button:focus-visible,input:focus-visible { outline:2px solid var(--primary); outline-offset:2px }
+    .banner { display:flex; justify-content:space-between; gap:8px 20px; flex-wrap:wrap; padding:7px 16px; border-bottom:1px solid var(--border); background:var(--sidebar); color:var(--muted-foreground); font:11px var(--font-mono) }
+    .shell { display:grid; grid-template-columns:256px minmax(0,1fr); min-height:calc(100dvh - 32px) }
+    aside { background:var(--sidebar); border-right:1px solid var(--border); padding:16px 12px }
+    .brand { display:flex; align-items:center; gap:10px; padding:0 4px 22px; font:600 13px var(--font-mono); text-transform:uppercase }
+    .brand b { display:grid; place-items:center; width:32px; height:32px; border-radius:8px; background:var(--primary); color:var(--primary-foreground); font-size:19px }
+    .nav { display:block; width:100%; padding:9px 12px; text-align:left; border:0; border-radius:6px; background:transparent; color:var(--muted-foreground); font-size:13px }
+    .nav.current { background:color-mix(in oklch,var(--primary) 12%,transparent); color:var(--primary) }
+    .page { min-width:0 }
+    header { height:42px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 16px; border-bottom:1px solid var(--border) }
+    header strong { font-size:14px; font-weight:600 }
+    .mono { color:var(--muted-foreground); font:11px var(--font-mono); white-space:nowrap }
+    main { padding:16px; max-width:980px }
+    section { margin-bottom:24px }
+    .section-head { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:12px; margin-bottom:12px; color:var(--muted-foreground); font:600 11px var(--font-mono); letter-spacing:.12em; text-transform:uppercase }
+    .tick-ruler { display:flex; align-items:flex-end; gap:5px; height:12px; padding-bottom:3px; border-bottom:1px solid var(--border) }
+    .tick-ruler i { width:1px; height:5px; background:color-mix(in oklch,var(--foreground) 22%,transparent) }
+    .tick-ruler i:first-child { height:9px; background:var(--primary) }
+    .section-head span:last-child { grid-column:3; grid-row:1; font-weight:400 }
+    .cards { display:grid; grid-template-columns:repeat(auto-fill,130px); gap:10px }
+    .card { position:relative; width:130px; height:130px; border:1px solid var(--border); border-radius:12px; background:linear-gradient(180deg,var(--card),color-mix(in oklch,var(--background) 70%,transparent)); color:var(--foreground); box-shadow:0 1px 2px #0003,0 2px 5px #0002; user-select:none; touch-action:none; transition:border-color .15s,transform .15s,box-shadow .15s }
+    .card.no-presets { touch-action:auto }
+    .card:hover,.card:focus-within { border-color:color-mix(in oklch,var(--primary) 60%,transparent); box-shadow:0 5px 14px #0006,0 1px 3px #0005 }
+    .card.armed { border-color:var(--primary); box-shadow:0 0 0 2px color-mix(in oklch,var(--primary) 25%,transparent) }
+    .card.radial-active,.card.radial-active:hover,.card.radial-active:focus-within { z-index:12; border-radius:50%; border-color:var(--primary); transform:scale(var(--hub-scale,1)); box-shadow:0 12px 32px #000a,0 0 0 3px color-mix(in oklch,var(--primary) 18%,transparent) }
+    .card.radial-active .card-foot,.card.radial-active .card-rail { display:none }
+    .card.radial-active .card-face { padding:10px 5px }
+    .card.radial-active .card-face:focus-visible { outline:none }
+    .card.radial-active .glyph { border-radius:50% }
+    .card.radial-active .card-name { width:120px; font-size:calc(12px / var(--hub-scale,1)) }
+    .card-face { position:absolute; inset:0; width:100%; border:0; background:none; color:inherit; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:9px; padding:10px 5px 16px }
+    .card-rail { position:absolute; top:9px; left:9px; display:flex; align-items:center; gap:6px; pointer-events:none }
+    .card-rail::before { content:""; width:4px; height:4px; border-radius:50%; background:color-mix(in oklch,var(--foreground) 25%,transparent) }
+    .card-rail i { display:block; width:6px; height:3px; border-radius:1px; background:color-mix(in oklch,var(--foreground) 12%,transparent) }
+    .card-rail i:first-of-type,.card-rail i:nth-of-type(2) { background:color-mix(in oklch,var(--primary) 65%,transparent) }
+    .glyph { display:grid; place-items:center; width:50px; height:50px; border-radius:12px; background:color-mix(in oklch,var(--primary) 18%,transparent); color:var(--primary); box-shadow:inset 0 0 14px color-mix(in oklch,var(--primary) 25%,transparent); font-size:25px }
+    .card-name { width:112px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font:600 12px var(--font-mono); text-align:center }
+    .card-foot { position:absolute; bottom:8px; left:8px; right:8px; display:flex; align-items:center; justify-content:center; pointer-events:none }
+    .count { display:flex; height:6px; align-items:center; gap:4px }
+    .count i { display:block; width:4px; height:4px; border-radius:50%; background:color-mix(in oklch,var(--primary) 40%,transparent) }
+    .controls { position:absolute; right:0; bottom:0; display:flex; gap:1px; pointer-events:none; opacity:0; transition:opacity .15s }
+    .card:hover .controls,.card:focus-within .controls { pointer-events:auto; opacity:1 }
+    .icon { width:22px; height:22px; display:grid; place-items:center; border:0; border-radius:4px; background:var(--card); color:var(--muted-foreground); font-size:14px }
+    .icon:hover { color:var(--primary); background:var(--muted) }
+    .icon.run { color:var(--primary) }
+    .feedback { border-top:1px solid var(--border); padding-top:16px; display:grid; grid-template-columns:1fr 1fr; gap:20px }
+    .feedback-label { color:var(--muted-foreground); font:600 10px var(--font-mono); margin-bottom:7px; text-transform:uppercase }
+    .feedback strong { font-size:12px; color:var(--success) }
+    .feedback p,.feedback li { font:11px/1.65 var(--font-mono); color:var(--muted-foreground); overflow-wrap:anywhere }
+    .feedback p { margin:4px 0 }
+    .feedback ul { margin:0; padding:0; list-style:none }
+    .ring { position:fixed; inset:0; z-index:10; pointer-events:none }
+    .ring[hidden],.sheet[hidden],.drag-ghost[hidden],.drag-line[hidden] { display:none }
+    .donut { position:absolute; overflow:visible; filter:drop-shadow(0 12px 24px #000b) }
+    .segment { cursor:pointer; pointer-events:auto; transition:transform 120ms }
+    .segment path { fill:color-mix(in oklch,var(--card) 65%,var(--muted)); stroke:color-mix(in oklch,var(--foreground) 15%,transparent); stroke-width:1; transition:fill 120ms,stroke 120ms }
+    .segment.selected path { fill:color-mix(in oklch,var(--primary) 20%,var(--card)); stroke:var(--primary) }
+    .segment text { fill:var(--foreground); font:600 12px "Noto Sans Variable","PingFang SC",sans-serif; text-anchor:middle; dominant-baseline:middle; pointer-events:none }
+    .segment.selected text { fill:var(--primary) }
+    .segment .hint { fill:var(--muted-foreground); font-size:9px; font-weight:400 }
+    .segment.selected .hint { fill:var(--primary) }
+    .drag-line { position:fixed; z-index:14; height:2px; transform-origin:left center; background:linear-gradient(90deg,transparent,var(--primary)); box-shadow:0 0 9px color-mix(in oklch,var(--primary) 35%,transparent); pointer-events:none }
+    .drag-ghost { position:fixed; z-index:15; padding:6px 10px; border:1px solid color-mix(in oklch,var(--primary) 45%,transparent); border-radius:6px; background:var(--card); color:var(--primary); box-shadow:0 7px 18px #0009; font-size:11px; font-weight:600; pointer-events:none; white-space:nowrap }
+    .sheet { position:fixed; inset:0; z-index:20; background:#0009; display:flex; justify-content:flex-end }
+    .panel { width:min(400px,100%); height:100%; overflow-y:auto; background:var(--sidebar); border-left:1px solid var(--border); padding:24px; box-shadow:-18px 0 40px #0006 }
+    .panel-head { display:flex; align-items:start; justify-content:space-between; gap:12px; margin-bottom:24px }
+    .panel h2 { margin:5px 0 0; font-size:17px }
+    .panel .close { border:0; background:none; color:var(--muted-foreground); font-size:23px }
+    .field { display:block; margin-bottom:17px; color:var(--muted-foreground); font-size:12px }
+    .field span { display:block; margin-bottom:7px }
+    .field input { width:100%; padding:9px 11px; border:1px solid var(--border); border-radius:6px; background:var(--background); color:var(--foreground) }
+    .panel-run { width:100%; padding:10px; background:var(--primary); color:var(--primary-foreground); border:0; border-radius:6px; font-weight:600 }
+    .panel-run:disabled { opacity:.45; cursor:not-allowed }
+    @media (max-width:640px) { .shell { grid-template-columns:1fr } aside { display:none } header { padding:0 15px } main { padding:16px 15px } .feedback { grid-template-columns:1fr } .segment text { font-size:10px } .segment .hint { font-size:8px } }
+    @media (prefers-reduced-motion:reduce) { * { transition-duration:0s!important } }
+  </style>
+</head>
+<body>
+  <div class="banner"><span>交互原型 · 所有运行均为模拟</span><span>长按 450ms → 拖到预设 → 松开；键盘 Shift+F10 打开</span></div>
+  <div class="shell">
+    <aside aria-label="模拟侧边栏"><div class="brand"><b>▦</b> Workflow Tool</div><button class="nav current" type="button">▦ &nbsp;全部动作</button><button class="nav" type="button" disabled>⌁ &nbsp;工作流</button></aside>
+    <div class="page"><header><strong>全部动作</strong><span class="mono">5 ACTIONS · 2 GROUPS</span></header>
+      <main>
+        <section><div class="section-head"><span>ADB · 设备操作</span><div class="tick-ruler" aria-hidden="true"><i></i><i></i><i></i></div><span>03 SLOTS</span></div><div class="cards" id="adb-cards"></div></section>
+        <section><div class="section-head"><span>FILE · 设备文件</span><div class="tick-ruler" aria-hidden="true"><i></i><i></i></div><span>02 SLOTS</span></div><div class="cards" id="file-cards"></div></section>
+        <div class="feedback" aria-live="polite"><div><div class="feedback-label">当前状态</div><strong id="status"></strong><p id="detail"></p></div><div><div class="feedback-label">最近操作</div><ul id="history"></ul></div></div>
+      </main>
+    </div>
+  </div>
+  <div class="ring" id="ring" hidden></div>
+  <div class="drag-line" id="drag-line" hidden></div>
+  <div class="drag-ghost" id="drag-ghost" hidden></div>
+  <div class="sheet" id="sheet" hidden></div>
+  <script>
+    // ponytail: a single-file interaction study; no app bindings or device calls.
+    const actions = [
+      { id:"keys", title:"按键事件", glyph:"⌘", group:"adb", params:[{id:"KEYCODE",label:"按键代码",required:true,default:""}], presets:[
+        {name:"返回",values:{KEYCODE:"4"}},{name:"主页",values:{KEYCODE:"3"}},{name:"最近任务",values:{KEYCODE:"187"}},
+        {name:"电源键",values:{KEYCODE:"26"}},{name:"音量增大",values:{KEYCODE:"24"}},{name:"音量减小",values:{KEYCODE:"25"}},
+        {name:"确认",values:{KEYCODE:"66"}},{name:"菜单",values:{KEYCODE:"82"}},{name:"截屏",values:{KEYCODE:"120"}},
+      ]},
+      { id:"prop", title:"系统属性", glyph:"⚙", group:"adb", params:[{id:"PROPERTY",label:"属性名",required:true,default:""}], presets:[
+        {name:"设备型号",values:{PROPERTY:"ro.product.model"}},{name:"系统版本",values:{PROPERTY:"ro.build.version.release"}},{name:"构建号",values:{PROPERTY:"ro.build.display.id"}},
+      ]},
+      { id:"reboot", title:"设备重启", glyph:"↻", group:"adb", params:[], presets:[{name:"正常重启",values:{}},{name:"恢复模式",values:{}},{name:"Bootloader",values:{}}]},
+      { id:"push", title:"推送文件", glyph:"↥", group:"file", params:[{id:"LOCAL_PATH",label:"本地文件",required:true,default:""},{id:"REMOTE_PATH",label:"设备路径",required:true,default:"/sdcard/Download/"}], presets:[
+        {name:"推送到下载目录",values:{LOCAL_PATH:"",REMOTE_PATH:"/sdcard/Download/"}},{name:"推送到临时目录",values:{LOCAL_PATH:"",REMOTE_PATH:"/data/local/tmp/"}},
+      ]},
+      { id:"list", title:"查看文件", glyph:"▤", group:"file", params:[], presets:[] },
+    ];
+    // Pure decision function: preset values override defaults; missing required values open the form.
+    function resolve(action,preset) {
+      const defaults=Object.fromEntries(action.params.map(param=>[param.id,param.default||""]));
+      const values={...defaults,...(preset?.values||{})};
+      const missing=action.params.filter(param=>param.required&&!String(values[param.id]||"").trim());
+      return {values,missing,kind:missing.length?"form":"run"};
+    }
+    const ring=document.getElementById("ring"),sheet=document.getElementById("sheet");
+    const dragLine=document.getElementById("drag-line"),dragGhost=document.getElementById("drag-ghost");
+    const svgNS="http://www.w3.org/2000/svg";
+    let state={phase:"idle",action:null,card:null,pointer:null,origin:null,geometry:null,dragged:false,selected:-1,form:null,history:[]};
+    let holdTimer,ignoreClick=false;
+    function update(patch) { state={...state,...patch}; }
+    function notify(message,detail="") {
+      update({history:[message,...state.history].slice(0,4)});
+      document.getElementById("status").textContent=message;
+      document.getElementById("detail").textContent=detail;
+      document.getElementById("history").replaceChildren(...state.history.map(line=>{const item=document.createElement("li");item.textContent=line;return item}));
+    }
+    function button(text,className,label,handler) {
+      const node=document.createElement("button");node.type="button";node.className=className;node.textContent=text;node.title=label;node.setAttribute("aria-label",label);node.addEventListener("click",handler);return node;
+    }
+    function renderCards() {
+      for(const action of actions) {
+        const card=document.createElement("div");card.className=action.presets.length?"card":"card no-presets";
+        const face=button("","card-face",action.title,()=>{if(ignoreClick){ignoreClick=false;return}if(state.phase==="open")return;activate(action,null)});
+        const glyph=document.createElement("span");glyph.className="glyph";glyph.textContent=action.glyph;
+        const name=document.createElement("span");name.className="card-name";name.textContent=action.title;
+        face.append(glyph,name);
+        face.addEventListener("pointerdown",event=>start(event,action,card));
+        face.addEventListener("pointermove",move);
+        face.addEventListener("pointerup",release);
+        face.addEventListener("pointercancel",cancel);
+        face.addEventListener("lostpointercapture",cancel);
+        face.addEventListener("contextmenu",event=>event.preventDefault());
+        face.addEventListener("keydown",event=>{
+          if(state.phase==="open"&&["Enter"," "].includes(event.key))event.preventDefault();
+          if(event.shiftKey&&event.key==="F10"&&action.presets.length){event.preventDefault();open(action,card,null)}
+        });
+        const rail=document.createElement("span");rail.className="card-rail";rail.setAttribute("aria-hidden","true");
+        rail.append(...Array.from({length:4},()=>document.createElement("i")));
+        const foot=document.createElement("div");foot.className="card-foot";
+        const count=document.createElement("span");count.className="count";count.setAttribute("aria-hidden","true");
+        count.append(...action.presets.map(()=>document.createElement("i")));
+        const controls=document.createElement("div");controls.className="controls";
+        controls.append(button("✎","icon",`编辑${action.title}参数`,()=>openForm(action,null,resolve(action,null))),button("▶","icon run",`运行${action.title}`,()=>activate(action,null)));
+        foot.append(count,controls);card.append(face,rail,foot);document.getElementById(`${action.group}-cards`).append(card);
+      }
+    }
+    function start(event,action,card) {
+      if(event.button!==0||!action.presets.length)return;
+      if(state.phase==="open")close();
+      clearTimeout(holdTimer);
+      update({phase:"pressing",action,pointer:event.pointerId,origin:{x:event.clientX,y:event.clientY},lastY:event.clientY,dragged:false});
+      card.classList.add("armed");event.currentTarget.setPointerCapture(event.pointerId);
+      holdTimer=setTimeout(()=>{
+        if(state.phase!=="pressing")return;
+        ignoreClick=true;open(action,card,event.pointerId);
+        notify("预设环已展开",`${action.title} · 移动到目标预设后松开`);
+      },450);
+    }
+    function move(event) {
+      if(state.pointer!==event.pointerId)return;
+      if(state.phase==="pressing"&&Math.hypot(event.clientX-state.origin.x,event.clientY-state.origin.y)>8){
+        if(event.pointerType!=="touch"){cancel();return}
+        clearTimeout(holdTimer);document.querySelector(".card.armed")?.classList.remove("armed");
+        update({phase:"scrolling"});
+      }
+      if(state.phase==="scrolling"){
+        window.scrollBy(0,state.lastY-event.clientY);
+        update({lastY:event.clientY});return;
+      }
+      if(state.phase==="open"&&state.pointer!==null){
+        const dragged=state.dragged||Math.hypot(event.clientX-state.origin.x,event.clientY-state.origin.y)>8;
+        if(dragged!==state.dragged)update({dragged});
+        select(dragged?hit(event.clientX,event.clientY):-1);
+        if(dragged)showDrag(event.clientX,event.clientY);
+      }
+    }
+    function release(event) {
+      if(state.pointer!==event.pointerId){if(ignoreClick)setTimeout(()=>{ignoreClick=false},0);return}
+      clearTimeout(holdTimer);
+      if(state.phase==="open")setTimeout(()=>{ignoreClick=false},0);
+      if(state.phase==="pressing"){
+        document.querySelector(".card.armed")?.classList.remove("armed");update({phase:"idle",action:null,pointer:null});return;
+      }
+      if(state.phase==="scrolling"){
+        ignoreClick=true;update({phase:"idle",action:null,pointer:null});
+        setTimeout(()=>{ignoreClick=false},0);return;
+      }
+      if(state.phase!=="open")return;
+      const index=state.dragged&&state.selected>=0?hit(event.clientX,event.clientY):-1,action=state.action;
+      close();
+      if(index<0)notify("已取消选择","松开位置不在预设上；没有运行命令");
+      else activate(action,action.presets[index]);
+    }
+    function cancel(event) {
+      clearTimeout(holdTimer);
+      document.querySelector(".card.armed")?.classList.remove("armed");
+      if(state.phase==="open"&&state.pointer!==null)close();
+      else if(state.phase==="pressing"||state.phase==="scrolling"){
+        ignoreClick=true;
+        update({phase:"idle",action:null,pointer:null});
+      }
+      if(event?.type==="pointercancel"||event?.type==="lostpointercapture")setTimeout(()=>{ignoreClick=false},0);
+    }
+    function open(action,card,pointer) {
+      const box=card.getBoundingClientRect();
+      const center={x:box.left+box.width/2,y:box.top+box.height/2};
+      const outer=Math.max(70,Math.min(178,center.x-8,innerWidth-center.x-8,center.y-8,innerHeight-center.y-8));
+      const inner=Math.min(75,outer*.42),geometry={...center,inner,outer,count:action.presets.length};
+      update({phase:"open",action,card,pointer,geometry,selected:-1});
+      card.classList.remove("armed");
+      card.style.setProperty("--hub-scale",String(Math.min(1,(inner-4)/65)));
+      card.classList.add("radial-active");
+      ring.hidden=false;
+      ring.replaceChildren(drawDonut(action,geometry));
+    }
+    function polar(radius,angle) {
+      const radians=angle*Math.PI/180;
+      return {x:radius*Math.cos(radians),y:radius*Math.sin(radians)};
+    }
+    function sectorPath(inner,outer,start,end,center) {
+      const a=polar(outer,start),b=polar(outer,end),c=polar(inner,end),d=polar(inner,start);
+      const large=end-start>180?1:0;
+      return `M ${center+a.x} ${center+a.y} A ${outer} ${outer} 0 ${large} 1 ${center+b.x} ${center+b.y} L ${center+c.x} ${center+c.y} A ${inner} ${inner} 0 ${large} 0 ${center+d.x} ${center+d.y} Z`;
+    }
+    function svgNode(tag,attributes) {
+      const node=document.createElementNS(svgNS,tag);
+      for(const [key,value] of Object.entries(attributes))node.setAttribute(key,String(value));
+      return node;
+    }
+    function drawDonut(action,geometry) {
+      const {x,y,inner,outer,count}=geometry,padding=9,size=(outer+padding)*2,mid=outer+padding;
+      const svg=svgNode("svg",{class:"donut",width:size,height:size,viewBox:`0 0 ${size} ${size}`});
+      svg.style.cssText=`left:${x-mid}px;top:${y-mid}px`;
+      const step=360/count,gap=count===1?.2:1;
+      action.presets.forEach((preset,index)=>{
+        const angle=-90+index*step,start=angle-step/2+gap,end=angle+step/2-gap;
+        const group=svgNode("g",{class:"segment",role:"button","aria-label":preset.name,"data-index":index});
+        const path=svgNode("path",{d:sectorPath(inner,outer,start,end,mid)});
+        const labelRadius=inner+(outer-inner)*.58,position=polar(labelRadius,angle);
+        const label=svgNode("text",{x:mid+position.x,y:mid+position.y-(outer>125&&resolve(action,preset).kind==="form"?6:0)});
+        const maxLength=outer<145?3:5;
+        const shortName=preset.name.slice(-2);
+        const hasDuplicate=action.presets.some(other=>other!==preset&&other.name.slice(-2)===shortName);
+        label.textContent=preset.name.length>maxLength?(outer<110?(hasDuplicate?preset.name.slice(-4,-2):shortName):`${preset.name.slice(0,maxLength-1)}…`):preset.name;
+        group.append(path,label);
+        if(outer>125&&resolve(action,preset).kind==="form"){
+          const hint=svgNode("text",{class:"hint",x:mid+position.x,y:mid+position.y+11});
+          hint.textContent="需填参数";group.append(hint);
+        }
+        group.addEventListener("pointerenter",()=>{if(state.pointer===null)select(index)});
+        group.addEventListener("click",()=>{if(state.pointer!==null)return;close();activate(action,preset)});
+        svg.append(group);
+      });
+      return svg;
+    }
+    function hit(x,y) {
+      const geometry=state.geometry;
+      if(!geometry)return -1;
+      const step=360/geometry.count;
+      const initialAngle=(Math.atan2(y-geometry.y,x-geometry.x)*180/Math.PI+90+360)%360;
+      const index=Math.round(initialAngle/step)%geometry.count;
+      const shift=polar(index===state.selected?6:0,-90+index*step);
+      const dx=x-geometry.x-shift.x,dy=y-geometry.y-shift.y,radius=Math.hypot(dx,dy);
+      if(radius<geometry.inner||radius>geometry.outer)return -1;
+      const angle=(Math.atan2(dy,dx)*180/Math.PI+90+360)%360;
+      const offset=Math.abs((angle-index*step+540)%360-180);
+      return offset<step/2-(geometry.count===1?.2:1)?index:-1;
+    }
+    function select(index) {
+      if(index===state.selected)return;
+      update({selected:index});
+      ring.querySelectorAll(".segment").forEach(group=>{
+        const active=Number(group.dataset.index)===index;
+        group.classList.toggle("selected",active);
+        const angle=-90+Number(group.dataset.index)*360/state.geometry.count;
+        const offset=polar(active?6:0,angle);
+        group.setAttribute("transform",`translate(${offset.x} ${offset.y})`);
+      });
+      if(index>=0)document.getElementById("detail").textContent=`目标：${state.action.presets[index].name}`;
+    }
+    function showDrag(x,y) {
+      const {x:cx,y:cy,inner}=state.geometry,dx=x-cx,dy=y-cy,distance=Math.hypot(dx,dy),angle=Math.atan2(dy,dx);
+      dragLine.hidden=false;dragLine.style.cssText=`left:${cx+Math.cos(angle)*inner}px;top:${cy+Math.sin(angle)*inner}px;width:${Math.max(0,distance-inner)}px;transform:rotate(${angle}rad)`;
+      dragGhost.hidden=false;dragGhost.style.cssText=`left:${Math.min(x+14,innerWidth-95)}px;top:${Math.min(y+14,innerHeight-32)}px`;
+      dragGhost.textContent=state.selected<0?"选择预设":state.action.presets[state.selected].name;
+    }
+    function close() {
+      state.card?.classList.remove("radial-active");
+      state.card?.style.removeProperty("--hub-scale");
+      ring.hidden=true;ring.replaceChildren();dragLine.hidden=true;dragGhost.hidden=true;
+      update({phase:"idle",action:null,card:null,pointer:null,geometry:null,selected:-1,origin:null,dragged:false});
+    }
+    function activate(action,preset) {
+      const result=resolve(action,preset);
+      if(result.kind==="form"){openForm(action,preset,result);return}
+      notify(`模拟运行 · ${action.title}${preset?` / ${preset.name}`:""}`,Object.entries(result.values).map(([key,value])=>`${key}=${value}`).join(" · ")||"无参数 · 未连接设备");
+    }
+    function openForm(action,preset,result) {
+      const focusTarget=document.activeElement;
+      update({form:{action,preset,values:result.values,focusTarget}});
+      sheet.hidden=false;document.querySelector(".shell").inert=true;renderForm();
+      notify(`打开表单 · ${action.title}${preset?` / ${preset.name}`:""}`,result.missing.length?`待填：${result.missing.map(param=>param.label).join("、")}`:"可编辑参数");
+    }
+    function dismissForm() {
+      const focusTarget=state.form?.focusTarget;
+      sheet.hidden=true;document.querySelector(".shell").inert=false;update({form:null});
+      focusTarget?.focus();
+    }
+    function renderForm() {
+      const {action,preset,values}=state.form;
+      sheet.replaceChildren();
+      const panel=document.createElement("div");panel.className="panel";panel.setAttribute("role","dialog");panel.setAttribute("aria-modal","true");panel.setAttribute("aria-label",`编辑${action.title}参数`);
+      const top=document.createElement("div");top.className="panel-head";
+      const heading=document.createElement("div"),caption=document.createElement("div"),title=document.createElement("h2");
+      caption.className="feedback-label";caption.textContent=preset?`PRESET · ${preset.name}`:"ACTION PARAMETERS";title.textContent=action.title;heading.append(caption,title);
+      top.append(heading,button("×","close","关闭表单",dismissForm));panel.append(top);
+      for(const param of action.params){
+        const label=document.createElement("label");label.className="field";
+        const name=document.createElement("span");name.textContent=param.label+(param.required?" *":"");
+        const input=document.createElement("input");input.value=values[param.id]||"";
+        input.addEventListener("input",()=>{
+          update({form:{...state.form,values:{...state.form.values,[param.id]:input.value}}});
+          run.disabled=resolve(action,{values:state.form.values}).kind!=="run";
+        });
+        label.append(name,input);panel.append(label);
+      }
+      const run=button("运行","panel-run","运行当前参数",()=>{
+        const result=resolve(action,{values:state.form.values});if(result.kind!=="run")return;
+        dismissForm();notify(`模拟运行 · ${action.title}${preset?` / ${preset.name}`:""}`,Object.entries(result.values).map(([key,value])=>`${key}=${value}`).join(" · ")||"无参数 · 未连接设备");
+      });
+      run.disabled=resolve(action,{values}).kind!=="run";panel.append(run);sheet.append(panel);
+      panel.querySelector("input,.close").focus();
+    }
+    document.addEventListener("keydown",event=>{
+      if(!sheet.hidden){
+        if(event.key==="Escape"){event.preventDefault();dismissForm();return}
+        if(event.key==="Tab"){
+          const focusable=[...sheet.querySelectorAll("button:not(:disabled),input:not(:disabled)")];
+          const first=focusable[0],last=focusable[focusable.length-1];
+          if(event.shiftKey&&document.activeElement===first){event.preventDefault();last.focus()}
+          else if(!event.shiftKey&&document.activeElement===last){event.preventDefault();first.focus()}
+        }
+        return;
+      }
+      if(state.phase!=="open"||state.pointer!==null)return;
+      if(event.key==="Tab"){close();return}
+      if(document.activeElement!==state.card?.querySelector(".card-face"))return;
+      if(event.key==="Escape"){event.preventDefault();close();return}
+      if(["ArrowRight","ArrowDown","ArrowLeft","ArrowUp"].includes(event.key)){
+        event.preventDefault();const direction=["ArrowRight","ArrowDown"].includes(event.key)?1:-1;
+        select((state.selected+direction+state.action.presets.length)%state.action.presets.length);return;
+      }
+      if(event.key==="Enter"&&state.selected>=0){
+        event.preventDefault();const action=state.action,preset=action.presets[state.selected];close();activate(action,preset);
+      }
+    });
+    window.addEventListener("resize",()=>{if(state.phase==="open")close()});
+    renderCards();notify("等待选择动作","原型不会连接设备或运行命令");
+  </script>
+</body>
+</html>
