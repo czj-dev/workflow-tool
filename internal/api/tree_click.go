@@ -2,7 +2,6 @@ package api
 
 import (
 	"fmt"
-	"strings"
 
 	"workflow-tool/internal/workflow"
 )
@@ -29,9 +28,6 @@ func (s *Service) ResolveTreeClick(sourceID string, node map[string]any, params 
 		value, err := workflow.Substitute(expression, ctx)
 		if err != nil {
 			return TreeClickResult{}, fmt.Errorf("参数 %s: %w", key, err)
-		}
-		if strings.Contains(value, "${") {
-			return TreeClickResult{}, fmt.Errorf("参数 %s 包含未展开的变量引用", key)
 		}
 		mapped[key] = value
 	}

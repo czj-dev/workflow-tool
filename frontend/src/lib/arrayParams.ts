@@ -41,12 +41,16 @@ interface ArrayParamSpec {
 export function normalizeArrayParams(
   params: ArrayParamSpec[],
   values: Record<string, string>,
+  fallback: Record<string, string> = {},
 ): Record<string, string> {
-  const emptyArrays = Object.fromEntries(params
-    .filter((param) => (param.type === "list" || param.type === "arguments") &&
-      !(values[param.id] ?? param.default ?? "").trim())
+  const arrays = params.filter((param) => param.type === "list" || param.type === "arguments");
+  const inherited = Object.fromEntries(arrays
+    .filter((param) => values[param.id] === undefined && !param.default && fallback[param.id]?.trim())
+    .map((param) => [param.id, fallback[param.id]]));
+  const emptyArrays = Object.fromEntries(arrays
+    .filter((param) => !(values[param.id] ?? (param.default || inherited[param.id] || "")).trim())
     .map((param) => [param.id, "[]"]));
-  return { ...values, ...emptyArrays };
+  return { ...values, ...inherited, ...emptyArrays };
 }
 
 export function invalidArrayParams(

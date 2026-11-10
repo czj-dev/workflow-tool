@@ -14,9 +14,26 @@ interface ArrayParamFieldProps {
 }
 
 function move<T>(items: T[], index: number, to: number): T[] {
-  const next = [...items];
-  [next[index], next[to]] = [next[to], next[index]];
-  return next;
+  return items.map((item, i) => i === index ? items[to] : i === to ? items[index] : item);
+}
+
+interface RowControlsProps<T> {
+  items: T[];
+  index: number;
+  label: string;
+  onChange: (next: T[]) => void;
+}
+
+function RowControls<T>({ items, index, label, onChange }: RowControlsProps<T>) {
+  const { t } = useTranslation();
+  return <>
+    <IconButton icon={ArrowUp01Icon} label={t("form.arrayMoveUp", { label })}
+      disabled={index === 0} onClick={() => onChange(move(items, index, index - 1))} />
+    <IconButton icon={ArrowDown01Icon} label={t("form.arrayMoveDown", { label })}
+      disabled={index === items.length - 1} onClick={() => onChange(move(items, index, index + 1))} />
+    <IconButton icon={Delete02Icon} label={t("form.arrayRemove", { label })}
+      onClick={() => onChange(items.filter((_, i) => i !== index))} />
+  </>;
 }
 
 export function ArrayParamField({ spec, value, setValue }: ArrayParamFieldProps) {
@@ -53,12 +70,7 @@ export function ArrayParamField({ spec, value, setValue }: ArrayParamFieldProps)
         <div key={index} className="flex min-w-0 items-center gap-1.5">
           <Input aria-label={itemLabel(index)} value={entry} className="min-w-0 flex-1"
             onChange={(event) => save(rows.map((old, i) => i === index ? event.target.value : old))} />
-          <IconButton icon={ArrowUp01Icon} label={t("form.arrayMoveUp", { label: itemLabel(index) })}
-            disabled={index === 0} onClick={() => save(move(rows, index, index - 1))} />
-          <IconButton icon={ArrowDown01Icon} label={t("form.arrayMoveDown", { label: itemLabel(index) })}
-            disabled={index === rows.length - 1} onClick={() => save(move(rows, index, index + 1))} />
-          <IconButton icon={Delete02Icon} label={t("form.arrayRemove", { label: itemLabel(index) })}
-            onClick={() => save(rows.filter((_, i) => i !== index))} />
+          <RowControls items={rows} index={index} label={itemLabel(index)} onChange={save} />
         </div>
       ))}
       {!invalid && !isList && (items as ArgumentRow[]).map((row, index, rows) => (
@@ -66,12 +78,7 @@ export function ArrayParamField({ spec, value, setValue }: ArrayParamFieldProps)
           <div className="flex min-w-0 items-center gap-1.5">
             <Input aria-label={`${itemLabel(index)} flag`} value={row.flag} className="min-w-0 flex-1 font-mono"
               onChange={(event) => save(rows.map((old, i) => i === index ? { ...old, flag: event.target.value } : old))} />
-            <IconButton icon={ArrowUp01Icon} label={t("form.arrayMoveUp", { label: itemLabel(index) })}
-              disabled={index === 0} onClick={() => save(move(rows, index, index - 1))} />
-            <IconButton icon={ArrowDown01Icon} label={t("form.arrayMoveDown", { label: itemLabel(index) })}
-              disabled={index === rows.length - 1} onClick={() => save(move(rows, index, index + 1))} />
-            <IconButton icon={Delete02Icon} label={t("form.arrayRemove", { label: itemLabel(index) })}
-              onClick={() => save(rows.filter((_, i) => i !== index))} />
+            <RowControls items={rows} index={index} label={itemLabel(index)} onChange={save} />
           </div>
           {row.values.map((entry, valueIndex) => (
             <div key={valueIndex} className="flex min-w-0 items-center gap-1.5 pl-3">
@@ -79,20 +86,10 @@ export function ArrayParamField({ spec, value, setValue }: ArrayParamFieldProps)
                 value={entry} className="min-w-0 flex-1"
                 onChange={(event) => save(rows.map((old, i) => i === index
                   ? { ...old, values: old.values.map((v, j) => j === valueIndex ? event.target.value : v) } : old))} />
-              <IconButton icon={ArrowUp01Icon}
-                label={t("form.arrayMoveUp", { label: `${itemLabel(index)} ${t("form.arrayValue")} ${valueIndex + 1}` })}
-                disabled={valueIndex === 0}
-                onClick={() => save(rows.map((old, i) => i === index
-                  ? { ...old, values: move(old.values, valueIndex, valueIndex - 1) } : old))} />
-              <IconButton icon={ArrowDown01Icon}
-                label={t("form.arrayMoveDown", { label: `${itemLabel(index)} ${t("form.arrayValue")} ${valueIndex + 1}` })}
-                disabled={valueIndex === row.values.length - 1}
-                onClick={() => save(rows.map((old, i) => i === index
-                  ? { ...old, values: move(old.values, valueIndex, valueIndex + 1) } : old))} />
-              <IconButton icon={Delete02Icon}
-                label={t("form.arrayRemove", { label: `${itemLabel(index)} ${t("form.arrayValue")} ${valueIndex + 1}` })}
-                onClick={() => save(rows.map((old, i) => i === index
-                  ? { ...old, values: old.values.filter((_, j) => j !== valueIndex) } : old))} />
+              <RowControls items={row.values} index={valueIndex}
+                label={`${itemLabel(index)} ${t("form.arrayValue")} ${valueIndex + 1}`}
+                onChange={(next) => save(rows.map((old, i) => i === index
+                  ? { ...old, values: next } : old))} />
             </div>
           ))}
           <IconButton icon={Add01Icon} label={t("form.arrayAdd", { label: `${itemLabel(index)} ${t("form.arrayValue")}` })}

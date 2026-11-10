@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -40,6 +41,78 @@ func TestActionsDirectoryValidates(t *testing.T) {
 		}
 	}
 	t.Logf("loaded %d actions, all validate OK", len(reg.Actions))
+}
+
+func TestAddPresetValidatesBeforeWriting(t *testing.T) {
+	cases := []struct {
+		name, kind, value string
+		valid             bool
+	}{
+		{"list invalid", "list", `[1]`, false},
+		{"arguments dynamic", "arguments", "${ARGS}", false},
+		{"arguments missing values", "arguments", `[{"flag":"x"}]`, false},
+		{"list empty array", "list", "[]", true},
+		{"arguments valid", "arguments", `[{"flag":"--es","values":["中😀"]}]`, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			actionsDir := filepath.Join(dir, "actions")
+			if err := os.Mkdir(actionsDir, 0755); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(actionsDir, "a.yaml")
+			original := "id: a\ntitle: A\ncommand:\n  run: echo\nparams:\n  - id: MY_PARAM\n    type: " + tc.kind + "\n"
+			if err := os.WriteFile(path, []byte(original), 0644); err != nil {
+				t.Fatal(err)
+			}
+			svc := New(registry.Load(actionsDir, dir), nil, dir,
+				filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
+			result, err := svc.AddPreset("a", "my-preset", "", map[string]string{"MY_PARAM": tc.value})
+			data, readErr := os.ReadFile(path)
+			if readErr != nil {
+				t.Fatal(readErr)
+			}
+			if !tc.valid {
+				if err == nil || !strings.Contains(err.Error(), "MY_PARAM") || !strings.Contains(err.Error(), "my-preset") {
+					t.Fatalf("expected contextual error, got %v", err)
+				}
+				if string(data) != original {
+					t.Fatalf("invalid preset changed file: %s", data)
+				}
+				return
+			}
+			if err != nil || len(result.Actions) != 1 || len(result.Actions[0].Presets) != 1 ||
+				result.Actions[0].Presets[0].Values["MY_PARAM"] != tc.value {
+				t.Fatalf("valid preset was not persisted and reloaded: %v, %+v", err, result)
+			}
+		})
+	}
+}
+
+func TestAddPresetRejectsInvalidOnDiskActionWithoutWriting(t *testing.T) {
+	dir := t.TempDir()
+	actionsDir := filepath.Join(dir, "actions")
+	if err := os.Mkdir(actionsDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(actionsDir, "a.yaml")
+	if err := os.WriteFile(path, []byte("id: a\ntitle: A\ncommand:\n  run: echo\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(registry.Load(actionsDir, dir), nil, dir,
+		filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
+	invalid := "id: a\ntitle: A\ncommand:\n  run: echo\n  script: bad.sh\n"
+	if err := os.WriteFile(path, []byte(invalid), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.AddPreset("a", "new", "", nil); err == nil || !strings.Contains(err.Error(), "互斥") {
+		t.Fatalf("expected full action validation, got %v", err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || string(data) != invalid {
+		t.Fatalf("invalid on-disk action must not change: %v, %s", err, data)
+	}
 }
 
 func TestLogcatScenarioPresets(t *testing.T) {

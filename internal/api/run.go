@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"workflow-tool/internal/actionrun"
 	"workflow-tool/internal/adb/logcat"
+	"workflow-tool/internal/builtinvars"
 	"workflow-tool/internal/registry"
 	"workflow-tool/internal/runner"
 )
@@ -23,18 +25,25 @@ func (s *Service) RunAction(id string, params map[string]any) error {
 	if !ok {
 		return fmt.Errorf("未知动作 %q", id)
 	}
+	decoded, literalKeys, err := decodeLiteralParams(params)
+	if err != nil {
+		return err
+	}
+	if err := rejectLiteralShellSubstitution(la.Def.Command.Run, literalKeys); err != nil {
+		return err
+	}
 	ctx, ok := s.running.begin(id)
 	if !ok {
 		return fmt.Errorf("动作 %q 正在运行", id)
 	}
 
-	merged := s.mergeGlobalAndParams(params)
+	merged := s.mergeGlobalAndParams(decoded)
 	var ctrl chan any
 	if la.Def.Command.Adb.Operation == logcat.OpStream {
 		ctrl = make(chan any, controlChanCap)
 		s.running.setControl(id, ctrl)
 	}
-	go s.execute(ctx, id, la, merged, ctrl)
+	go s.execute(ctx, id, la, merged, ctrl, literalKeys)
 	return nil
 }
 
@@ -43,6 +52,50 @@ func (s *Service) mergeGlobalAndParams(params map[string]any) map[string]any {
 	s.gMu.Lock()
 	defer s.gMu.Unlock()
 	return actionrun.MergeParams(s.global, params)
+}
+
+// decodeLiteralParams 校验树点击传来的字面值包装，仅接受单键对象。
+func decodeLiteralParams(params map[string]any) (map[string]any, map[string]bool, error) {
+	decoded := make(map[string]any, len(params))
+	literalKeys := make(map[string]bool)
+	for key, value := range params {
+		object, isObject := value.(map[string]any)
+		if !isObject {
+			decoded[key] = value
+			continue
+		}
+		literal, ok := object["$literal"].(string)
+		if !ok || len(object) != 1 {
+			return nil, nil, fmt.Errorf("参数 %q 的字面值格式无效", key)
+		}
+		decoded[key] = literal
+		literalKeys[key] = true
+	}
+	return decoded, literalKeys, nil
+}
+
+func rejectLiteralShellSubstitution(command string, literalKeys map[string]bool) error {
+	for key := range literalKeys {
+		if strings.Contains(command, "${"+key+"}") {
+			return fmt.Errorf("参数 %q 是字面值，不能插入内联命令；请在脚本中读取环境变量", key)
+		}
+	}
+	return nil
+}
+
+func expandDirectParams(ctx context.Context, params map[string]any, builtins *builtinvars.Registry, literalKeys map[string]bool) map[string]any {
+	if len(literalKeys) == 0 {
+		return runner.ExpandParams(ctx, params, builtins)
+	}
+	result := make(map[string]any, len(params))
+	for key, value := range params {
+		if text, ok := value.(string); ok && !literalKeys[key] {
+			result[key] = runner.Expand(ctx, text, params, builtins)
+		} else {
+			result[key] = value
+		}
+	}
+	return result
 }
 
 // CancelAction 取消正在运行的动作。
@@ -86,9 +139,9 @@ func (s *Service) UpdateLogcatFilter(id string, rule logcat.Rule, reset bool) er
 // execute 在独立 goroutine 里执行动作（事件协议见 events.go 的 actionEvents）：
 // 统一 ${VAR} 展开 → 工作目录校验 → actionrun.Build 构造 runner → 运行 → done 事件。
 // ctrl 为 logcat-stream 的运行期控制通道（其余动作为 nil）。
-func (s *Service) execute(ctx context.Context, id string, la registry.LoadedAction, params map[string]any, ctrl chan any) {
-	// 统一在进入 runner 前对 params 做 ${VAR} 展开：runner 拿到的是终值，不再各自展开。
-	params = runner.ExpandParams(ctx, params, s.builtins)
+func (s *Service) execute(ctx context.Context, id string, la registry.LoadedAction, params map[string]any, ctrl chan any, literalKeys map[string]bool) {
+	// 树点击映射值已是终值；其余参数仍以解包后的字符串为变量源展开。
+	params = expandDirectParams(ctx, params, s.builtins, literalKeys)
 	defer s.running.end(id)
 
 	ev := newActionEvents(s.app, id)

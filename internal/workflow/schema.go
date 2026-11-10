@@ -81,6 +81,11 @@ func Validate(def *WorkflowDef) error {
 		if p.Type == "select" && len(p.Options) == 0 {
 			return fmt.Errorf("params[%d]: select 必须提供 options", i)
 		}
+		if p.Default != "" {
+			if err := registry.ValidateArrayParamValue(p.Type, p.Default); err != nil {
+				return fmt.Errorf("params[%d] (%s) default: %w", i, p.ID, err)
+			}
+		}
 	}
 	seenStepID := map[string]int{}
 	for i, s := range def.Steps {

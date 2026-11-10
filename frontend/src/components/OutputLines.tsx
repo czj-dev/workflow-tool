@@ -30,7 +30,7 @@ export function OutputLines({ lines, exitCode, className }: OutputLinesProps) {
           return <TreeBlock key={`tree-${item.id}`} frame={item.frame} onLeafClick={click && source ? async (node) => {
             const result = await ResolveTreeClick(source.actionId, node as unknown as Record<string, unknown>, source.params);
             if (isRunning(result.action)) throw new Error(t("tree.actionRunning"));
-            await runAction(result.action, result.params);
+            await runAction(result.action, result.params, false, Object.keys(result.params));
           } : undefined} />;
         }
         let cls = "text-foreground";

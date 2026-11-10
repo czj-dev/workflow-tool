@@ -35,7 +35,7 @@ describe("OutputLines tree click", () => {
   it("将来源参数和节点交给后端映射并运行目标动作", async () => {
     render(<OutputLines lines={lines} />);
     await userEvent.click(screen.getByText("a.log"));
-    await waitFor(() => expect(runAction).toHaveBeenCalledWith("download", { FILE: "logs/a.log" }));
+    await waitFor(() => expect(runAction).toHaveBeenCalledWith("download", { FILE: "logs/a.log" }, false, ["FILE"]));
     expect(resolveTreeClick).toHaveBeenCalledWith("browse", { label: "a.log", path: "logs/a.log" }, { ZIP_NAME: "logs.zip" });
   });
 

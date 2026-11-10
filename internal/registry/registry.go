@@ -12,6 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"workflow-tool/internal/adb/logcat"
 	"workflow-tool/internal/runner"
 )
 
@@ -253,6 +254,25 @@ func Validate(def *ActionDef) error {
 		}
 		if p.Type == "select" && len(p.Options) == 0 {
 			return fmt.Errorf("params[%d] (%s) 是 select 必须提供 options", i, p.ID)
+		}
+		if p.Default != "" {
+			if err := ValidateArrayParamValue(p.Type, p.Default); err != nil {
+				return fmt.Errorf("params[%d] (%s) default: %w", i, p.ID, err)
+			}
+		}
+	}
+	for _, preset := range def.Presets {
+		for _, p := range def.Params {
+			if p.ID == "TAG" && def.Command.Stream == "logcat" {
+				if _, err := logcat.RuleFromParamsExt("", "", "", "", "", preset.Values["FILTER"]); err == nil && preset.Values["FILTER"] != "" {
+					continue
+				}
+			}
+			if value, ok := preset.Values[p.ID]; ok {
+				if err := ValidateArrayParamValue(p.Type, value); err != nil {
+					return fmt.Errorf("preset %q param %q: %w", preset.Name, p.ID, err)
+				}
+			}
 		}
 	}
 	// command.llm 校验：prompt/system/resume 引用的 param 必须存在

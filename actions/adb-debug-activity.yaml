@@ -18,6 +18,8 @@ params:
     type: arguments
     default: '[{"flag":"--es","values":["exec_button","展示语音链路悬框"]}]'
 command:
+  env:
+    ADB_SERIAL: '${ADB_SERIAL}'
   run: |
     command -v jq >/dev/null || { echo '缺少 jq：请先安装 jq 以解析 ARGS' >&2; exit 1; }
     remote=$(jq -er --arg component "$PACKAGE/$ACTIVITY" '
@@ -26,7 +28,7 @@ command:
       else ["am", "start", "-n", $component] + [.[] | .flag, .values[]] | @sh
       end
     ' <<< "$ARGS")
-    selected_serial="${ADB_SERIAL}"
+    selected_serial="$ADB_SERIAL"
     set -- shell "$remote"
     if [ -n "$selected_serial" ]; then set -- -s "$selected_serial" "$@"; fi
     adb "$@"

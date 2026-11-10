@@ -240,6 +240,32 @@ describe("ActionRunnerProvider", () => {
     expect(result.current.globalConfig.OUTPUT_DIR).toBe("D:/pages");
   });
 
+  it("可选数组无默认值时直跑 action 和 workflow 保留全局配置", async () => {
+    mockGetGlobalConfig.mockResolvedValue({ TAG: '["Foo"]' });
+    mockListActions.mockResolvedValue({ actions: [{ id: "a1", params: [{ id: "TAG", type: "list", default: "" }] }], errors: [] });
+    mockListWorkflows.mockResolvedValue({ workflows: [{ id: "w1", params: [{ id: "TAG", type: "list", default: "" }] }], errors: [] });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(() => Promise.resolve());
+    await act(async () => { await result.current.runAction("a1", {}, true); });
+    await act(async () => { await result.current.runWorkflow("w1", {}, true); });
+    expect(mockRunAction).toHaveBeenCalledWith("a1", { TAG: '["Foo"]' });
+    expect(mockRunWorkflow).toHaveBeenCalledWith("w1", { TAG: '["Foo"]' });
+  });
+
+  it("required 数组为空时直接运行与 workflow 均打开表单且不发 RPC", async () => {
+    mockListActions.mockResolvedValue({ actions: [{ id: "a1", params: [{ id: "FILES", type: "list", required: true, default: "[]" }] }], errors: [] });
+    mockListWorkflows.mockResolvedValue({ workflows: [{ id: "w1", params: [{ id: "ARGS", type: "arguments", required: true, default: "[]" }] }], errors: [] });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => { await result.current.runAction("a1", {}, true); });
+    expect(result.current.formSheetOpen).toBe(true);
+    expect(mockRunAction).not.toHaveBeenCalled();
+    await act(async () => { await result.current.runWorkflow("w1", { ARGS: "[]" }, true); });
+    expect(result.current.formSheetOpen).toBe(true);
+    expect(mockRunWorkflow).not.toHaveBeenCalled();
+  });
+
   it("runAction 带 params 调用 RunAction(id, params)", async () => {
     mockListActions.mockResolvedValue({ actions: [], errors: [] });
     const { result } = renderHook(() => useActionRunner(), { wrapper });
@@ -903,6 +929,25 @@ describe("ActionRunnerProvider", () => {
     act(() => result.current.rerun("a1"));
     await act(() => Promise.resolve());
     expect(mockRunAction).toHaveBeenCalledWith("a1", { P: "v1" });
+  });
+
+  it("树点击仅标记映射值为字面值；再次运行保留标记，编辑重跑恢复字符串", async () => {
+    mockListActions.mockResolvedValue({ actions: [{ id: "download", params: [{ id: "FILE", type: "text" }, { id: "OUT", type: "text" }] }], errors: [] });
+    const { result } = renderHook(() => useActionRunner(), { wrapper });
+    await act(() => Promise.resolve());
+    await act(async () => {
+      await result.current.runAction("download", { FILE: "${DATE}.gz", OUT: "${HOME}/out" }, false, ["FILE"]);
+    });
+    expect(mockRunAction).toHaveBeenCalledWith("download", { FILE: { $literal: "${DATE}.gz" }, OUT: "${HOME}/out" });
+    expect(result.current.lastRunParams.download).toEqual({ FILE: "${DATE}.gz", OUT: "${HOME}/out" });
+    mockRunAction.mockClear();
+    await act(async () => { result.current.rerun("download"); });
+    expect(mockRunAction).toHaveBeenCalledWith("download", { FILE: { $literal: "${DATE}.gz" }, OUT: "${HOME}/out" });
+    act(() => result.current.editRerun("download"));
+    expect(result.current.formValues.FILE).toBe("${DATE}.gz");
+    mockRunAction.mockClear();
+    await act(async () => { await result.current.runAction("download", result.current.formValues); });
+    expect(mockRunAction).toHaveBeenCalledWith("download", { FILE: "${DATE}.gz", OUT: "${HOME}/out" });
   });
 
   it("rerun 对 workflow 分派到 RunWorkflow", async () => {

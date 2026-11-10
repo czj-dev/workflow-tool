@@ -1,4 +1,5 @@
 import type { ParamSpec } from "../../bindings/workflow-tool/internal/registry/models.js";
+import { parseArgumentRows, parseStringList } from "./arrayParams";
 
 export function resolveActionParams(
   params: ParamSpec[] | null | undefined,
@@ -19,14 +20,23 @@ export function missingRequired(
   params: ParamSpec[],
   values: Record<string, string>,
 ): ParamSpec[] {
-  return params.filter(
-    (p) => p.required && !(values[p.id] && values[p.id].trim()),
-  );
+  return params.filter((p) => {
+    if (!p.required) return false;
+    const value = values[p.id]?.trim() ?? "";
+    if (!value) return true;
+    try {
+      if (p.type === "list") return parseStringList(value).length === 0;
+      if (p.type === "arguments") return parseArgumentRows(value).length === 0;
+    } catch {
+      return false; // 格式错误由 invalidArrayParams 单独提示
+    }
+    return false;
+  });
 }
 
 // hasFormFields 判断「是否值得进表单」：存在「必填且无默认值」的参数 → true（有必须手填的内容）；
 // 否则（全可选，或必填项都有默认值）返回 false，调用方应直接运行（默认值由后端回填），
 // 避免弹一个无需填写的表单（如 adb-scrcpy 全可选带默认值、adb-debug-activity 必填带默认值）。
 export function hasFormFields(params: ParamSpec[] | undefined | null): boolean {
-  return (params ?? []).some((p) => p.required && !p.default?.trim());
+  return missingRequired(params ?? [], Object.fromEntries((params ?? []).map((p) => [p.id, p.default ?? ""]))).length > 0;
 }

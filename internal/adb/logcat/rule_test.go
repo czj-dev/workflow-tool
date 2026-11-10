@@ -484,11 +484,27 @@ func TestRuleFromParamsExt(t *testing.T) {
 	if !reflect.DeepEqual(r2, want2) {
 		t.Fatalf("非法 FILTER 应退化 legacy:\n got %+v\nwant %+v", r2, want2)
 	}
-	for _, invalidFilter := range []string{"null", `[]`, `"text"`, `{}`, `{"tokens":null}`} {
+	for _, invalidFilter := range []string{"null", `[]`, `"text"`, `{"tokens":{}}`, `{"tokens":"wrong"}`, `{"tokens":42}`} {
 		got, parseErr := RuleFromParamsExt("W", `["Foo"]`, "inc", "exc", "pkg", invalidFilter)
 		if parseErr == nil || !reflect.DeepEqual(got, want2) {
 			t.Errorf("无效 FILTER %q 应报错并回退 TAG: %+v, %v", invalidFilter, got, parseErr)
 		}
+	}
+	for _, tc := range []struct {
+		filter string
+		want   Rule
+	}{
+		{filter: `{}`, want: Rule{}},
+		{filter: `{"minLevel":"E"}`, want: Rule{MinLevel: "E"}},
+		{filter: `{"tokens":null}`, want: Rule{}},
+		{filter: `{"tokens":[]}`, want: Rule{Tokens: []Token{}}},
+	} {
+		t.Run(tc.filter, func(t *testing.T) {
+			got, parseErr := RuleFromParamsExt("W", "not JSON TAG", "inc", "exc", "pkg", tc.filter)
+			if parseErr != nil || !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("有效 FILTER 应覆盖旧字段: got %+v, want %+v, err %v", got, tc.want, parseErr)
+			}
+		})
 	}
 
 	// FILTER 空 → 同 legacy 直通

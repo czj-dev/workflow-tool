@@ -86,7 +86,7 @@ hmi:                           # 可选，声明动作输出的交互视图
 | `list` | 可增删、排序的字符串行 | 值为 JSON 字符串数组，如 `'["DVR_A","DVR_B"]'`；空值用 `'[]'` |
 | `arguments` | 可增删、排序的 flag/多值行 | 值为 JSON 数组字符串，如 `'[{"flag":"--es","values":["key","hello world"]},{"flag":"-W","values":[]}]'`；重复 flag 与行顺序保留 |
 
-`list` / `arguments` 的 `default` 和 `presets[].values` 都须写成 **JSON 字符串**（外层 YAML 引号），不是 YAML 数组；解析后各元素必须是字符串。`arguments` 的每行含 `flag` 字符串和 `values` 字符串数组，无值 flag 用空数组。参数值在命令中用 `${ID}` 引用；若是 `command.run`，可从对应的 `$ID` 环境变量读 JSON，避免直接拼接到脚本源码。
+`list` / `arguments` 的非空 `default` 和 `presets[].values` 都须写成 **JSON 字符串**（外层 YAML 引号），不是 YAML 数组；加载动作或保存预设前会校验 JSON 形状。旧 logcat 预设的 `TAG` 可保留旧格式，但仅在同一预设提供有效 `FILTER` 且其覆盖 `TAG` 时。`list` 的元素必须是字符串；`arguments` 的每行含 `flag` 字符串和 `values` 字符串数组，无值 flag 用空数组。留空 `default` 表示未设置；可选字段的 `'[]'` 表示空数组，required 字段的 `'[]'` 视为未填写，至少须有一行。参数值在命令中用 `${ID}` 引用；若是 `command.run`，可从对应的 `$ID` 环境变量读 JSON，避免直接拼接到脚本源码。
 
 可选 `description`：渲染在该字段控件下方的灰色说明文案（bool 类型渲染在 label 下方），用于写清取值示例或注意事项。不填则不占位。
 

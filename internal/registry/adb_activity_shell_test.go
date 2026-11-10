@@ -130,6 +130,20 @@ func TestActivityShellPreservesRemoteArguments(t *testing.T) {
 	}
 }
 
+func TestActivityShellTreatsSelectedSerialAsData(t *testing.T) {
+	def := loadShellAction(t, "adb-debug-activity")
+	capture := fakeADB(t)
+	params := defaultParams(def)
+	params["ADB_SERIAL"] = `device"; printf INJECTED >&2; #`
+	result := (&runner.ShellRunner{Cfg: runner.ShellConfig{Run: def.Command.Run, Timeout: 5 * time.Second}}).Run(context.Background(), params, func(string, string) {})
+	if result.Err != nil || result.ExitCode != 0 || strings.Contains(result.Stderr, "INJECTED") {
+		t.Fatalf("serial was interpreted as shell source: %+v", result)
+	}
+	if got := readRemoteArgs(t, os.Getenv("ADB_CALL")); len(got) != 4 || got[1] != params["ADB_SERIAL"] {
+		t.Fatalf("serial was not passed as one argument: %v (capture: %s)", got, capture)
+	}
+}
+
 type selectedDevice string
 
 func (d selectedDevice) ResolveActive(context.Context) (string, error) { return string(d), nil }
@@ -262,7 +276,7 @@ func TestLogcatTagPresetStringsAreJSONArrays(t *testing.T) {
 	}
 }
 
-func TestDebugWorkflowsKeepExecButtonArgs(t *testing.T) {
+func TestDebugWorkflowsLaunchWithStepArgs(t *testing.T) {
 	for _, id := range []string{"xdzs-debug-chain", "xdzs-install-broadcast"} {
 		t.Run(id, func(t *testing.T) {
 			reg := workflow.Load(filepath.Join("..", "..", "workflows"))
@@ -270,39 +284,50 @@ func TestDebugWorkflowsKeepExecButtonArgs(t *testing.T) {
 			if !ok {
 				t.Fatalf("workflow %s not loaded: %v", id, reg.Errors)
 			}
-			if _, exists := loaded.Def.Env["EXEC_ID"]; exists {
-				t.Fatal("legacy EXEC_ID remains")
+			if _, exists := loaded.Def.Env["ARGS"]; exists {
+				t.Fatal("workflow env must not override launch ARGS")
 			}
+			var launchStep workflow.Step
 			var hasLaunch bool
 			for _, step := range loaded.Def.Steps {
 				if step.Action == "adb-debug-activity" {
+					launchStep = step
 					hasLaunch = true
 				}
 			}
 			if !hasLaunch {
 				t.Fatal("missing adb-debug-activity launch")
 			}
-			var rows []struct {
-				Flag   string   `json:"flag"`
-				Values []string `json:"values"`
+			if _, exists := launchStep.Params["ARGS"]; exists {
+				t.Fatal("launch step must inherit the action default ARGS")
 			}
-			args := loaded.Def.Env["ARGS"]
-			if err := json.Unmarshal([]byte(args), &rows); err != nil || len(rows) != 1 || rows[0].Flag != "--es" || !reflect.DeepEqual(rows[0].Values, []string{"exec_button", "展示语音链路悬框"}) {
-				t.Fatalf("ARGS = %q; parse error: %v", args, err)
-			}
-			capture := fakeADB(t)
-			root := filepath.Join("..", "..")
-			actions := registry.Load(filepath.Join(root, "actions"), root)
-			params := map[string]any{"ADB_SERIAL": "device 1"} // Workflow must supply action defaults itself.
-			launch := workflow.LoadedWorkflow{Def: workflow.WorkflowDef{Env: loaded.Def.Env, Steps: []workflow.Step{{Action: "adb-debug-activity"}}}}
-			actionRun, shellRun := actionrun.WorkflowCallbacks(actions, actionrun.Deps{}, params)
-			result := (&workflow.Executor{}).Execute(context.Background(), launch, actionRun, shellRun, params, func(string, string) {})
-			if result.Err != nil || result.ExitCode != 0 {
-				t.Fatalf("workflow launch failed: %+v", result)
-			}
-			want := []string{"start", "-n", "com.baidu.che.codriver/com.baidu.che.codriver.ui.DebugActivity", "--es", "exec_button", "展示语音链路悬框"}
-			if got := readRemoteArgs(t, capture); !reflect.DeepEqual(got, want) {
-				t.Fatalf("workflow env ARGS did not reach shell: %v", got)
+			for _, tc := range []struct {
+				name string
+				args string
+				want []string
+			}{
+				{"action default args", "", []string{"start", "-n", "com.baidu.che.codriver/com.baidu.che.codriver.ui.DebugActivity", "--es", "exec_button", "展示语音链路悬框"}},
+				{"explicit ordered repeated flags", `[{"flag":"--es","values":["first","two words 中文 ' $(printf injected)"]},{"flag":"-W","values":[]},{"flag":"--es","values":["second","last"]}]`, []string{"start", "-n", "com.baidu.che.codriver/com.baidu.che.codriver.ui.DebugActivity", "--es", "first", "two words 中文 ' $(printf injected)", "-W", "--es", "second", "last"}},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					capture := fakeADB(t)
+					root := filepath.Join("..", "..")
+					actions := registry.Load(filepath.Join(root, "actions"), root)
+					step := launchStep
+					if tc.args != "" {
+						step.Params = map[string]string{"ARGS": tc.args}
+					}
+					params := map[string]any{"ADB_SERIAL": "device 1"}
+					launch := workflow.LoadedWorkflow{Def: workflow.WorkflowDef{Env: loaded.Def.Env, Steps: []workflow.Step{step}}}
+					actionRun, shellRun := actionrun.WorkflowCallbacks(actions, actionrun.Deps{}, params)
+					result := (&workflow.Executor{}).Execute(context.Background(), launch, actionRun, shellRun, params, func(string, string) {})
+					if result.Err != nil || result.ExitCode != 0 {
+						t.Fatalf("workflow launch failed: %+v", result)
+					}
+					if got := readRemoteArgs(t, capture); !reflect.DeepEqual(got, tc.want) {
+						t.Fatalf("remote args = %#v; want %#v", got, tc.want)
+					}
+				})
 			}
 		})
 	}

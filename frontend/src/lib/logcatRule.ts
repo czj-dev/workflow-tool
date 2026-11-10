@@ -98,19 +98,23 @@ export function tokenText(t: LogcatToken): string {
 // 后端 ParamFilter 同名常量）。legacy 键表达不了 chip 语言，FILTER 在则整体采用。
 const PARAM_FILTER = "FILTER";
 
+function isLogcatFilterRule(value: unknown): value is Partial<LogcatRule> {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const tokens = (value as { tokens?: unknown }).tokens;
+  return tokens == null || Array.isArray(tokens);
+}
+
 export function hasValidLogcatFilter(raw: string | undefined): boolean {
   if (!raw?.trim()) return false;
   try {
-    const rule: unknown = JSON.parse(raw);
-    return rule !== null && typeof rule === "object" &&
-      Array.isArray((rule as { tokens?: unknown }).tokens);
+    return isLogcatFilterRule(JSON.parse(raw));
   } catch {
     return false;
   }
 }
 
-// 启动参数 → 初始规则。优先解析 FILTER（JSON 可解析即整体采用，与后端
-// RuleFromParamsExt 同构；draft 剥离——运行态规则无草稿）；否则走简单字段映射：
+// 启动参数 → 初始规则。优先解析 FILTER（JSON 对象且 tokens 缺失/null/数组时整体采用，
+// 与后端 RuleFromParamsExt 同构；draft 剥离——运行态规则无草稿）；否则走简单字段映射：
 // LEVEL→minLevel；TAG 按 JSON 字符串数组解析；INCLUDE/EXCLUDE→message
 // 正/负 contains token；PACKAGE→package（只读 chip）。
 export function ruleFromParams(
@@ -119,10 +123,10 @@ export function ruleFromParams(
   const filterRaw = String(params?.[PARAM_FILTER] ?? "").trim();
   if (filterRaw) {
     try {
-      const r = JSON.parse(filterRaw) as LogcatRule;
-      if (r && Array.isArray(r.tokens)) {
+      const r: unknown = JSON.parse(filterRaw);
+      if (isLogcatFilterRule(r)) {
         return {
-          tokens: r.tokens.map((tk) => ({
+          tokens: (r.tokens ?? []).filter((tk) => tk != null).map((tk) => ({
             key: tk.key,
             op: tk.op,
             negated: tk.negated,

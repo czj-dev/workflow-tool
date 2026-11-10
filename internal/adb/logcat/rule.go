@@ -465,11 +465,8 @@ func RuleFromParamsExt(levelRaw, tagRaw, includeRaw, excludeRaw, pkg, filterRaw 
 		parseErr := fmt.Errorf("expected a Rule JSON object, got %q", s)
 		if strings.HasPrefix(s, "{") {
 			parseErr = json.Unmarshal([]byte(s), &r)
-			if parseErr == nil && r.Tokens != nil {
-				return r, nil
-			}
 			if parseErr == nil {
-				parseErr = errors.New("tokens must be a JSON array")
+				return r, nil
 			}
 		}
 		fallback, tagErr := RuleFromParams(levelRaw, tagRaw, includeRaw, excludeRaw, pkg)
