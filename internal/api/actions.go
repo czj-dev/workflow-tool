@@ -134,6 +134,16 @@ func (s *Service) AddPreset(actionID, name, description string, values map[strin
 	if err != nil {
 		return ListResult{}, err
 	}
+	def, err := registry.ParseAction(out)
+	if err != nil {
+		return ListResult{}, fmt.Errorf("YAML 解析失败: %w", err)
+	}
+	if def.ID != actionID {
+		return ListResult{}, fmt.Errorf("id 不可修改（原 %q，现 %q）", actionID, def.ID)
+	}
+	if err := registry.Validate(def); err != nil {
+		return ListResult{}, err
+	}
 	if err := os.WriteFile(la.File, out, 0644); err != nil {
 		return ListResult{}, err
 	}

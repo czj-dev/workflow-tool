@@ -2,6 +2,7 @@ package logcat
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"sort"
@@ -276,6 +277,7 @@ const (
 //   - f = 域码 0=message 1=tag 2=pid；tid 面板无列，不产出（过滤语义不受影响）；
 //   - s/l = 命中子串在该域字符串内的起点与长度，单位 UTF-16 code unit
 //     （对齐 JS string 索引；Go 字节偏移在中文内容下会错位，换算必须经 u16Index）。
+//
 // 语义与 Allow 对齐但相互独立：无论哪个条件组促成了放行，所有正向 token 都枚举
 // （高亮回答「哪些条件命中了此行」，非「哪条路径放行了此行」）；取反 token 命中
 // 的行不会出现在通过集，永不产出。输出按 (t, f, s) 升序——前端重叠区间按序后者
@@ -424,30 +426,68 @@ func containsMarks(idx, field int, s, lowerValue string) [][]int {
 // （正则/精确/pid/取反），FILTER 是权威载体，legacy 键仅供表单展示与手写 yaml 兼容。
 const ParamFilter = "FILTER"
 
-// RuleFromParamsExt 在 RuleFromParams 之上优先解析 FILTER 参数：JSON 可解析即整体
-// 采用（与前端 ruleFromParams 同构）；不可解析（手改 yaml 写坏）退化 legacy 映射。
-// 注意：JSON 合法但规则非法（未知 key/非法正则）不在此处拦，由 CompileRule 硬失败
-// （spec 错误处理：不静默降级）。
-func RuleFromParamsExt(levelRaw, tagRaw, includeRaw, excludeRaw, pkg, filterRaw string) Rule {
+var errInvalidTag = errors.New("invalid TAG")
+
+// parseTagValues accepts an empty value or a JSON array of strings. Non-empty legacy
+// space-separated values must be migrated rather than silently changing meaning.
+func parseTagValues(raw string) ([]string, error) {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return nil, nil
+	}
+	if !strings.HasPrefix(s, "[") {
+		return nil, fmt.Errorf("%w: expected a JSON string array, got %q", errInvalidTag, raw)
+	}
+	var items []json.RawMessage
+	if err := json.Unmarshal([]byte(s), &items); err != nil {
+		return nil, fmt.Errorf("%w: expected a JSON string array: %w", errInvalidTag, err)
+	}
+	tags := make([]string, 0, len(items))
+	for i, item := range items {
+		if len(item) == 0 || item[0] != '"' {
+			return nil, fmt.Errorf("%w: element %d must be a string", errInvalidTag, i)
+		}
+		var tag string
+		if err := json.Unmarshal(item, &tag); err != nil {
+			return nil, fmt.Errorf("%w: element %d: %w", errInvalidTag, i, err)
+		}
+		tags = append(tags, tag)
+	}
+	return tags, nil
+}
+
+// RuleFromParamsExt prefers FILTER; malformed FILTER falls back to TAG while
+// returning an error so the caller can surface the warning. A valid FILTER
+// bypasses legacy fields entirely.
+func RuleFromParamsExt(levelRaw, tagRaw, includeRaw, excludeRaw, pkg, filterRaw string) (Rule, error) {
 	if s := strings.TrimSpace(filterRaw); s != "" {
 		var r Rule
-		if err := json.Unmarshal([]byte(s), &r); err == nil {
-			return r
+		parseErr := fmt.Errorf("expected a Rule JSON object, got %q", s)
+		if strings.HasPrefix(s, "{") {
+			parseErr = json.Unmarshal([]byte(s), &r)
+			if parseErr == nil {
+				return r, nil
+			}
 		}
+		fallback, tagErr := RuleFromParams(levelRaw, tagRaw, includeRaw, excludeRaw, pkg)
+		return fallback, errors.Join(fmt.Errorf("invalid FILTER: %w", parseErr), tagErr)
 	}
 	return RuleFromParams(levelRaw, tagRaw, includeRaw, excludeRaw, pkg)
 }
 
-// RuleFromParams 把 adb-logcat-stream 的传统启动参数映射为统一规则（spec 启动映射）。
-// TAG 按空白拆分为多个 tag contains token；INCLUDE/EXCLUDE 映射 message 正/负 token。
-// 参数宽松（不合法的 LEVEL 归 V），因为 RunAction 侧已有必填校验，这里只做兜底。
-func RuleFromParams(levelRaw, tagRaw, includeRaw, excludeRaw, pkg string) Rule {
+// RuleFromParams maps the startup parameters to a rule. Invalid LEVEL remains
+// permissive; non-empty TAG must be a JSON array of strings.
+func RuleFromParams(levelRaw, tagRaw, includeRaw, excludeRaw, pkg string) (Rule, error) {
+	tags, err := parseTagValues(tagRaw)
+	if err != nil {
+		return Rule{}, err
+	}
 	r := Rule{Package: pkg}
 	lvl, ok := normalizeLevel(levelRaw)
 	if ok && lvl != "" {
 		r.MinLevel = lvl
 	}
-	for _, t := range strings.Fields(tagRaw) {
+	for _, t := range tags {
 		r.Tokens = append(r.Tokens, Token{Key: keyTag, Op: opContains, Value: t})
 	}
 	if inc := strings.TrimSpace(includeRaw); inc != "" {
@@ -456,5 +496,5 @@ func RuleFromParams(levelRaw, tagRaw, includeRaw, excludeRaw, pkg string) Rule {
 	if exc := strings.TrimSpace(excludeRaw); exc != "" {
 		r.Tokens = append(r.Tokens, Token{Key: keyMessage, Op: opContains, Negated: true, Value: exc})
 	}
-	return r
+	return r, nil
 }

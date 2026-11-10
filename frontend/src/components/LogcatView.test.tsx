@@ -192,7 +192,7 @@ describe("LogcatView 控制甲板", () => {
             INCLUDE: "",
             LEVEL: "V",
             PACKAGE: "",
-            TAG: "DVR_PhoneLinkArb DVR_ThirdAppAgentDeviceModule DVR_PhoneLinkFallbackContextProvider DVR_TinnoveIpc",
+            TAG: '["DVR_PhoneLinkArb","DVR_ThirdAppAgentDeviceModule","DVR_PhoneLinkFallbackContextProvider","DVR_TinnoveIpc"]',
           },
         },
       ],

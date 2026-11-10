@@ -1,6 +1,7 @@
 package logcat
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -81,24 +82,30 @@ func normalizeLevel(s string) (string, bool) {
 type filter struct {
 	levelSet bool     // LEVEL 是否已设置（false=不过滤等级）
 	minLevel int      // levelRank(LEVEL)；行等级 >= minLevel 才通过
-	tags     []string // TAG 按空白拆分并小写化；任一为 tag 子串即通过；空=不按 tag 过滤
+	tags     []string // TAG JSON 数组并小写化；任一为 tag 子串即通过；空=不按 tag 过滤
 	include  string   // 小写；message 须包含；空=不要求
 	exclude  string   // 小写；message 须不包含；空=不排除
 }
 
-// buildFilter 由操作入参构造 filter。ok=false 表示 LEVEL 非法。
-func buildFilter(levelRaw, tagRaw, includeRaw, excludeRaw string) (filter, bool) {
+// buildFilter 由操作入参构造 filter。非法 LEVEL/TAG 返回错误。
+func buildFilter(levelRaw, tagRaw, includeRaw, excludeRaw string) (filter, error) {
 	f := filter{}
 	lvl, ok := normalizeLevel(levelRaw)
 	if !ok {
-		return f, false
+		return f, fmt.Errorf("invalid LEVEL %q", levelRaw)
+	}
+	tags, err := parseTagValues(tagRaw)
+	if err != nil {
+		return f, err
 	}
 	if lvl != "" {
 		f.levelSet = true
 		f.minLevel = levelRank(lvl)
 	}
-	for _, t := range strings.Fields(tagRaw) {
-		f.tags = append(f.tags, strings.ToLower(t))
+	for _, t := range tags {
+		if strings.TrimSpace(t) != "" {
+			f.tags = append(f.tags, strings.ToLower(t))
+		}
 	}
 	if inc := strings.TrimSpace(includeRaw); inc != "" {
 		f.include = strings.ToLower(inc)
@@ -106,7 +113,7 @@ func buildFilter(levelRaw, tagRaw, includeRaw, excludeRaw string) (filter, bool)
 	if exc := strings.TrimSpace(excludeRaw); exc != "" {
 		f.exclude = strings.ToLower(exc)
 	}
-	return f, true
+	return f, nil
 }
 
 // allow 判断一条解析后的 Entry 是否通过全部过滤规则。

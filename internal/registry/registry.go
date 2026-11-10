@@ -12,6 +12,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"workflow-tool/internal/adb/logcat"
 	"workflow-tool/internal/runner"
 )
 
@@ -44,7 +45,7 @@ type TreeClick struct {
 type ParamSpec struct {
 	ID          string   `json:"id" yaml:"id"`
 	Label       string   `json:"label" yaml:"label"`
-	Type        string   `json:"type" yaml:"type"` // text|bool|select|path|file
+	Type        string   `json:"type" yaml:"type"` // text|bool|select|path|file|textarea|list|arguments
 	Required    bool     `json:"required" yaml:"required"`
 	Default     string   `json:"default" yaml:"default"`
 	Options     []string `json:"options" yaml:"options"`
@@ -246,13 +247,32 @@ func Validate(def *ActionDef) error {
 	// params 校验
 	for i, p := range def.Params {
 		switch p.Type {
-		case "text", "bool", "select", "path", "file", "textarea":
+		case "text", "bool", "select", "path", "file", "textarea", "list", "arguments":
 			// 合法
 		default:
-			return fmt.Errorf("params[%d].type 非法 %q（应为 text/bool/select/path/file/textarea）", i, p.Type)
+			return fmt.Errorf("params[%d].type 非法 %q（应为 text/bool/select/path/file/textarea/list/arguments）", i, p.Type)
 		}
 		if p.Type == "select" && len(p.Options) == 0 {
 			return fmt.Errorf("params[%d] (%s) 是 select 必须提供 options", i, p.ID)
+		}
+		if p.Default != "" {
+			if err := ValidateArrayParamValue(p.Type, p.Default); err != nil {
+				return fmt.Errorf("params[%d] (%s) default: %w", i, p.ID, err)
+			}
+		}
+	}
+	for _, preset := range def.Presets {
+		for _, p := range def.Params {
+			if p.ID == "TAG" && def.Command.Stream == "logcat" {
+				if _, err := logcat.RuleFromParamsExt("", "", "", "", "", preset.Values["FILTER"]); err == nil && preset.Values["FILTER"] != "" {
+					continue
+				}
+			}
+			if value, ok := preset.Values[p.ID]; ok {
+				if err := ValidateArrayParamValue(p.Type, value); err != nil {
+					return fmt.Errorf("preset %q param %q: %w", preset.Name, p.ID, err)
+				}
+			}
 		}
 	}
 	// command.llm 校验：prompt/system/resume 引用的 param 必须存在

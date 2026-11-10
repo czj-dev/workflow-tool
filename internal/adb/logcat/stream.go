@@ -50,10 +50,17 @@ type FilterUpdate struct {
 
 // handleStream 前台流式 logcat。取消/超时视为正常结束（ExitCode 0）。
 func handleStream(op *adb.OpContext) adb.OpResult {
-	// 初始规则：FILTER 参数（甲板存为预设的完整规则 JSON）优先，legacy 参数兜底
-	//（RuleFromParamsExt 宽松，产物必可编译；FILTER 携带非法规则时由下方 CompileRule 硬失败）。
-	rule := RuleFromParamsExt(op.ParamStr("LEVEL"), op.ParamStr("TAG"),
+	// FILTER 优先；坏 JSON 提示并按 TAG 回退，坏 TAG 则停止启动。
+	rule, parseErr := RuleFromParamsExt(op.ParamStr("LEVEL"), op.ParamStr("TAG"),
 		op.ParamStr("INCLUDE"), op.ParamStr("EXCLUDE"), op.ParamStr("PACKAGE"), op.ParamStr(ParamFilter))
+	if parseErr != nil {
+		if errors.Is(parseErr, errInvalidTag) {
+			opErr := adbcore.NewOperationError(OpStream, "invalid initial filter parameters", parseErr.Error(), false)
+			op.EmitStderr(opErr.Error())
+			return adb.OpResult{ExitCode: 2, Err: opErr, Stderr: opErr.Error()}
+		}
+		op.EmitStderr("warning: " + parseErr.Error() + "; falling back to TAG")
+	}
 	cr, err := CompileRule(rule)
 	if err != nil {
 		// 走到这里说明映射器与编译器语义漂移（编程错误），硬失败尽早暴露。

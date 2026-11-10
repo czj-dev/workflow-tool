@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -254,7 +255,10 @@ func TestCompileRuleLinkCombos(t *testing.T) {
 }
 
 func TestRuleFromParams(t *testing.T) {
-	r := RuleFromParams("warn", "DVR_A DVR_B", "query", "garbage", "com.baidu.che.codriver")
+	r, err := RuleFromParams("warn", `["DVR_A","DVR_B"]`, "query", "garbage", "com.baidu.che.codriver")
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := Rule{
 		MinLevel: "W",
 		Package:  "com.baidu.che.codriver",
@@ -269,14 +273,43 @@ func TestRuleFromParams(t *testing.T) {
 		t.Fatalf("映射不符:\n got %+v\nwant %+v", r, want)
 	}
 	// 全空 = 等价全量
-	r2 := RuleFromParams("", "", "", "", "")
+	r2, err := RuleFromParams("", "", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(r2.Tokens) != 0 || r2.MinLevel != "" || r2.Package != "" {
 		t.Fatalf("全空参数应映射为空规则: %+v", r2)
 	}
 	// 非法 LEVEL 宽松归零（V），不报错
-	r3 := RuleFromParams("X", "", "", "", "")
+	r3, err := RuleFromParams("X", "", "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if r3.MinLevel != "" {
 		t.Fatalf("非法 LEVEL 应宽松处理: %+v", r3)
+	}
+}
+
+func TestParseTagValues(t *testing.T) {
+	tags, err := parseTagValues(`["DVR_A","DVR B","DVR_A"]`)
+	if err != nil || !reflect.DeepEqual(tags, []string{"DVR_A", "DVR B", "DVR_A"}) {
+		t.Fatalf("JSON TAG 应保留顺序、重复与空格: %v, %v", tags, err)
+	}
+	for _, raw := range []string{"DVR_A DVR_B", `["ok",2]`, `{}`, `["ok"`, `["a",null]`, `null`, `"foo"`} {
+		if _, err := parseTagValues(raw); err == nil {
+			t.Errorf("非法 TAG %q 应报错", raw)
+		}
+	}
+	for _, raw := range []string{"", "  ", `[]`} {
+		if tags, err := parseTagValues(raw); err != nil || len(tags) != 0 {
+			t.Errorf("空 TAG %q 应无过滤且无错误, got %v, %v", raw, tags, err)
+		}
+	}
+}
+
+func TestRuleFromParamsRejectsLegacyTag(t *testing.T) {
+	if _, err := RuleFromParams("", "Foo Bar", "", "", ""); err == nil {
+		t.Fatal("非空旧格式 TAG 应明确报错")
 	}
 }
 
@@ -326,7 +359,7 @@ func TestMarksFieldsAndOps(t *testing.T) {
 	// exact 整域
 	got = marksOf(t, Rule{Tokens: []Token{{Key: "tag", Op: "exact", Value: "DVR_InitService"}}},
 		mkEntry("I", "DVR_InitService", "x", 1, 1))
-if !reflect.DeepEqual(got, [][]int{{0, 1, 0, 15}}) {
+	if !reflect.DeepEqual(got, [][]int{{0, 1, 0, 15}}) {
 		t.Fatalf("exact 整域不符: %v", got)
 	}
 	// pid 域（f=2）十进制整域；tid 无列不产出
@@ -357,7 +390,7 @@ func TestMarksAnyDualFieldAndSort(t *testing.T) {
 	}
 	// 多 token：按 t 升序，且空值 token 跳过后原下标保持
 	r := Rule{Tokens: []Token{
-		{Key: "message", Op: "contains", Value: "  "}, // 空值跳过，占位下标 0
+		{Key: "message", Op: "contains", Value: "  "},    // 空值跳过，占位下标 0
 		{Key: "message", Op: "contains", Value: "focus"}, // t=1
 		{Key: "tag", Op: "exact", Value: "AudioRouter"},  // t=2
 	}}
@@ -421,7 +454,10 @@ func TestEntryJSONMarksOmitEmpty(t *testing.T) {
 func TestRuleFromParamsExt(t *testing.T) {
 	// FILTER JSON 优先：legacy 键全被忽略（哪怕冲突），chip 语言（regex/取反/pid/link）完整保留
 	filter := `{"tokens":[{"key":"tag","op":"regex","value":"^DVR_"},{"key":"pid","op":"exact","value":"4321"},{"key":"message","op":"contains","negated":true,"value":"chatty"},{"key":"tag","op":"contains","value":"Audio","link":"or"}],"minLevel":"I","package":"com.example"}`
-	r := RuleFromParamsExt("V", "Foo", "", "", "ignored-pkg", filter)
+	r, err := RuleFromParamsExt("V", `["Foo"]`, "", "", "ignored-pkg", filter)
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := Rule{
 		MinLevel: "I",
 		Package:  "com.example",
@@ -437,15 +473,53 @@ func TestRuleFromParamsExt(t *testing.T) {
 	}
 
 	// FILTER 非法 JSON（手改 yaml 写坏）→ 退化 legacy 映射
-	r2 := RuleFromParamsExt("W", "Foo", "inc", "exc", "pkg", "{broken json")
-	want2 := RuleFromParams("W", "Foo", "inc", "exc", "pkg")
+	r2, err := RuleFromParamsExt("W", `["Foo"]`, "inc", "exc", "pkg", "{broken json")
+	if err == nil {
+		t.Fatal("非法 FILTER 应显式报错")
+	}
+	want2, err := RuleFromParams("W", `["Foo"]`, "inc", "exc", "pkg")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if !reflect.DeepEqual(r2, want2) {
 		t.Fatalf("非法 FILTER 应退化 legacy:\n got %+v\nwant %+v", r2, want2)
 	}
+	for _, invalidFilter := range []string{"null", `[]`, `"text"`, `{"tokens":{}}`, `{"tokens":"wrong"}`, `{"tokens":42}`} {
+		got, parseErr := RuleFromParamsExt("W", `["Foo"]`, "inc", "exc", "pkg", invalidFilter)
+		if parseErr == nil || !reflect.DeepEqual(got, want2) {
+			t.Errorf("无效 FILTER %q 应报错并回退 TAG: %+v, %v", invalidFilter, got, parseErr)
+		}
+	}
+	for _, tc := range []struct {
+		filter string
+		want   Rule
+	}{
+		{filter: `{}`, want: Rule{}},
+		{filter: `{"minLevel":"E"}`, want: Rule{MinLevel: "E"}},
+		{filter: `{"tokens":null}`, want: Rule{}},
+		{filter: `{"tokens":[]}`, want: Rule{Tokens: []Token{}}},
+	} {
+		t.Run(tc.filter, func(t *testing.T) {
+			got, parseErr := RuleFromParamsExt("W", "not JSON TAG", "inc", "exc", "pkg", tc.filter)
+			if parseErr != nil || !reflect.DeepEqual(got, tc.want) {
+				t.Fatalf("有效 FILTER 应覆盖旧字段: got %+v, want %+v, err %v", got, tc.want, parseErr)
+			}
+		})
+	}
 
 	// FILTER 空 → 同 legacy 直通
-	r3 := RuleFromParamsExt("E", "", "", "", "", "  ")
+	r3, err := RuleFromParamsExt("E", "", "", "", "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
 	if r3.MinLevel != "E" {
 		t.Fatalf("空 FILTER 应走 legacy: %+v", r3)
+	}
+	if _, err := RuleFromParamsExt("V", "Foo Bar", "", "", "", filter); err != nil {
+		t.Fatalf("有效 FILTER 不应受旧 TAG 影响: %v", err)
+	}
+	if _, err := RuleFromParamsExt("V", "Foo Bar", "", "", "", "{broken json"); err == nil ||
+		!strings.Contains(err.Error(), "FILTER") || !strings.Contains(err.Error(), "TAG") {
+		t.Fatalf("双重非法输入应同时报告 FILTER/TAG: %v", err)
 	}
 }

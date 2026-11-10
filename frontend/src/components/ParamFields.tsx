@@ -14,6 +14,7 @@ import {
 import { ButtonGroup } from "@/components/ui/button-group";
 import type { ParamSpec } from "../../bindings/workflow-tool/internal/registry/models.js";
 import { useActionRunner } from "../hooks/useActionRunner";
+import { ArrayParamField } from "./ArrayParamField";
 
 interface ParamFieldsProps {
   params: ParamSpec[];
@@ -40,6 +41,9 @@ export function ParamFields({ params, values, setValue }: ParamFieldsProps) {
   return (
     <>
       {params.map((p) => {
+        if (p.type === "list" || p.type === "arguments") {
+          return <ArrayParamField key={p.id} spec={p} value={values[p.id] ?? p.default ?? ""} setValue={setValue} />;
+        }
         if (p.type === "bool") {
           // bool 渲染为「设置开关行」：独立卡片块（与输入卡片同质感），左 label 右 Switch
           return (

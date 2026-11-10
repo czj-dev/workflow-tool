@@ -64,6 +64,16 @@ describe("missingRequired", () => {
   });
 });
 
+describe("required array params", () => {
+  it("treats empty list and arguments arrays as missing, but allows one argument row without values", () => {
+    const specs = [mk({ id: "FILES", type: "list", required: true }), mk({ id: "ARGS", type: "arguments", required: true })];
+    expect(missingRequired(specs, { FILES: "[]", ARGS: "[]" }).map((p) => p.id)).toEqual(["FILES", "ARGS"]);
+    expect(missingRequired(specs, { FILES: '["a"]', ARGS: '[{"flag":"-n","values":[]}]' })).toEqual([]);
+    expect(missingRequired(specs.map((p) => ({ ...p, required: false })), { FILES: "[]", ARGS: "[]" })).toEqual([]);
+    expect(hasFormFields([mk({ type: "arguments", required: true, default: "[]" })])).toBe(true);
+  });
+});
+
 describe("resolveActionParams", () => {
   it("prefers preset values, including an explicit empty string, over defaults and global config", () => {
     const specs = [mk({ id: "NAME", default: "spec" }), mk({ id: "OUTPUT_DIR", default: "dir" })];

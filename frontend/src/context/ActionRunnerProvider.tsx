@@ -51,7 +51,8 @@ import {
 import { foldOutputLine } from "../lib/outputFold";
 import { treeFrameToText } from "../lib/treeFrame";
 import { expandVars } from "../lib/vars";
-import { resolveActionParams } from "../lib/params";
+import { missingRequired, resolveActionParams } from "../lib/params";
+import { invalidArrayParams, normalizeArrayParams } from "../lib/arrayParams";
 import {
   BUCKETS,
   decayAndBump,
@@ -60,7 +61,7 @@ import {
   type Bucket,
   type UsageByBucket,
 } from "../lib/usage";
-import { ruleFromParams, sortHistogram } from "../lib/logcatRule";
+import { hasValidLogcatFilter, ruleFromParams, sortHistogram } from "../lib/logcatRule";
 import type {
   OutputEventData,
   OutputLineItem,
@@ -170,7 +171,7 @@ export interface RunnerContextValue {
   // runWorkflow 单点发生，读取经 useActionUsage(bucket)——各视图与侧栏共用这一份，
   // 跑一次即所有排序同步刷新。
   usage: UsageByBucket;
-  runAction: (id: string, params?: Record<string, any>, background?: boolean) => Promise<void>;
+  runAction: (id: string, params?: Record<string, any>, background?: boolean, literalKeys?: string[]) => Promise<void>;
   // 上次运行时实际使用的 params（按 id 索引，action / workflow 共用）。空对象表示无参运行过。
   // 存在即代表"跑过至少一次"，OutputToolbar / WorkflowView 据此显示再跑入口。
   lastRunParams: Record<string, Record<string, string>>;
@@ -482,6 +483,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   // ref 镜像：done 闭包按 [currentId] 捕获，读 state 会陈旧
   const lastRunParamsRef = useRef<Record<string, Record<string, string>>>({});
   lastRunParamsRef.current = lastRunParams;
+  const lastLiteralKeysRef = useRef<Record<string, string[]>>({});
 
   // 整窗口文件拖拽（Wails EnableFileDrop，见 main.go）：按松手坐标定位目标输入框写入，
   // 不再依赖当前焦点。多路径空格拼接（path/file 字段只取首个），整体覆盖原值。落点不是可写
@@ -853,16 +855,27 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentId]);
 
-  const runAction = async (id: string, params: Record<string, any> = {}, background = false) => {
+  const runAction = async (id: string, params: Record<string, any> = {}, background = false, literalKeys: string[] = []) => {
     const action = actions.find((a) => a.id === id);
+    const resolved = resolveActionParams(action?.params, globalConfig, params);
+    const ignored = action?.stream === "logcat" && hasValidLogcatFilter(resolved.FILTER) ? ["TAG"] : [];
+    if (invalidArrayParams(action?.params ?? [], resolved, ignored).length ||
+      missingRequired(action?.params ?? [], resolved).some((p) => p.type === "list" || p.type === "arguments")) {
+      setFormValues(resolved);
+      setCurrentId(id);
+      setFormSheetOpen(true);
+      return;
+    }
     // 只补缺失的默认值；本轮输入作为快照保存，不修改调用者的参数对象。
-    const runParams = {
+    const effectiveParams = normalizeArrayParams(action?.params ?? [], {
       ...Object.fromEntries((action?.params ?? [])
         .filter((p) => params[p.id] === undefined && p.default)
         .map((p) => [p.id, p.default])),
       ...params,
-    };
-    setLastRunParams((prev) => ({ ...prev, [id]: { ...runParams } }));
+    }, globalConfig);
+    const mappedKeys = literalKeys.filter((key) => typeof effectiveParams[key] === "string");
+    lastLiteralKeysRef.current = { ...lastLiteralKeysRef.current, [id]: mappedKeys };
+    setLastRunParams((prev) => ({ ...prev, [id]: { ...effectiveParams } }));
     setRunningIds((prev) => new Set(prev).add(id));
     recordUsage(action?.llm ? "llm-usage" : "action-usage", id);
     // background=true（grid 卡片 run 按钮）：只登记 runningIds 驱动徽标，不切视图/不清输出，
@@ -884,7 +897,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         // 冻结本轮 prompt 快照（展开 ${VAR} 后与后端 ExpandParams 一致）+ 发送时刻，
         // 供聊天页气泡回显；切走再切回（focusRunning）时随面板状态一并保留。
         const promptParam = action.llm.promptParam;
-        setSentPrompt(expandVars((runParams[promptParam] as string) ?? "", runParams as Record<string, string>));
+        setSentPrompt(expandVars((effectiveParams[promptParam] as string) ?? "", effectiveParams as Record<string, string>));
         setSentAt(Date.now());
         setView("llm-chat");
       } else if (action?.stream === "logcat") {
@@ -892,7 +905,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         setLogcatEntries([]);
         // 把本次运行的服务端预过滤参数带入面板规则（映射见 ruleFromParams）。
         // 初始规则后端已从同一 params 编译，登记 synced 后防抖不再重复下发。
-        const rule = ruleFromParams(runParams);
+        const rule = ruleFromParams(effectiveParams);
         logcatRuleSyncedRef.current = rule;
         setLogcatRuleState(rule);
         setLogcatStats({ matched: 0, total: 0 });
@@ -907,7 +920,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     // 注册持久 done 订阅：无论用户是否切走，done 回调都能正确标记该 id 结束（清 runningIds）
     registerActionDone(id);
     try {
-      await RunAction(id, runParams);
+      const rpcParams = { ...effectiveParams, ...Object.fromEntries(mappedKeys.map((key) => [key, { $literal: effectiveParams[key] }])) };
+      await RunAction(id, rpcParams);
     } catch (e) {
       // 后端判定该 action 已在运行（前端 runningIds 偶发与之不同步，
       // 或用户双击了运行中动作/预设）：此时上方的乐观状态
@@ -1065,11 +1079,17 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   // runWorkflow：先同步订阅事件再启动执行，确保不漏首帧。
   // background=true（grid 卡片 run 按钮）则不切视图/不订阅，仅登记徽标由 done 清理。
   const runWorkflow = async (id: string, params: Record<string, any> = {}, background = false) => {
-    // 用 spec.default 回填未提供的参数（双击 / rerun / grid 静默运行），语义同 runAction。
-    workflows.find((w) => w.id === id)?.params?.forEach((p) => {
-      if (params[p.id] === undefined && p.default) params[p.id] = p.default;
-    });
-    setLastRunParams((prev) => ({ ...prev, [id]: params as Record<string, string> }));
+    const specs = workflows.find((w) => w.id === id)?.params ?? [];
+    const defaults = Object.fromEntries(specs.filter((p) => p.default).map((p) => [p.id, p.default]));
+    const effectiveParams = normalizeArrayParams(specs, { ...defaults, ...params }, globalConfig);
+    if (invalidArrayParams(specs, effectiveParams).length ||
+      missingRequired(specs, effectiveParams).some((p) => p.type === "list" || p.type === "arguments")) {
+      setWorkflowFormValues(effectiveParams);
+      setCurrentId(id);
+      setFormSheetOpen(true);
+      return;
+    }
+    setLastRunParams((prev) => ({ ...prev, [id]: effectiveParams as Record<string, string> }));
     setRunningWorkflowId(id);
     recordUsage("workflow-usage", id);
     if (!background) {
@@ -1089,7 +1109,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       registerWorkflowDone(id);
     }
     try {
-      await RunWorkflow(id, params);
+      await RunWorkflow(id, effectiveParams);
     } catch {
       if (!background) setStatus("error");
       setRunningWorkflowId(null);
@@ -1194,7 +1214,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       currentId,
       name,
       description,
-      valuesOverride ?? formValues,
+      normalizeArrayParams(actions.find((action) => action.id === currentId)?.params ?? [], valuesOverride ?? formValues),
     );
     setActions((res && res.actions) || []);
     setErrors((res && res.errors) || []);
@@ -1230,7 +1250,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     if (workflows.find((w) => w.id === id)) {
       runWorkflow(id, params);
     } else {
-      runAction(id, params);
+      runAction(id, params, false, lastLiteralKeysRef.current[id] ?? []);
     }
   };
 

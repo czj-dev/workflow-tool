@@ -14,6 +14,7 @@ var idPattern = regexp.MustCompile(`^[a-z0-9-]+$`)
 // 合法的参数类型（与 action 的 ParamSpec 保持一致）。
 var validParamTypes = map[string]bool{
 	"text": true, "bool": true, "select": true, "path": true, "file": true,
+	"textarea": true, "list": true, "arguments": true,
 }
 
 // reservedParamIDs 是 params[].id 不能占用的保留字（用于 expr 表达式的扁平顶层命名空间）。
@@ -75,10 +76,15 @@ func Validate(def *WorkflowDef) error {
 			return fmt.Errorf("params[%d]: id %q 为保留字（steps/env/params/config 不可用作 param id）", i, p.ID)
 		}
 		if p.Type != "" && !validParamTypes[p.Type] {
-			return fmt.Errorf("params[%d]: type 非法 %q（text|bool|select|path）", i, p.Type)
+			return fmt.Errorf("params[%d]: type 非法 %q（text|bool|select|path|file|textarea|list|arguments）", i, p.Type)
 		}
 		if p.Type == "select" && len(p.Options) == 0 {
 			return fmt.Errorf("params[%d]: select 必须提供 options", i)
+		}
+		if p.Default != "" {
+			if err := registry.ValidateArrayParamValue(p.Type, p.Default); err != nil {
+				return fmt.Errorf("params[%d] (%s) default: %w", i, p.ID, err)
+			}
 		}
 	}
 	seenStepID := map[string]int{}

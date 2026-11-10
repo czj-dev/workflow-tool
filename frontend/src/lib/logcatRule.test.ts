@@ -5,6 +5,7 @@ import {
   parseInput,
   invalidRegex,
   tokenText,
+  hasValidLogcatFilter,
   ruleFromParams,
   ruleToParams,
   sortHistogram,
@@ -101,7 +102,7 @@ describe("ruleFromParams", () => {
     expect(
       ruleFromParams({
         LEVEL: "w",
-        TAG: "Foo Bar",
+        TAG: '["Foo","Bar"]',
         INCLUDE: "anr",
         EXCLUDE: "chatty",
         PACKAGE: "com.example",
@@ -116,6 +117,13 @@ describe("ruleFromParams", () => {
         { key: "message", op: "contains", negated: true, value: "chatty" },
       ],
     });
+  });
+
+  it("TAG JSON 保留单个值中的空格和重复值，忽略空白条目", () => {
+    expect(ruleFromParams({ TAG: '["DVR A","","  ","DVR A"]' }).tokens).toEqual([
+      { key: "tag", op: "contains", negated: false, value: "DVR A" },
+      { key: "tag", op: "contains", negated: false, value: "DVR A" },
+    ]);
   });
 
   it("缺省/非法 LEVEL 归一 V；空参数得空规则且不共享 EMPTY 引用", () => {
@@ -154,10 +162,37 @@ describe("ruleFromParams", () => {
     ]); // draft 未携带：字段白名单拷贝
   });
 
-  it("非法 JSON 的 FILTER 退化 legacy 映射（手改 yaml 写坏不炸）", () => {
-    expect(
-      ruleFromParams({ FILTER: "{oops", LEVEL: "E", TAG: "Foo" }).tokens,
-    ).toEqual([{ key: "tag", op: "contains", negated: false, value: "Foo" }]);
+  it("对象 FILTER 缺失或 null tokens 时覆盖 legacy，初始 tokens 归一为空数组", () => {
+    for (const [raw, minLevel] of [
+      ["{}", "V"],
+      ['{"minLevel":"E"}', "E"],
+      ['{"tokens":null}', "V"],
+      ['{"tokens":[]}', "V"],
+    ]) {
+      expect(hasValidLogcatFilter(raw)).toBe(true);
+      expect(ruleFromParams({ FILTER: raw, TAG: "not JSON TAG", LEVEL: "W", PACKAGE: "legacy" })).toEqual({
+        tokens: [], minLevel, package: "",
+      });
+    }
+  });
+
+  it("跳过 FILTER 数组中的 null token，避免启动时抛异常", () => {
+    const filter = '{"tokens":[null,{"key":"tag","op":"contains","value":"Foo"}]}';
+    expect(hasValidLogcatFilter(filter)).toBe(true);
+    expect(ruleFromParams({ FILTER: filter }).tokens).toEqual([
+      { key: "tag", op: "contains", negated: undefined, value: "Foo" },
+    ]);
+  });
+
+  it("坏 JSON、非对象及非法 tokens 类型退回 legacy", () => {
+    for (const raw of ["{oops", "null", "[]", '"text"', '{"tokens":{}}', '{"tokens":"wrong"}', '{"tokens":42}']) {
+      expect(hasValidLogcatFilter(raw)).toBe(false);
+      expect(ruleFromParams({ FILTER: raw, LEVEL: "E", TAG: '["Foo"]' }).tokens).toEqual([
+        { key: "tag", op: "contains", negated: false, value: "Foo" },
+      ]);
+    }
+    expect(hasValidLogcatFilter(undefined)).toBe(false);
+    expect(() => ruleFromParams({ TAG: "Foo" })).toThrow();
   });
 });
 
@@ -181,7 +216,7 @@ describe("ruleToParams", () => {
     });
     expect(values.LEVEL).toBe("W");
     expect(values.PACKAGE).toBe("com.example");
-    expect(values.TAG).toBe("Foo Bar");
+    expect(values.TAG).toBe('["Foo","Bar"]');
     expect(values.INCLUDE).toBe("anr");
     expect(values.EXCLUDE).toBe("chatty");
     expect(JSON.parse(values.FILTER!)).toEqual({
