@@ -42,8 +42,10 @@ hmi:                           # 可选，声明动作输出的交互视图
   # tree:
   #   click:
   #     action: other-action    # 点击叶子后运行的目标动作，可跨 action
+  #     multi: true             # 可选，树块开启勾选多选 + 批量按钮（见「树帧」章节）
   #     params:
-  #       FILE: '${{ node.path }}'  # 显式映射，不自动继承来源参数
+  #       FILE: '${{ node.path }}'      # 显式映射，不自动继承来源参数；单击叶子时求值
+  #       FILES: '${{ nodes.paths }}'   # 多选批量时求值：选中 path 换行拼接；单击时为单元素
 ```
 
 ## 字段详解
@@ -323,7 +325,7 @@ Python 脚本更稳的做法是在 wrapper 里加 `-u`（`python3 -u foo.py`）�
 - `children`：空即叶子
 - `properties`：可选的通用只读属性对象。字符串空值省略，布尔值保留显式 `false`；对象值按 key/value 递归展示。`foreground-info` 的 View 树使用 `class`、`text`、`content-desc`、`resource-id`、`package`、`index`、`drawing-order`、`bounds` 以及主要交互状态字段；`bounds` 为 `{left, top, right, bottom}`。
 
-树块交互：省略 `defaultExpandAll` 时默认展开 2 层；设置为 `true` 的帧（如 View 树、设备文件树）默认展开全部节点；非叶子行点击折叠/展开子树，「折叠/展开」按钮改全局深度；属性面板默认折叠，不参与树层级、搜索或复制文本；块内搜索命中 label 或 detail（命中+祖先保留，仅 detail 命中的行降透明）；叶子默认复制 `path` 并弹 toast；声明 `hmi.tree.click` 后，叶子改为运行其 `action`，并将 `params` 里的 `${{ node.path }}`、`${{ params.ZIP_NAME }}` 等表达式按当前节点和生成该帧的本次 action 参数求值。映射仅传显式列出的参数，目标 action 未映射的参数由其自身默认值处理；求值失败留在树页提示错误，成功运行切至目标 action 的独立输出页。目录始终只折叠/展开；同一动作输出的所有树共用此规则。workflow 引用该 action 的 step 也读取此声明，内联 `run` 无 action HMI。深层树可横向滚动查看完整缩进。`MaxTreeNodes=5000` 是数据源可选用的截断工具，并非树帧发送器的全局硬限制；设备文件列表不设置节点数上限，由扫描时限控制。
+树块交互：省略 `defaultExpandAll` 时默认展开 2 层；设置为 `true` 的帧（如 View 树、设备文件树）默认展开全部节点；非叶子行点击折叠/展开子树，「折叠/展开」按钮改全局深度；属性面板默认折叠，不参与树层级、搜索或复制文本；块内搜索命中 label 或 detail（命中+祖先保留，仅 detail 命中的行降透明）；叶子默认复制 `path` 并弹 toast；声明 `hmi.tree.click` 后，叶子改为运行其 `action`，并将 `params` 里的 `${{ node.path }}`、`${{ params.ZIP_NAME }}` 等表达式按当前节点和生成该帧的本次 action 参数求值。映射仅传显式列出的参数，目标 action 未映射的参数由其自身默认值处理；求值失败留在树页提示错误，成功运行切至目标 action 的独立输出页。再声明 `click.multi: true` 可开启勾选多选：每行前多出 checkbox，目录勾选即整棵子树全选/取消（部分选中呈半选态），行点击行为不变（仍是立即运行单个）；树底出现「下载选中 (N)」按钮，把全部选中叶子作为一次目标 action 运行——此时 `params` 表达式改用 `${{ nodes.paths }}`（选中叶子的 `path` 按树序换行拼接，`node.*` 不可用），而单击叶子时同一表达式求值为该节点单个 `path`，因此一套 `${{ nodes.paths }}` 映射可同时服务两种触发；未声明 `multi` 的树不渲染 checkbox 与批量按钮，行为零改动，接收方参数建议 `textarea` 类型、脚本按行切分（单值兼容）。目录行点击始终只折叠/展开；同一动作输出的所有树共用此规则。workflow 引用该 action 的 step 也读取此声明，内联 `run` 无 action HMI。深层树可横向滚动查看完整缩进。`MaxTreeNodes=5000` 是数据源可选用的截断工具，并非树帧发送器的全局硬限制；设备文件列表不设置节点数上限，由扫描时限控制。
 
 adb 域（`list-files`、`foreground-info` 的 View 树）不经协议行——Go 侧直接构造同构帧以 `stream: "tree"` 发射；script/run 动作用 `##[tree` 协议行进入同一通道：
 

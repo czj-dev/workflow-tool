@@ -2,11 +2,18 @@
 """SPM 数据平台：按片段匹配并下载 zip 内文件（无认证直连）
 
 用法:
-    python3 spm-download.py <zip文件名> [zip内路径片段] [输出目录]   # 输出目录默认当前目录
+    python3 spm-download.py <zip文件名|完整链接> [zip内路径片段] [输出目录]   # 输出目录默认当前目录
 
-<zip内路径片段> 先按 zip 内完整路径精确匹配；不中则按大小写不敏感的子串筛，
-命中多个时全部下载。示例片段：170216 / main_log_8__2026_0905_170216.gz /
-resources/debuglogger/mobilelog/
+<zip文件名> 也可直接粘贴完整下载链接（https://.../platform/C5181/log/log_xx.zip），
+自动裁切出 zip 文件名与车型（链接里的车型覆盖 MODEL 环境变量/表单选择）。
+
+<zip内路径片段> 支持多个：换行分隔（表单 textarea 一行一个、浏览树多选回填都是
+这个形态；CLI 引号内换行同理）。每个片段先按 zip 内完整路径精确匹配；不中则按
+大小写不敏感的子串筛，命中多个时全部下载；多个片段的命中去重合并。示例片段：
+170216 / main_log_8__2026_0905_170216.gz / resources/debuglogger/mobilelog/
+
+部分片段零命中不拦其余：命中的照下，未命中的逐条给退让提示，退出码非零；
+全部未命中时维持单片段零命中行为（提示 + 全量树帧 + 非零）。
 
 片段留空 = 浏览模式：打印 zip 内全部条目的 ##[tree 树帧（workflow-tool 输出
 控制台渲染为可交互树块）后退出，从树里复制文件路径回填片段重跑即可下载。
@@ -17,8 +24,13 @@ resources/debuglogger/mobilelog/
 环境变量:
     MODEL 可选 518 / 5181 / 216-C，默认 5181；action 通过同名参数注入。
 
+输出（##[output 协议行）：saved_dir / saved_count / failed_count；saved_paths 为
+成功落盘路径的 JSON 数组字符串（协议行必须单行，不能换行 join）；命中恰好 1 个
+且无失败时额外发 saved_path，保住下游引用单文件的既有契约。
+
 示例:
     MODEL=518 python3 spm-download.py log_1788599460103_LS6ANE0P0TK534164.zip 170216 /tmp/logs
+    python3 spm-download.py log_x.zip $'170216\nCLIENT_VER' /tmp/logs   # 多片段
 """
 import concurrent.futures as cf
 import contextlib
@@ -35,10 +47,12 @@ from collections.abc import Mapping
 
 BASE = "https://spm.auto-pai.com/spm-data"
 DEFAULT_MODEL = "5181"
+# key = 表单/环境变量的车型值（URL 里的 B/C 前缀去掉），value = SPM 归档路径前缀。
 MODEL_PREFIXES = {
     "518": "autopai-tlc/platform/C518/log/",
     "5181": "autopai-tlc/platform/C5181/log/",
     "216-C": "autopai-tlc/platform/B216-C/log/",
+    "216C-PHEV_H": "autopai-tlc/platform/B216C-PHEV_H/log/",
 }
 # 实测服务端并无 2MB 分块上限（16MB / 64MB 请求均正常返回），且块越大每请求的固定开销摊得越薄。
 CHUNK_SIZE = 8 * 1024 * 1024
@@ -56,13 +70,36 @@ def resolve_model(model: str | None) -> str:
     """空车型使用默认值；非空车型必须命中白名单。"""
     selected = (model or "").strip() or DEFAULT_MODEL
     if selected not in MODEL_PREFIXES:
-        raise SpmError(f"不支持的车型: {selected!r}，仅支持 518、5181 和 216-C")
+        raise SpmError(f"不支持的车型: {selected!r}，支持 {sorted(MODEL_PREFIXES)}")
     return selected
 
 
 def archive_path(model: str | None, zip_name: str) -> str:
     """按车型构造 SPM 日志归档路径。"""
     return MODEL_PREFIXES[resolve_model(model)] + zip_name
+
+
+def split_zip_url(zip_arg: str) -> tuple[str, str | None]:
+    """zip 参数若是完整下载链接则裁切出 (zip 文件名, 车型)；非链接原样返回 (zip_arg, None)。
+
+    链接形态如 https://.../autopai-tlc/platform/C5181/log/log_xx.zip（用户直接粘贴
+    COS 下载地址）。车型按 MODEL_PREFIXES 的路径前缀反查：C518/C5181/B216-C 互不为
+    子串，无歧义；识别不出车型或末尾不是 zip 时报错，不静默回退默认车型（下错车的日志
+    比报错更糟）。
+    """
+    if not (zip_arg.startswith("http://") or zip_arg.startswith("https://")):
+        return zip_arg, None
+    path = zip_arg.split("?", 1)[0].split("#", 1)[0]
+    name = path.rstrip("/").rsplit("/", 1)[-1]
+    if not name.lower().endswith(".zip"):
+        raise SpmError(f"链接末尾不是 zip 文件: {name!r}；请粘贴完整 zip 链接或直接填 zip 文件名")
+    for model, prefix in MODEL_PREFIXES.items():
+        if prefix in path:
+            return name, model
+    raise SpmError(
+        f"链接中未识别到车型路径（期望 platform/<车型>/log/，支持 {sorted(MODEL_PREFIXES)}）；"
+        "也可直接填 zip 文件名并手动选车型"
+    )
 
 
 def post(path: str, body: dict) -> dict:
@@ -107,6 +144,38 @@ def match_entries(entries: list[dict], fragment: str) -> list[dict]:
         return exact
     low = frag.lower()
     return sorted((e for e in files if low in e["path"].lower()), key=lambda e: e["path"])
+
+
+def split_fragments(fragment: str) -> list[str]:
+    """多片段输入：按换行切分，逐行 strip，丢空行；重复片段保序去重。
+
+    换行是唯一分隔符（zip 内路径不可能含换行）：表单 textarea 一行一个、浏览树
+    多选回填 join、CLI 引号内换行三种来源同构；单值就是单元素列表。
+    """
+    seen, out = set(), []
+    for line in fragment.split("\n"):
+        frag = line.strip()
+        if frag and frag not in seen:
+            seen.add(frag)
+            out.append(frag)
+    return out
+
+
+def match_fragments(entries: list[dict], fragments: list[str]) -> tuple[list[dict], list[str]]:
+    """多片段 → (去重合并的命中条目按 path 字典序, 零命中片段列表)。
+
+    每个片段独立走 match_entries（各自保留精确优先）；同一文件被多个片段命中只下一次。
+    """
+    targets: dict[str, dict] = {}
+    missed = []
+    for frag in fragments:
+        found = match_entries(entries, frag)
+        if not found:
+            missed.append(frag)
+            continue
+        for e in found:
+            targets.setdefault(e["path"], e)
+    return sorted(targets.values(), key=lambda e: e["path"]), missed
 
 
 def relax_fragments(fragment: str):
@@ -356,22 +425,31 @@ def main() -> None:
     out_dir = os.path.realpath(args[2] if len(args) > 2 else os.getcwd())
 
     try:
-        zip_path = archive_path(os.environ.get("MODEL"), zip_name)
+        # 完整链接自带车型（覆盖表单/环境变量选的 MODEL，链接更精确）；无链接时走 MODEL。
+        zip_name, model = split_zip_url(args[0])
+        if model is None:
+            model = os.environ.get("MODEL")
+        zip_path = archive_path(model, zip_name)
         sid = post("/api/storage/connectWithPreset", {"user_id": "spm"})["data"]["session_id"]
         entries, total = load_entries(sid, zip_path)
     except SpmError as e:
         sys.exit(str(e))
 
     # 片段留空 = 浏览模式：只发全量树帧，不进入下载流程。
-    if not fragment.strip():
+    fragments = split_fragments(fragment)
+    if not fragments:
         emit_tree(entry_tree_frame(zip_name, entries, total))
         return
 
-    targets = match_entries(entries, fragment)
-    if not targets:
-        # 零命中：退让提示与 exit 非零照旧，追加全量树帧让用户直接选目标回填重跑。
-        emit_tree(entry_tree_frame(zip_name, entries, total))
-        sys.exit(no_match_message(entries, fragment, total))
+    targets, missed = match_fragments(entries, fragments)
+    if missed:
+        # 部分片段零命中：逐条给退让提示，不拦其余片段下载；退出码在结尾统一非零。
+        for frag in missed:
+            print(no_match_message(entries, frag, total), file=sys.stderr)
+        if not targets:
+            # 全部未命中：维持单片段零命中行为——全量树帧让人直接选目标回填重跑。
+            emit_tree(entry_tree_frame(zip_name, entries, total))
+            sys.exit(f"全部 {len(missed)} 个片段均未命中")
 
     total_bytes = sum(e["size"] for e in targets)
     print(f"命中 {len(targets)} 个文件，共 {total_bytes / 1048576:.1f} MB")
@@ -405,16 +483,30 @@ def main() -> None:
                 print(f"✓ {entry['path']} ({entry['size'] / 1048576:.1f} MB)")
 
     saved_dir = os.path.join(out_dir, zip_stem(zip_name))
-    ok = len(targets) - len(failed)
-    print(f"完成: 就位 {ok} 个（其中跳过 {skipped} 个），失败 {len(failed)} 个 → {saved_dir}")
+    failed_set = set(failed)
+    ok_entries = [e for e in targets if e["path"] not in failed_set]
+    ok = len(ok_entries)
+    summary = f"完成: 就位 {ok} 个（其中跳过 {skipped} 个），失败 {len(failed)} 个 → {saved_dir}"
+    if missed:
+        summary += f"；另有 {len(missed)} 个片段未命中（见 stderr 提示）"
+    print(summary)
     print(f"##[output saved_dir={saved_dir}]")
     print(f"##[output saved_count={ok}]")
     print(f"##[output failed_count={len(failed)}]")
+    # saved_paths：成功落盘路径的 JSON 数组字符串（协议行必须单行，换行 join 会被行扫描切断）。
+    print("##[output saved_paths=" + json.dumps(
+        [local_path(out_dir, zip_name, e["path"]) for e in ok_entries], ensure_ascii=False
+    ) + "]")
     # 命中恰好 1 个时额外发 saved_path，保住下游 workflow 引用单个文件的既有契约。
     if len(targets) == 1 and not failed:
         print(f"##[output saved_path={local_path(out_dir, zip_name, targets[0]['path'])}]")
+    problems = []
+    if missed:
+        problems.append(f"{len(missed)} 个片段未命中")
     if failed:
-        sys.exit(f"{len(failed)} 个文件下载失败")
+        problems.append(f"{len(failed)} 个文件下载失败")
+    if problems:
+        sys.exit("，".join(problems))
 
 
 if __name__ == "__main__":

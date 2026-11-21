@@ -23,12 +23,42 @@ assert mod.archive_path("5181", "a.zip") == "autopai-tlc/platform/C5181/log/a.zi
 assert mod.archive_path("216-C", "log_1793257032303_LS6ANE0F2TB413501.zip") == (
     "autopai-tlc/platform/B216-C/log/log_1793257032303_LS6ANE0F2TB413501.zip"
 )
+assert mod.archive_path("216C-PHEV_H", "log_1794472322213_LS6ANE0Z2TB575946.zip") == (
+    "autopai-tlc/platform/B216C-PHEV_H/log/log_1794472322213_LS6ANE0Z2TB575946.zip"
+)
+# 车型白名单必须与 MODEL_PREFIXES 同步：新增车型漏改 resolve_model 文案在此兜底
+assert sorted(mod.MODEL_PREFIXES) == ["216-C", "216C-PHEV_H", "518", "5181"]
 try:
     mod.archive_path("unknown", "a.zip")
 except mod.SpmError as exc:
     assert "518" in str(exc) and "5181" in str(exc)
 else:
     raise AssertionError("不支持的车型必须报错")
+
+# 完整链接：自动裁切 zip 名与车型（C5181 / C518 / B216-C 三种路径）
+COS = "https://autopai-prod-1258763774.cos.ap-beijing.myqcloud.com"
+assert mod.split_zip_url(
+    COS + "/autopai-tlc/platform/C5181/log/log_1794450895179_LS6ANE0P3TK535986.zip"
+) == ("log_1794450895179_LS6ANE0P3TK535986.zip", "5181")
+assert mod.split_zip_url(
+    "https://x.cos.cn/autopai-tlc/platform/C518/log/log_1.zip?sign=abc#frag"
+) == ("log_1.zip", "518")  # query/fragment 不影响裁切
+assert mod.split_zip_url(
+    "https://x.cos.cn/autopai-tlc/platform/B216-C/log/log_2.zip"
+) == ("log_2.zip", "216-C")
+assert mod.split_zip_url(
+    "https://x.cos.cn/autopai-tlc/platform/B216C-PHEV_H/log/log_3.zip"
+) == ("log_3.zip", "216C-PHEV_H")
+# 非链接：原样返回，车型 None（交由 MODEL 环境变量/表单决定）
+assert mod.split_zip_url("log_1.zip") == ("log_1.zip", None)
+# 非法链接：末尾不是 zip / 车型路径缺失 → SpmError，不静默回退默认车型
+for bad in ("https://x/foo.txt", "https://x/other/platform/foo.zip"):
+    try:
+        mod.split_zip_url(bad)
+    except mod.SpmError:
+        pass
+    else:
+        raise AssertionError(f"非法链接必须报错: {bad}")
 
 # 命令行传参：原样取 argv[1:]，且不得改动入参
 argv = ["spm-download.py", "a.zip", "/inner/x.gz"]
@@ -111,6 +141,30 @@ assert [e["path"] for e in mod.match_entries(ENTRIES, "/CLIENT_VER")] == ["CLIEN
 
 # 零命中返回空列表，不得回退成「匹配全部」
 assert mod.match_entries(ENTRIES, "no-such-thing") == []
+
+# ---- 多片段输入：换行切分、逐行 strip、丢空行、重复片段保序去重 ----
+assert mod.split_fragments("a\nb") == ["a", "b"]
+assert mod.split_fragments("  a  \n\n b \n\nc\nc ") == ["a", "b", "c"]
+assert mod.split_fragments("a") == ["a"]  # 单值 = 单元素列表
+assert mod.split_fragments("\n  \n") == []  # 全空白 = 浏览模式入口
+assert mod.split_fragments("/CLIENT_VER\nCLIENT_VER") == ["/CLIENT_VER", "CLIENT_VER"]
+
+# 多片段合并：各自保留精确优先，按 path 去重、字典序
+matched, missed = mod.match_fragments(ENTRIES, [A, "CLIENT_VER", "main_log"])
+assert missed == []
+assert [e["path"] for e in matched] == ["CLIENT_VER", B, A]
+# 同一文件被多个片段命中只下一次（精确 A + 子串 170216 都命中 A）
+matched, missed = mod.match_fragments(ENTRIES, [A, "170216"])
+assert missed == []
+assert [e["path"] for e in matched] == [A]
+# 部分零命中：命中照收、零命中片段列出，不拦其余
+matched, missed = mod.match_fragments(ENTRIES, [A, "zzz"])
+assert [e["path"] for e in matched] == [A]
+assert missed == ["zzz"]
+# 全部零命中 = targets 空且 missed 全量（main 里走树帧 + 非零退出分支）
+matched, missed = mod.match_fragments(ENTRIES, ["x1", "x2"])
+assert matched == []
+assert missed == ["x1", "x2"]
 
 # ---- 零命中退让：含 / 去掉末段；不含 / 从右逐字符截短到长度 3 ----
 assert list(mod.relax_fragments("a/b/c.gz")) == ["a/b/"]

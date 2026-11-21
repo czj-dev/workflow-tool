@@ -377,6 +377,38 @@ hmi:
 	}
 }
 
+func TestParseActionHMITreeMulti(t *testing.T) {
+	def, err := ParseAction([]byte(`id: download
+title: Download
+command:
+  run: echo ok
+hmi:
+  tree:
+    click:
+      action: download
+      multi: true
+      params:
+        INNER_PATH: '${{ nodes.paths }}'
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Validate(def); err != nil {
+		t.Fatal(err)
+	}
+	if def.HMI == nil || def.HMI.Tree == nil || def.HMI.Tree.Click == nil || !def.HMI.Tree.Click.Multi {
+		t.Fatalf("hmi.tree.click.multi 未解析: %+v", def.HMI)
+	}
+	// 缺省 multi 为 false，不影响旧声明
+	plain, err := ParseAction([]byte("id: d2\ntitle: D\ncommand:\n  run: echo\nhmi:\n  tree:\n    click:\n      action: d2\n      params: {F: '${{ node.path }}'}\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if plain.HMI.Tree.Click.Multi {
+		t.Fatal("未声明 multi 时应为 false")
+	}
+}
+
 func TestValidateExported(t *testing.T) {
 	legal := &ActionDef{ID: "a", Title: "A", Command: Command{Run: "echo"}}
 	if err := Validate(legal); err != nil {

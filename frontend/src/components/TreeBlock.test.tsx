@@ -210,6 +210,101 @@ describe("TreeBlock", () => {
     expect(writeText).toHaveBeenCalledWith("root.zip/sub/b.txt");
   });
 
+  // —— 勾选模式（multi）：checkbox 选择 + 子树全选 + 批量按钮 ——
+  const multiNodes: TreeNode[] = [
+    {
+      label: "root.zip",
+      kind: "dir",
+      children: [
+        { label: "a.txt", kind: "file", path: "a.txt" },
+        {
+          label: "sub",
+          kind: "dir",
+          children: [
+            { label: "b.txt", kind: "file", path: "sub/b.txt" },
+            { label: "c.txt", kind: "file", path: "sub/c.txt" },
+          ],
+        },
+      ],
+    },
+  ];
+
+  it("multi+回调时渲染 checkbox 与批量按钮；未声明时不渲染", () => {
+    const submit = vi.fn().mockResolvedValue(undefined);
+    const { rerender } = render(
+      <TreeBlock frame={{ nodes: multiNodes }} multi onSelectionSubmit={submit} />,
+    );
+    // root / a.txt / sub / b.txt / c.txt 各一行 checkbox
+    expect(screen.getAllByRole("checkbox")).toHaveLength(5);
+    expect(screen.getByRole("button", { name: "下载选中 (0)" })).toBeDisabled();
+    expect(screen.getByText("已选 0 个")).toBeInTheDocument();
+    rerender(<TreeBlock frame={{ nodes: multiNodes }} onSelectionSubmit={submit} />);
+    expect(screen.queryByRole("checkbox")).toBeNull();
+    expect(screen.queryByText(/下载选中/)).toBeNull();
+  });
+
+  it("勾选叶子→计数更新、按钮解禁；提交按 DFS 树序回传叶子节点", async () => {
+    const user = userEvent.setup();
+    const submit = vi.fn().mockResolvedValue(undefined);
+    render(<TreeBlock frame={{ nodes: multiNodes }} multi onSelectionSubmit={submit} />);
+    await user.click(screen.getByRole("checkbox", { name: "勾选 c.txt" }));
+    await user.click(screen.getByRole("checkbox", { name: "勾选 a.txt" }));
+    expect(screen.getByText("已选 2 个")).toBeInTheDocument();
+    const btn = screen.getByRole("button", { name: "下载选中 (2)" });
+    expect(btn).toBeEnabled();
+    await user.click(btn);
+    expect(submit).toHaveBeenCalledTimes(1);
+    // DFS 树序：a.txt 在 c.txt 前，目录节点不在回传集合里
+    const sent = submit.mock.lastCall![0] as TreeNode[];
+    expect(sent.map((n) => n.path)).toEqual(["a.txt", "sub/c.txt"]);
+  });
+
+  it("目录勾选=子树全选，再点取消；部分选中时目录半选", async () => {
+    const user = userEvent.setup();
+    render(
+      <TreeBlock frame={{ nodes: multiNodes }} multi onSelectionSubmit={vi.fn().mockResolvedValue(undefined)} />,
+    );
+    const root = screen.getByRole("checkbox", { name: "勾选 root.zip" }) as HTMLInputElement;
+    const sub = screen.getByRole("checkbox", { name: "勾选 sub" }) as HTMLInputElement;
+    // 只选 b.txt：sub 半选、root 半选，计数 1
+    await user.click(screen.getByRole("checkbox", { name: "勾选 b.txt" }));
+    expect(sub.indeterminate).toBe(true);
+    expect(root.indeterminate).toBe(true);
+    expect(screen.getByText("已选 1 个")).toBeInTheDocument();
+    // 勾选 sub：子树全选，b 已选则并集仍为 b+c，root 因 a.txt 未选仍半选
+    await user.click(sub);
+    expect(screen.getByText("已选 2 个")).toBeInTheDocument();
+    expect(sub.checked).toBe(true);
+    expect(sub.indeterminate).toBe(false);
+    expect(root.indeterminate).toBe(true);
+    // 取消 sub：b+c 一起取消，回到空选
+    await user.click(sub);
+    expect(screen.getByText("已选 0 个")).toBeInTheDocument();
+    expect(sub.checked).toBe(false);
+    // 勾选 root：全部三个叶子选中，root 不再半选
+    await user.click(root);
+    expect(screen.getByText("已选 3 个")).toBeInTheDocument();
+    expect(root.indeterminate).toBe(false);
+    expect(root.checked).toBe(true);
+  });
+
+  it("勾选不触发行点击；行点击叶子照旧走 onLeafClick", async () => {
+    const user = userEvent.setup();
+    const onLeafClick = vi.fn().mockResolvedValue(undefined);
+    render(
+      <TreeBlock
+        frame={{ nodes: multiNodes }}
+        multi
+        onLeafClick={onLeafClick}
+        onSelectionSubmit={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+    await user.click(screen.getByRole("checkbox", { name: "勾选 a.txt" }));
+    expect(onLeafClick).not.toHaveBeenCalled();
+    await user.click(screen.getByText("a.txt"));
+    expect(onLeafClick).toHaveBeenCalledWith(multiNodes[0].children![0]);
+  });
+
   it("解析失败帧（单错误节点）原样渲染 detail 原文片段", () => {
     render(
       <TreeBlock

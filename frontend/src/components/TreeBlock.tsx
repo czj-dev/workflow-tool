@@ -18,6 +18,11 @@ const DEFAULT_DEPTH = 2;
 interface TreeBlockProps {
   frame: TreeFrame;
   onLeafClick?: (node: TreeNode) => Promise<void>;
+  // 勾选模式（对应源 action 声明的 hmi.tree.click.multi）：行首 checkbox，
+  // 目录勾选=后代叶子全选；行点击行为不变（叶子照旧触发 onLeafClick）
+  multi?: boolean;
+  // 批量按钮回调：入参为选中叶子集合（DFS 树序）；空选时按钮禁用
+  onSelectionSubmit?: (nodes: TreeNode[]) => Promise<void>;
 }
 
 // copyText 剪贴板写入：clipboard API 优先（Wails 安全上下文可用），
@@ -44,7 +49,36 @@ async function writeClipboard(text: string): Promise<boolean> {
   }
 }
 
-export function TreeBlock({ frame, onLeafClick }: TreeBlockProps) {
+// 行首勾选框：indeterminate 只能经 DOM property 设置（React 不认该 attribute）
+function TreeCheck(props: {
+  checked: boolean;
+  indeterminate?: boolean;
+  disabled?: boolean;
+  label: string;
+  onChange: () => void;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = !!props.indeterminate;
+  }, [props.indeterminate]);
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      className="tree-check"
+      checked={props.checked}
+      disabled={props.disabled}
+      aria-label={props.label}
+      onChange={props.onChange}
+      onClick={(e) => e.stopPropagation()} // 勾选不得触发行点击（叶子下载/目录折叠）
+    />
+  );
+}
+
+// 是否叶子行与行点击分派同口径：kind 非 dir 且无子节点
+const isLeafNode = (f: FlatNode) => f.node.kind !== "dir" && !f.node.children?.length;
+
+export function TreeBlock({ frame, onLeafClick, multi, onSelectionSubmit }: TreeBlockProps) {
   const { t } = useTranslation();
   const flat = useMemo(() => flattenTree(frame.nodes ?? []), [frame]);
   const defaultDepth = frame.defaultExpandAll ? Infinity : DEFAULT_DEPTH;
@@ -56,6 +90,34 @@ export function TreeBlock({ frame, onLeafClick }: TreeBlockProps) {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const search = useMemo(() => searchTree(flat, query), [flat, query]);
+
+  // 勾选集合只存叶子 key（目录勾选=后代叶子全选）；搜索/折叠不影响勾选集
+  const selectMode = !!multi && !!onSelectionSubmit;
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const descendantLeafKeys = (key: string) =>
+    flat.filter((f) => isLeafNode(f) && f.key.startsWith(key + "/")).map((f) => f.key);
+  const toggleLeaf = (key: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const toggleDirLeaves = (leaves: string[], allOn: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      leaves.forEach((k) => (allOn ? next.delete(k) : next.add(k)));
+      return next;
+    });
+  const submitSelection = async () => {
+    // DFS 树序回传选中叶子，后端按行 join；失败复用块内 toast 提示
+    const nodes = flat.filter((f) => selected.has(f.key) && isLeafNode(f)).map((f) => f.node);
+    try {
+      await onSelectionSubmit?.(nodes);
+    } catch (error) {
+      showToast(String(error));
+    }
+  };
 
   useEffect(() => {
     return () => {
@@ -184,9 +246,13 @@ export function TreeBlock({ frame, onLeafClick }: TreeBlockProps) {
       <div className="treeblock-body" role="tree">
         {flat.map((f) => {
           if (!visibleKeys.has(f.key)) return null;
-          const isLeaf = f.node.kind !== "dir" && !f.node.children?.length;
+          const isLeaf = isLeafNode(f);
           const dimmed = search?.dim.has(f.key);
           const showLabel = (f.node.label ?? "") !== "" && f.node.label !== f.node.kind;
+          // 目录勾选态：后代叶子全选=选中，部分=半选；空目录禁用
+          const dirLeaves = selectMode && !isLeaf ? descendantLeafKeys(f.key) : [];
+          const dirAll = dirLeaves.length > 0 && dirLeaves.every((k) => selected.has(k));
+          const dirSome = !dirAll && dirLeaves.some((k) => selected.has(k));
           return (
             <div key={f.key} role="treeitem" aria-expanded={isLeaf ? undefined : !isCollapsed(f)}>
               <span
@@ -202,6 +268,22 @@ export function TreeBlock({ frame, onLeafClick }: TreeBlockProps) {
                   }
                 }}
               >
+                {selectMode &&
+                  (isLeaf ? (
+                    <TreeCheck
+                      checked={selected.has(f.key)}
+                      label={t("tree.selectNode", { label: f.node.label ?? f.key })}
+                      onChange={() => toggleLeaf(f.key)}
+                    />
+                  ) : (
+                    <TreeCheck
+                      checked={dirAll}
+                      indeterminate={dirSome}
+                      disabled={dirLeaves.length === 0}
+                      label={t("tree.selectNode", { label: f.node.label ?? f.key })}
+                      onChange={() => toggleDirLeaves(dirLeaves, dirAll)}
+                    />
+                  ))}
                 <span className="tree-rail" aria-hidden="true">
                   {f.rail}
                 </span>
@@ -223,6 +305,20 @@ export function TreeBlock({ frame, onLeafClick }: TreeBlockProps) {
           );
         })}
       </div>
+      {/* 勾选模式底栏：计数 + 批量按钮（空选禁用）；行点击行为不受影响 */}
+      {selectMode && (
+        <div className="treeblock-foot">
+          <span className="tree-select-count">{t("tree.selectedCount", { count: selected.size })}</span>
+          <button
+            type="button"
+            className="tree-batch-btn"
+            disabled={selected.size === 0}
+            onClick={() => void submitSelection()}
+          >
+            {t("tree.downloadSelected", { count: selected.size })}
+          </button>
+        </div>
+      )}
       {/* 复制反馈 toast：fixed 定位挂在视口底部（单块单击单 toast，多块同显不互相挤占布局） */}
       {toast && (
         <div className="tree-toast" role="status">

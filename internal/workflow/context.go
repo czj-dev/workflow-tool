@@ -13,6 +13,9 @@ type StepContext struct {
 	Params map[string]any    // 表单参数（含全局 config 合并结果，params 侧命名空间）
 	Config map[string]string // config.yaml 原样（保留通道，暂供 expr 查询）
 	Node   map[string]any    // 树叶点击时的节点；workflow step 中为空
+	// Nodes 是树多选时的选中集合视图（目前仅 paths=换行 join 的路径）；
+	// 单击时也填（单元素），让 multi 声明的动作统一用 ${{ nodes.paths }}。
+	Nodes map[string]any
 }
 
 // Flatten 展平为 expr.Eval 的 env map：顶层 key 为 steps/env/params/config，
@@ -44,5 +47,6 @@ func (c *StepContext) Flatten() map[string]any {
 		"params": paramsMap,
 		"config": configMap,
 		"node":   c.Node,
+		"nodes":  c.Nodes,
 	}
 }

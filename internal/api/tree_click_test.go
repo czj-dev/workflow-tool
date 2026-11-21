@@ -78,6 +78,74 @@ func TestRunActionRejectsLiteralInterpolationIntoInlineShell(t *testing.T) {
 	}
 }
 
+func TestResolveTreeClickMultiJoinsPathsWithNewline(t *testing.T) {
+	svc := &Service{reg: &registry.Registry{Actions: map[string]registry.LoadedAction{
+		"source": {Def: registry.ActionDef{HMI: &registry.HMI{Tree: &registry.TreeHMI{Click: &registry.TreeClick{
+			Action: "target", Multi: true,
+			Params: map[string]string{
+				"INNER_PATH": "${{ nodes.paths }}", "ZIP": "${{ params.ZIP_NAME }}",
+			},
+		}}}}},
+		"target": {Def: registry.ActionDef{ID: "target"}},
+	}}}
+	result, err := svc.ResolveTreeClickMulti("source", []map[string]any{
+		{"path": "a/b.gz"}, {"path": "c.txt"},
+	}, map[string]any{"ZIP_NAME": "logs.zip"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Action != "target" || result.Params["INNER_PATH"] != "a/b.gz\nc.txt" || result.Params["ZIP"] != "logs.zip" {
+		t.Fatalf("unexpected multi click mapping: %+v", result)
+	}
+}
+
+func TestResolveTreeClickSingleAlsoFillsNodesPaths(t *testing.T) {
+	// 单击 = 单元素多选：声明 multi 的动作统一用 ${{ nodes.paths }}，单击路径也能求值。
+	svc := &Service{reg: &registry.Registry{Actions: map[string]registry.LoadedAction{
+		"source": {Def: registry.ActionDef{HMI: &registry.HMI{Tree: &registry.TreeHMI{Click: &registry.TreeClick{
+			Action: "target", Multi: true,
+			Params: map[string]string{"INNER_PATH": "${{ nodes.paths }}"},
+		}}}}},
+		"target": {Def: registry.ActionDef{ID: "target"}},
+	}}}
+	result, err := svc.ResolveTreeClick("source", map[string]any{"path": "only.gz"}, nil)
+	if err != nil || result.Params["INNER_PATH"] != "only.gz" {
+		t.Fatalf("expected single node path via nodes.paths, got %+v, %v", result, err)
+	}
+}
+
+func TestResolveTreeClickMultiGuards(t *testing.T) {
+	multiSvc := &Service{reg: &registry.Registry{Actions: map[string]registry.LoadedAction{
+		"source": {Def: registry.ActionDef{HMI: &registry.HMI{Tree: &registry.TreeHMI{Click: &registry.TreeClick{
+			Action: "target", Multi: true, Params: map[string]string{"F": "${{ nodes.paths }}"},
+		}}}}},
+		"target": {Def: registry.ActionDef{ID: "target"}},
+	}}}
+	noMultiSvc := &Service{reg: &registry.Registry{Actions: map[string]registry.LoadedAction{
+		"source": {Def: registry.ActionDef{HMI: &registry.HMI{Tree: &registry.TreeHMI{Click: &registry.TreeClick{
+			Action: "target", Params: map[string]string{"F": "${{ node.path }}"},
+		}}}}},
+		"target": {Def: registry.ActionDef{ID: "target"}},
+	}}}
+	// 空选择拒绝
+	if _, err := multiSvc.ResolveTreeClickMulti("source", nil, nil); err == nil || !strings.Contains(err.Error(), "未选中") {
+		t.Fatalf("空选择应报错, got %v", err)
+	}
+	// 缺 path 的节点拒绝
+	if _, err := multiSvc.ResolveTreeClickMulti("source", []map[string]any{{"label": "x"}}, nil); err == nil || !strings.Contains(err.Error(), "path") {
+		t.Fatalf("缺 path 应报错, got %v", err)
+	}
+	// 未声明 multi 的动作拒绝批量解析（旧动作只能走单节点路径）
+	if _, err := noMultiSvc.ResolveTreeClickMulti("source", []map[string]any{{"path": "a"}}, nil); err == nil || !strings.Contains(err.Error(), "multi") {
+		t.Fatalf("未声明 multi 应报错, got %v", err)
+	}
+	// 未声明 multi 的单击照旧走 node.path（旧路径不受影响）
+	result, err := noMultiSvc.ResolveTreeClick("source", map[string]any{"path": "a.gz"}, nil)
+	if err != nil || result.Params["F"] != "a.gz" {
+		t.Fatalf("legacy single click broken: %+v, %v", result, err)
+	}
+}
+
 func TestResolveTreeClickRejectsMissingTarget(t *testing.T) {
 	svc := &Service{reg: &registry.Registry{Actions: map[string]registry.LoadedAction{
 		"source": {Def: registry.ActionDef{HMI: &registry.HMI{Tree: &registry.TreeHMI{Click: &registry.TreeClick{Action: "missing"}}}}},

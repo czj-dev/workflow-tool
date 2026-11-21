@@ -4,20 +4,20 @@ icon: hi:download
 description: 从 SPM 数据平台的 zip 包中按路径片段匹配文件并保存到本地（命中多个则全部下载，无需认证）
 params:
   - id: ZIP_NAME
-    label: zip 文件名
+    label: zip 文件名 / 完整链接
     type: text
     required: true
-    description: 如 log_1787193057533_LS6ANE0P7TK525767.zip
+    description: 如 log_1787193057533_LS6ANE0P7TK525767.zip；也可直接粘贴完整下载链接，自动裁切 zip 名与车型（链接内车型优先）
   - id: MODEL
     label: 车型
     type: select
-    options: ["5181", "518", "216-C"]
+    options: ["5181", "518", "216-C", "216C-PHEV_H"]
     default: "5181"
     description: 选择日志归档车型，默认 5181
   - id: INNER_PATH
     label: zip 内路径片段
-    type: text
-    description: 精确路径优先，否则按子串匹配（大小写不敏感），命中多个则全部下载；留空 = 浏览模式，列出 zip 内全部条目树；点击文件直接下载
+    type: textarea
+    description: 一行一个片段（可多个），精确路径优先否则子串匹配，命中全部下载；留空 = 浏览模式列出条目树，点击文件直接下载、勾选多个批量下载
   - id: OUT_DIR
     label: 输出目录
     type: path
@@ -27,10 +27,11 @@ hmi:
   tree:
     click:
       action: log-spm-download
+      multi: true
       params:
         ZIP_NAME: '${{ params.ZIP_NAME }}'
         MODEL: '${{ params.MODEL }}'
-        INNER_PATH: '${{ node.path }}'
+        INNER_PATH: '${{ nodes.paths }}'
         OUT_DIR: '${{ params.OUT_DIR }}'
 command:
   script: ./scripts/spm-download.py

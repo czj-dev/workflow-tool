@@ -37,7 +37,10 @@ type TreeHMI struct {
 }
 
 type TreeClick struct {
-	Action string            `json:"action" yaml:"action"`
+	Action string `json:"action" yaml:"action"`
+	// Multi 声明该树的叶子可多选（checkbox 模式）：底部批量按钮把选中叶子集合
+	// 交给 ResolveTreeClickMulti，表达式侧用 ${{ nodes.paths }} 取换行 join 的路径。
+	Multi  bool              `json:"multi,omitempty" yaml:"multi"`
 	Params map[string]string `json:"params" yaml:"params"`
 }
 

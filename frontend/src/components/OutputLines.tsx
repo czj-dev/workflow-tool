@@ -1,7 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { cn } from "@/lib/utils";
 import type { OutputLineItem } from "../types/events";
-import { ResolveTreeClick } from "../../bindings/workflow-tool/internal/api/service.js";
+import { ResolveTreeClick, ResolveTreeClickMulti } from "../../bindings/workflow-tool/internal/api/service.js";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { TreeBlock } from "./TreeBlock";
 
@@ -27,11 +27,29 @@ export function OutputLines({ lines, exitCode, className }: OutputLinesProps) {
         if (item.kind === "tree") {
           const source = item.frame.source;
           const click = actions.find((action) => action.id === source?.actionId)?.hmi?.tree?.click;
-          return <TreeBlock key={`tree-${item.id}`} frame={item.frame} onLeafClick={click && source ? async (node) => {
-            const result = await ResolveTreeClick(source.actionId, node as unknown as Record<string, unknown>, source.params);
+          const runResolved = async (result: Awaited<ReturnType<typeof ResolveTreeClick>>) => {
             if (isRunning(result.action)) throw new Error(t("tree.actionRunning"));
             await runAction(result.action, result.params, false, Object.keys(result.params));
-          } : undefined} />;
+          };
+          return (
+            <TreeBlock
+              key={`tree-${item.id}`}
+              frame={item.frame}
+              onLeafClick={click && source ? async (node) => {
+                const result = await ResolveTreeClick(source.actionId, node as unknown as Record<string, unknown>, source.params);
+                await runResolved(result);
+              } : undefined}
+              multi={!!click?.multi}
+              onSelectionSubmit={click?.multi && source ? async (nodes) => {
+                const result = await ResolveTreeClickMulti(
+                  source.actionId,
+                  nodes as unknown as Record<string, unknown>[],
+                  source.params,
+                );
+                await runResolved(result);
+              } : undefined}
+            />
+          );
         }
         let cls = "text-foreground";
         if (exitCode !== undefined && i === lastIdx) {
