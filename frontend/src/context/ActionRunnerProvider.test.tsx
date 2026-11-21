@@ -17,6 +17,11 @@ const {
   mockRunWorkflow,
   mockCancelWorkflow,
   mockUpdateLogcatFilter,
+  mockListSchedules,
+  mockSaveSchedule,
+  mockDeleteSchedule,
+  mockSetScheduleEnabled,
+  mockRunScheduleNow,
   mockOn,
   listeners,
 } = vi.hoisted(() => {
@@ -41,6 +46,11 @@ const {
       mockRunWorkflow: vi.fn(() => Promise.resolve()),
       mockCancelWorkflow: vi.fn(),
       mockUpdateLogcatFilter: vi.fn(() => Promise.resolve()),
+      mockListSchedules: vi.fn(),
+      mockSaveSchedule: vi.fn(),
+      mockDeleteSchedule: vi.fn(),
+      mockSetScheduleEnabled: vi.fn(),
+      mockRunScheduleNow: vi.fn(() => Promise.resolve()),
       mockOn,
       listeners,
     };
@@ -63,6 +73,11 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   RunWorkflow: mockRunWorkflow,
   CancelWorkflow: mockCancelWorkflow,
   UpdateLogcatFilter: mockUpdateLogcatFilter,
+  ListSchedules: mockListSchedules,
+  SaveSchedule: mockSaveSchedule,
+  DeleteSchedule: mockDeleteSchedule,
+  SetScheduleEnabled: mockSetScheduleEnabled,
+  RunScheduleNow: mockRunScheduleNow,
 }));
 
 vi.mock("@wailsio/runtime", () => ({
@@ -92,6 +107,11 @@ beforeEach(() => {
   mockRunWorkflow.mockReset().mockResolvedValue(undefined);
   mockCancelWorkflow.mockReset();
   mockUpdateLogcatFilter.mockReset().mockResolvedValue(undefined);
+  mockListSchedules.mockReset().mockResolvedValue({ schedules: [], errors: [] });
+  mockSaveSchedule.mockReset().mockResolvedValue({ schedules: [], errors: [] });
+  mockDeleteSchedule.mockReset().mockResolvedValue({ schedules: [], errors: [] });
+  mockSetScheduleEnabled.mockReset().mockResolvedValue({ schedules: [], errors: [] });
+  mockRunScheduleNow.mockReset().mockResolvedValue(undefined);
   mockOn.mockClear();
 });
 
@@ -802,6 +822,148 @@ describe("ActionRunnerProvider", () => {
     expect(result.current.workflows).toHaveLength(1);
     expect(result.current.workflows[0].id).toBe("w1");
     expect(result.current.workflowErrors).toEqual(["bad.yaml"]);
+  });
+
+  describe("Scheduler 接入", () => {
+    beforeEach(() => {
+      mockListActions.mockResolvedValue({ actions: [], errors: [] });
+      mockListWorkflows.mockResolvedValue({ workflows: [], errors: [] });
+    });
+
+    const schedule = {
+      id: "hourly-check",
+      name: "Hourly check",
+      enabled: true,
+      cron: "7 * * * *",
+      targetKind: "action",
+      targetId: "check",
+      params: { DEVICE: "emulator" },
+      nextRun: "2026-11-12T10:07:00Z",
+      running: false,
+    };
+
+    it("挂载时拉取 schedules 并暴露错误", async () => {
+      mockListSchedules.mockResolvedValue({ schedules: [schedule], errors: ["bad.yaml"] });
+      const { result } = renderHook(() => useActionRunner(), { wrapper });
+
+      await act(() => Promise.resolve());
+
+      expect(mockListSchedules).toHaveBeenCalledTimes(1);
+      expect(result.current.schedules).toEqual([schedule]);
+      expect(result.current.scheduleErrors).toEqual(["bad.yaml"]);
+    });
+
+    it("ListSchedules 刷新失败时保留用户友好错误", async () => {
+      mockListSchedules.mockRejectedValue(new Error("backend unavailable"));
+      const { result } = renderHook(() => useActionRunner(), { wrapper });
+
+      await act(() => Promise.resolve());
+      await act(() => Promise.resolve());
+
+      expect(result.current.scheduleErrors).toEqual(["加载失败: backend unavailable"]);
+    });
+
+    it("忽略过期的并发刷新结果", async () => {
+      let resolveFirst: ((value: unknown) => void) | undefined;
+      let resolveSecond: ((value: unknown) => void) | undefined;
+      mockListSchedules
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
+      const { result } = renderHook(() => useActionRunner(), { wrapper });
+
+      await act(() => Promise.resolve());
+      act(() => listeners["schedules:changed"]?.({ data: { id: schedule.id } }));
+      await act(() => Promise.resolve());
+      resolveSecond?.({ schedules: [{ ...schedule, running: true }], errors: [] });
+      await act(() => Promise.resolve());
+      resolveFirst?.({ schedules: [schedule], errors: [] });
+      await act(() => Promise.resolve());
+
+      expect(result.current.schedules[0].running).toBe(true);
+    });
+
+    it("schedules:changed 刷新列表且卸载后取消订阅", async () => {
+      mockListSchedules
+        .mockResolvedValueOnce({ schedules: [schedule], errors: [] })
+        .mockResolvedValueOnce({ schedules: [{ ...schedule, running: true }], errors: [] });
+      const { result, unmount } = renderHook(() => useActionRunner(), { wrapper });
+
+      await act(() => Promise.resolve());
+      expect(mockOn).toHaveBeenCalledWith("schedules:changed", expect.any(Function));
+      act(() => listeners["schedules:changed"]?.({ data: { id: schedule.id } }));
+      await act(() => Promise.resolve());
+      expect(result.current.schedules[0].running).toBe(true);
+      expect(mockListSchedules).toHaveBeenCalledTimes(2);
+
+      unmount();
+      expect(listeners["schedules:changed"]).toBeUndefined();
+    });
+
+    it("保存、删除、启停和立即执行成功后更新本地列表", async () => {
+      const saved = { ...schedule, name: "Saved" };
+      const disabled = { ...saved, enabled: false };
+      mockListSchedules
+        .mockResolvedValueOnce({ schedules: [schedule], errors: [] })
+        .mockResolvedValueOnce({ schedules: [disabled], errors: [] });
+      mockSaveSchedule.mockResolvedValue({ schedules: [saved], errors: [] });
+      mockSetScheduleEnabled.mockResolvedValue({ schedules: [disabled], errors: [] });
+      mockRunScheduleNow.mockResolvedValue(undefined);
+      mockDeleteSchedule.mockResolvedValue({ schedules: [], errors: [] });
+      const { result } = renderHook(() => useActionRunner(), { wrapper });
+
+      await act(() => Promise.resolve());
+      await act(async () => {
+        await result.current.saveSchedule({ ...schedule, params: { DEVICE: "phone" } });
+      });
+      expect(mockSaveSchedule).toHaveBeenCalledWith({ ...schedule, params: { DEVICE: "phone" } });
+      expect(result.current.schedules).toEqual([saved]);
+
+      await act(async () => {
+        await result.current.setScheduleEnabled(schedule.id, false);
+      });
+      expect(mockSetScheduleEnabled).toHaveBeenCalledWith(schedule.id, false);
+      expect(result.current.schedules).toEqual([disabled]);
+
+      await act(async () => {
+        await result.current.runScheduleNow(schedule.id);
+      });
+      expect(mockRunScheduleNow).toHaveBeenCalledWith(schedule.id);
+      expect(mockListSchedules).toHaveBeenCalledTimes(2);
+      expect(result.current.schedules).toEqual([disabled]);
+
+      await act(async () => {
+        await result.current.deleteSchedule(schedule.id);
+      });
+      expect(mockDeleteSchedule).toHaveBeenCalledWith(schedule.id);
+      expect(result.current.schedules).toEqual([]);
+    });
+
+    it("Scheduler API 失败时保留用户友好错误并抛出", async () => {
+      mockListSchedules.mockResolvedValue({ schedules: [schedule], errors: [] });
+      const { result } = renderHook(() => useActionRunner(), { wrapper });
+      await act(() => Promise.resolve());
+      await act(() => Promise.resolve());
+
+      const operations = [
+        [mockSaveSchedule, () => result.current.saveSchedule(schedule), "save failed"],
+        [mockDeleteSchedule, () => result.current.deleteSchedule(schedule.id), "delete failed"],
+        [mockSetScheduleEnabled, () => result.current.setScheduleEnabled(schedule.id, false), "toggle failed"],
+        [mockRunScheduleNow, () => result.current.runScheduleNow(schedule.id), "run failed"],
+      ] as const;
+      for (const [mock, operation, message] of operations) {
+        const failure = new Error(message);
+        mock.mockRejectedValueOnce(failure);
+        await act(async () => {
+          try {
+            await operation();
+            throw new Error("expected Scheduler API to reject");
+          } catch (error) {
+            expect(error).toBe(failure);
+          }
+        });
+        expect(result.current.scheduleErrors).toEqual([message]);
+      }
+    });
   });
 
   it("runWorkflow 后 view=workflow、status=running 并订阅 workflow 事件", async () => {

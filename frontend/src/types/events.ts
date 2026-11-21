@@ -1,4 +1,8 @@
 import type { TreeFrame } from "../lib/treeFrame";
+import type { ScheduleItem } from "../../bindings/workflow-tool/internal/api/models.js";
+
+// schedules:changed 下发完整的 ScheduleItem；Provider 收到后刷新列表以保持后端投影为唯一真相。
+export type ScheduleStateEventData = ScheduleItem;
 
 // 输出桶的行项：文本/进度行之外，stream="tree" 的协议行进桶后不是字符串而是解析好的
 // 树帧（见 lib/treeFrame.ts），OutputLines 按项分派渲染（内联树块）。

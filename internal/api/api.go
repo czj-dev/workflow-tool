@@ -5,9 +5,11 @@
 package api
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 
@@ -16,6 +18,7 @@ import (
 	"workflow-tool/internal/adb/device"
 	"workflow-tool/internal/builtinvars"
 	"workflow-tool/internal/registry"
+	"workflow-tool/internal/schedule"
 	"workflow-tool/internal/workflow"
 )
 
@@ -23,6 +26,7 @@ import (
 type Service struct {
 	app       *application.App
 	reg       *registry.Registry
+	regMu     sync.RWMutex // registry 指针由 Reload 原子替换
 	baseDir   string
 	cfgPath   string // config.yaml 路径
 	fragPath  string // fragments.yaml 路径
@@ -32,8 +36,18 @@ type Service struct {
 	fMu       sync.Mutex   // 保护 fragments 的读写
 	running   *runRegistry // action 运行簿记（拒绝并发/结束清理/取消）
 	wfReg     *workflow.WorkflowRegistry
-	wfMu      sync.Mutex   // 保护 wfReg 的遍历读（GetVarReferenceCounts）
+	wfMu      sync.RWMutex // registry 指针由 ReloadWorkflows 原子替换
 	wfRunning *runRegistry // workflow 运行簿记
+
+	schedulePath    string
+	scheduleMu      sync.Mutex
+	scheduleDefs    []schedule.Definition
+	scheduleErrors  []error
+	scheduleRuns    map[string]*scheduleRunState
+	scheduler       *schedule.Scheduler
+	schedulerMu     sync.Mutex
+	schedulerCancel context.CancelFunc
+	scheduleEmit    func(string, any)
 
 	bin      *binary.Service       // adb/fastboot/scrcpy 路径探测
 	dev      *device.Service       // 设备列表 + 激活 serial
@@ -44,6 +58,9 @@ type Service struct {
 // New 创建 service。cfgPath 是全局配置 config.yaml 路径，fragPath 是 fragments.yaml 路径。
 // app 通过 SetApp 在 main 里注入（打破循环依赖）。
 func New(reg *registry.Registry, wfReg *workflow.WorkflowRegistry, baseDir, cfgPath, fragPath string) *Service {
+	if reg == nil {
+		reg = &registry.Registry{Actions: map[string]registry.LoadedAction{}, Skills: map[string]registry.SkillMeta{}}
+	}
 	g, _ := registry.LoadGlobal(cfgPath)
 	if g == nil {
 		g = map[string]string{}
@@ -56,31 +73,86 @@ func New(reg *registry.Registry, wfReg *workflow.WorkflowRegistry, baseDir, cfgP
 		wfReg = &workflow.WorkflowRegistry{Workflows: map[string]workflow.LoadedWorkflow{}}
 	}
 	svc := &Service{
-		reg:       reg,
-		baseDir:   baseDir,
-		cfgPath:   cfgPath,
-		fragPath:  fragPath,
-		global:    g,
-		fragments: frags,
-		running:   newRunRegistry(),
-		wfReg:     wfReg,
-		wfRunning: newRunRegistry(),
+		reg:          reg,
+		baseDir:      baseDir,
+		cfgPath:      cfgPath,
+		fragPath:     fragPath,
+		global:       g,
+		fragments:    frags,
+		running:      newRunRegistry(),
+		wfReg:        wfReg,
+		wfRunning:    newRunRegistry(),
+		schedulePath: filepath.Join(baseDir, "schedules.yaml"),
+		scheduleRuns: make(map[string]*scheduleRunState),
 	}
+	svc.scheduleDefs, svc.scheduleErrors = schedule.LoadFile(svc.schedulePath, svc.scheduleCatalog())
+	svc.scheduleDefs, svc.scheduleErrors = validateLoadedScheduleDefinitions(svc.scheduleDefs, svc.scheduleErrors)
+	svc.scheduler = schedule.NewScheduler(svc.scheduleDefs, svc.launchSchedule)
 	svc.bin = binary.NewService()
 	svc.dev = device.NewService(svc.binPaths)
 	svc.builtins = builtinvars.New(svc.dev)
 	svc.runDeps = actionrun.Deps{BaseDir: baseDir, ADBPaths: svc.binPaths, ADBDevice: svc.dev, Builtins: svc.builtins, BashPath: svc.bashOverride,
 		SkillRouter: &actionrun.SkillRouter{
 			// 惰性取当前 registry（热重载后 Skills 随之更新）
-			Skills:     func() map[string]registry.SkillMeta { return svc.reg.Skills },
+			Skills:     func() map[string]registry.SkillMeta { return svc.actionRegistry().Skills },
 			HomeDir:    func() string { h, _ := os.UserHomeDir(); return h },
 			LedgerPath: filepath.Join(baseDir, "skills.synced.json"),
 		}}
 	return svc
 }
 
+func (s *Service) actionRegistry() *registry.Registry {
+	s.regMu.RLock()
+	defer s.regMu.RUnlock()
+	return s.reg
+}
+
+func (s *Service) workflowRegistry() *workflow.WorkflowRegistry {
+	s.wfMu.RLock()
+	defer s.wfMu.RUnlock()
+	return s.wfReg
+}
+
 // SetApp 注入 Wails app 引用（用于 emit 事件）。
-func (s *Service) SetApp(app *application.App) { s.app = app }
+func (s *Service) SetApp(app *application.App) {
+	s.app = app
+	if app == nil || app.Event == nil {
+		s.scheduleEmit = nil
+		return
+	}
+	s.scheduleEmit = func(name string, data any) {
+		app.Event.Emit(name, data)
+	}
+}
+
+// ServiceStartup starts the in-process scheduler. Wails invokes this after the
+// service has been registered, while tests/headless callers may invoke it directly.
+func (s *Service) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
+	s.schedulerMu.Lock()
+	defer s.schedulerMu.Unlock()
+	if s.schedulerCancel != nil {
+		return nil
+	}
+	runCtx, cancel := context.WithCancel(ctx)
+	s.schedulerCancel = cancel
+	ticker := time.NewTicker(30 * time.Second)
+	go func() {
+		defer ticker.Stop()
+		s.scheduler.Run(runCtx, time.Now, ticker.C)
+	}()
+	return nil
+}
+
+// ServiceShutdown stops the scheduler goroutine without affecting active runs.
+func (s *Service) ServiceShutdown() error {
+	s.schedulerMu.Lock()
+	if s.schedulerCancel != nil {
+		s.schedulerCancel()
+		s.schedulerCancel = nil
+	}
+	s.schedulerMu.Unlock()
+	return nil
+}
 
 // adbOverrides 返回 config.yaml 里的二进制路径覆盖（ADB_PATH/FASTBOOT_PATH/SCRCPY_PATH）。
 func (s *Service) adbOverrides() map[string]string {

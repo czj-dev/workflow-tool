@@ -34,9 +34,16 @@ import {
   GetWorkflowYaml,
   SetWorkflowYaml,
   UpdateLogcatFilter,
+  ListSchedules,
+  SaveSchedule,
+  DeleteSchedule,
+  SetScheduleEnabled,
+  RunScheduleNow,
 } from "../../bindings/workflow-tool/internal/api/service.js";
 import type {
   ActionItem,
+  ScheduleInput,
+  ScheduleItem,
   WorkflowItem,
 } from "../../bindings/workflow-tool/internal/api/models.js";
 import type { Fragment } from "../../bindings/workflow-tool/internal/registry/models.js";
@@ -80,6 +87,27 @@ import { EMPTY_LOGCAT_RULE } from "../types/events";
 const MAX_LOGCAT = 10000;
 const MAX_LOGCAT_FLUSH = 12000;
 
+interface ScheduleListResponse {
+  schedules: ScheduleItem[];
+  errors: string[];
+}
+
+function normalizeScheduleList(value: unknown): ScheduleListResponse {
+  if (!value || typeof value !== "object") return { schedules: [], errors: [] };
+  const record = value as Record<string, unknown>;
+  const schedules = Array.isArray(record.schedules)
+    ? record.schedules.filter((item): item is ScheduleItem => !!item && typeof item === "object")
+    : [];
+  const errors = Array.isArray(record.errors)
+    ? record.errors.filter((error): error is string => typeof error === "string")
+    : [];
+  return { schedules: [...schedules], errors: [...errors] };
+}
+
+function scheduleErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 type Status = "idle" | "running" | "done" | "error";
 interface ExitInfo {
   exitCode: number;
@@ -100,6 +128,7 @@ export type RunnerView =
   | "settings"
   | "actions-grid"
   | "workflows-grid"
+  | "schedules"
   | "llm-grid"
   | "llm-chat";
 
@@ -162,6 +191,13 @@ export interface RunnerContextValue {
   // workflow 状态
   workflows: WorkflowItem[];
   workflowErrors: string[];
+  schedules: ScheduleItem[];
+  scheduleErrors: string[];
+  refreshSchedules: () => Promise<void>;
+  saveSchedule: (input: ScheduleInput) => Promise<void>;
+  deleteSchedule: (id: string) => Promise<void>;
+  setScheduleEnabled: (id: string, enabled: boolean) => Promise<void>;
+  runScheduleNow: (id: string) => Promise<void>;
   workflowSteps: WorkflowStepState[];
   // 本次前台运行起点（无运行后保留到下次点火，供仪表带读数）
   wfStartedAt: number | null;
@@ -451,6 +487,9 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   // workflow 状态：列表、加载错误、步骤运行状态
   const [workflows, setWorkflows] = useState<WorkflowItem[]>([]);
   const [workflowErrors, setWorkflowErrors] = useState<string[]>([]);
+  const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
+  const [scheduleErrors, setScheduleErrors] = useState<string[]>([]);
+  const scheduleRequestRef = useRef(0);
   const [workflowSteps, setWorkflowSteps] = useState<WorkflowStepState[]>([]);
   // 本次前台运行起点（runWorkflow 点火时打点）：仪表带总 elapsed 读数用
   const [wfStartedAt, setWfStartedAt] = useState<number | null>(null);
@@ -500,6 +539,24 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
+  const applyScheduleList = (value: unknown) => {
+    const result = normalizeScheduleList(value);
+    setSchedules(result.schedules);
+    setScheduleErrors(result.errors);
+  };
+
+  const refreshSchedules = async (): Promise<void> => {
+    const requestId = ++scheduleRequestRef.current;
+    try {
+      const result = await ListSchedules();
+      if (requestId === scheduleRequestRef.current) applyScheduleList(result);
+    } catch (error: unknown) {
+      if (requestId === scheduleRequestRef.current) {
+        setScheduleErrors([t("error.loadFailed") + ": " + scheduleErrorMessage(error)]);
+      }
+    }
+  };
+
   // 挂载时拉取动作列表
   useEffect(() => {
     ListActions()
@@ -542,6 +599,16 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         setWorkflowErrors((res && res.errors) || []);
       })
       .catch(() => {});
+  }, []);
+
+  // Scheduler 列表与状态事件订阅。事件只作为失效通知，列表由后端重新投影，避免维护第二套 DTO 状态。
+  useEffect(() => {
+    void refreshSchedules();
+    const unsubscribe = Events.On("schedules:changed", () => {
+      void refreshSchedules();
+    });
+    return unsubscribe;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // workflow 事件订阅：必须在 RunWorkflow 之前**同步**建立。
@@ -1158,6 +1225,58 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setFormSheetOpen(true);
   };
 
+  const saveSchedule = async (input: ScheduleInput): Promise<void> => {
+    const requestId = ++scheduleRequestRef.current;
+    try {
+      const result = await SaveSchedule(input);
+      if (requestId === scheduleRequestRef.current) applyScheduleList(result);
+    } catch (error: unknown) {
+      if (requestId === scheduleRequestRef.current) {
+        setScheduleErrors([scheduleErrorMessage(error)]);
+      }
+      throw error;
+    }
+  };
+
+  const deleteSchedule = async (id: string): Promise<void> => {
+    const requestId = ++scheduleRequestRef.current;
+    try {
+      const result = await DeleteSchedule(id);
+      if (requestId === scheduleRequestRef.current) applyScheduleList(result);
+    } catch (error: unknown) {
+      if (requestId === scheduleRequestRef.current) {
+        setScheduleErrors([scheduleErrorMessage(error)]);
+      }
+      throw error;
+    }
+  };
+
+  const setScheduleEnabled = async (id: string, enabled: boolean): Promise<void> => {
+    const requestId = ++scheduleRequestRef.current;
+    try {
+      const result = await SetScheduleEnabled(id, enabled);
+      if (requestId === scheduleRequestRef.current) applyScheduleList(result);
+    } catch (error: unknown) {
+      if (requestId === scheduleRequestRef.current) {
+        setScheduleErrors([scheduleErrorMessage(error)]);
+      }
+      throw error;
+    }
+  };
+
+  const runScheduleNow = async (id: string): Promise<void> => {
+    const requestId = ++scheduleRequestRef.current;
+    try {
+      await RunScheduleNow(id);
+      if (requestId === scheduleRequestRef.current) await refreshSchedules();
+    } catch (error: unknown) {
+      if (requestId === scheduleRequestRef.current) {
+        setScheduleErrors([scheduleErrorMessage(error)]);
+      }
+      throw error;
+    }
+  };
+
   const saveGlobalConfig = async (kv: Record<string, string>) => {
     await SetGlobalConfig(kv);
     setGlobalConfig(kv);
@@ -1348,6 +1467,13 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setFormSheetOpen,
     workflows,
     workflowErrors,
+    schedules,
+    scheduleErrors,
+    refreshSchedules,
+    saveSchedule,
+    deleteSchedule,
+    setScheduleEnabled,
+    runScheduleNow,
     workflowSteps,
     wfStartedAt,
     workflowFormValues,

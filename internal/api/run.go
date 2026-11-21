@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"workflow-tool/internal/actionrun"
 	"workflow-tool/internal/adb/logcat"
@@ -21,7 +22,11 @@ const controlChanCap = 4
 // RunAction 按 id 启动动作，params 为运行时参数；输出通过事件流推送。
 // logcat-stream 动作额外预登记控制通道（UpdateLogcatFilter 按 id 寻址下发规则）。
 func (s *Service) RunAction(id string, params map[string]any) error {
-	la, ok := s.reg.Actions[id]
+	return s.runAction(id, params, nil)
+}
+
+func (s *Service) runAction(id string, params map[string]any, source *runSource) error {
+	la, ok := s.actionRegistry().Actions[id]
 	if !ok {
 		return fmt.Errorf("未知动作 %q", id)
 	}
@@ -34,7 +39,15 @@ func (s *Service) RunAction(id string, params map[string]any) error {
 	}
 	ctx, ok := s.running.begin(id)
 	if !ok {
-		return fmt.Errorf("动作 %q 正在运行", id)
+		err := fmt.Errorf("动作 %q 正在运行", id)
+		if source != nil {
+			s.failScheduleStart(source.scheduleID, err)
+		}
+		return err
+	}
+	if source != nil {
+		started := s.startScheduleRun(source.scheduleID)
+		source.token = started.token
 	}
 
 	merged := s.mergeGlobalAndParams(decoded)
@@ -43,7 +56,7 @@ func (s *Service) RunAction(id string, params map[string]any) error {
 		ctrl = make(chan any, controlChanCap)
 		s.running.setControl(id, ctrl)
 	}
-	go s.execute(ctx, id, la, merged, ctrl, literalKeys)
+	go s.execute(ctx, id, la, merged, ctrl, literalKeys, source)
 	return nil
 }
 
@@ -139,10 +152,17 @@ func (s *Service) UpdateLogcatFilter(id string, rule logcat.Rule, reset bool) er
 // execute 在独立 goroutine 里执行动作（事件协议见 events.go 的 actionEvents）：
 // 统一 ${VAR} 展开 → 工作目录校验 → actionrun.Build 构造 runner → 运行 → done 事件。
 // ctrl 为 logcat-stream 的运行期控制通道（其余动作为 nil）。
-func (s *Service) execute(ctx context.Context, id string, la registry.LoadedAction, params map[string]any, ctrl chan any, literalKeys map[string]bool) {
+func (s *Service) execute(ctx context.Context, id string, la registry.LoadedAction, params map[string]any, ctrl chan any, literalKeys map[string]bool, source *runSource) {
+	started := time.Now()
 	// 树点击映射值已是终值；其余参数仍以解包后的字符串为变量源展开。
 	params = expandDirectParams(ctx, params, s.builtins, literalKeys)
 	defer s.running.end(id)
+	finished := false
+	defer func() {
+		if source != nil && !finished {
+			s.finishScheduleRun(source, source.token, -1, ctx.Err(), time.Since(started))
+		}
+	}()
 
 	ev := newActionEvents(s.app, id)
 
@@ -151,7 +171,12 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 	cwd := runner.Expand(ctx, la.Cwd, params, s.builtins)
 	if cwd != "" {
 		if _, err := os.Stat(cwd); err != nil {
-			ev.DoneUnordered(-1, fmt.Sprintf("工作目录不存在: %s", cwd), 0)
+			err := fmt.Errorf("工作目录不存在: %s", cwd)
+			ev.DoneUnordered(-1, err.Error(), 0)
+			if source != nil {
+				finished = true
+				s.finishScheduleRun(source, source.token, -1, err, time.Since(started))
+			}
 			return
 		}
 	}
@@ -159,6 +184,10 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 	r, err := actionrun.Build(ctx, la, s.runDeps, actionrun.Options{Params: params, ADBControl: ctrl})
 	if err != nil {
 		ev.DoneUnordered(-1, err.Error(), 0)
+		if source != nil {
+			finished = true
+			s.finishScheduleRun(source, source.token, -1, err, time.Since(started))
+		}
 		return
 	}
 	protocol := "script"
@@ -185,4 +214,8 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 		errMsg = fmt.Sprintf("LLM 调用超时（上限 %s），进程已终止；可将 readout 中的 sessionId 填入 SESSION_ID 参数续接会话重跑", la.Timeout)
 	}
 	ev.Done(res.ExitCode, errMsg, res.Duration, readout)
+	if source != nil {
+		finished = true
+		s.finishScheduleRun(source, source.token, res.ExitCode, res.Err, res.Duration)
+	}
 }

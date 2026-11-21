@@ -3,6 +3,7 @@ package runner
 import (
 	"bufio"
 	"context"
+	"fmt"
 	"io"
 	"os/exec"
 	"sync"
@@ -85,14 +86,27 @@ func Run(ctx context.Context, req ExecRequest, onLine OnLine) ExecOutcome {
 	}
 }
 
+// maxScanLine 是 bufio.Scanner 单行上限。默认 64KB 会截断脚本的大协议行：
+// SPM 浏览模式的 ##[tree 树帧随条目数增长（实测 8676 条目 ≈1.2MB），
+// 旧上限 1MB 触发 ErrTooLong 后整条输出流被静默丢弃。上限只限制单行长度，
+// 内存仍按需增长，不会按上限预分配。
+const maxScanLine = 64 * 1024 * 1024
+
 // scanLines 用 bufio.Scanner 配 splitLines（\n 与 \r 都切行）逐行回调，并去除 ANSI 转义序列。
 func scanLines(r io.Reader, stream string, onLine OnLine, done chan<- struct{}) {
 	defer close(done)
 	sc := bufio.NewScanner(r)
-	sc.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	sc.Buffer(make([]byte, 0, 64*1024), maxScanLine)
 	sc.Split(splitLines)
 	for sc.Scan() {
 		onLine(stream, stripANSI(sc.Text()))
+	}
+	// ErrTooLong（单行超限）会终止扫描：不检查 sc.Err() 则该行及之后所有输出
+	// 静默丢失，表现为"动作输出凭空消失"。上报为 stderr 行，让用户看得见。
+	if err := sc.Err(); err != nil {
+		onLine("stderr", fmt.Sprintf(
+			"[workflow-tool] 读取 %s 输出中断: %v（单行超过 %dMB 上限）",
+			stream, err, maxScanLine/(1024*1024)))
 	}
 }
 

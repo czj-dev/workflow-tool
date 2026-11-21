@@ -11,11 +11,22 @@ import { ActionYamlEditor } from "./ActionYamlEditor";
 import { WorkflowView } from "./WorkflowView";
 import { WorkflowYamlEditor } from "./WorkflowYamlEditor";
 import { SettingsView } from "./SettingsView";
+import { SchedulerView } from "./SchedulerView";
 import { ActionsGridView } from "./ActionsGridView";
 import { WorkflowsGridView } from "./WorkflowsGridView";
 
 // 右栏容器：按 view 分派到对应视图。
 export function OutputPanel() {
+  const { view } = useActionRunner();
+  return (
+    <>
+      <SchedulerView active={view === "schedules"} />
+      {view !== "schedules" && <OtherView />}
+    </>
+  );
+}
+
+function OtherView() {
   const { view } = useActionRunner();
   if (view === "settings") return <SettingsView />;
   if (view === "actions-grid") return <ActionsGridView />;

@@ -39,8 +39,9 @@ type WorkflowListResult struct {
 
 // ListWorkflows 返回全部已加载 workflow + 加载错误。
 func (s *Service) ListWorkflows() WorkflowListResult {
-	items := make([]WorkflowItem, 0, len(s.wfReg.Workflows))
-	for _, lw := range s.wfReg.Workflows {
+	reg := s.workflowRegistry()
+	items := make([]WorkflowItem, 0, len(reg.Workflows))
+	for _, lw := range reg.Workflows {
 		steps := buildStepInfos(lw.Def.Steps)
 		items = append(items, WorkflowItem{
 			ID:          lw.Def.ID,
@@ -52,8 +53,8 @@ func (s *Service) ListWorkflows() WorkflowListResult {
 			Steps:       steps,
 		})
 	}
-	errs := make([]string, 0, len(s.wfReg.Errors))
-	for _, e := range s.wfReg.Errors {
+	errs := make([]string, 0, len(reg.Errors))
+	for _, e := range reg.Errors {
 		errs = append(errs, fmt.Sprintf("%s: %s", e.File, e.Error))
 	}
 	return WorkflowListResult{Workflows: items, Errors: errs}
@@ -86,12 +87,16 @@ func buildStepInfos(steps []workflow.Step) []WorkflowStepInfo {
 
 // ReloadWorkflows 重扫 workflows 目录重建 wfReg（编辑保存后调用）。
 func (s *Service) ReloadWorkflows() {
-	s.wfReg = workflow.Load(filepath.Join(s.baseDir, "workflows"))
+	loaded := workflow.Load(filepath.Join(s.baseDir, "workflows"))
+	s.wfMu.Lock()
+	s.wfReg = loaded
+	s.wfMu.Unlock()
+	s.reconcileSchedules()
 }
 
 // GetWorkflowYaml 返回指定 workflow 源文件原文（含注释与格式）。
 func (s *Service) GetWorkflowYaml(id string) (string, error) {
-	lw, ok := s.wfReg.Workflows[id]
+	lw, ok := s.workflowRegistry().Workflows[id]
 	if !ok {
 		return "", fmt.Errorf("未知 workflow %q", id)
 	}
@@ -105,7 +110,7 @@ func (s *Service) GetWorkflowYaml(id string) (string, error) {
 // SetWorkflowYaml 校验并写回 workflow 源文件，随后重载 wfReg，返回最新列表。
 // 禁止改 id（id 为文件锚点）；解析/校验失败时不写盘。
 func (s *Service) SetWorkflowYaml(id string, text string) (WorkflowListResult, error) {
-	lw, ok := s.wfReg.Workflows[id]
+	lw, ok := s.workflowRegistry().Workflows[id]
 	if !ok {
 		return WorkflowListResult{}, fmt.Errorf("未知 workflow %q", id)
 	}
@@ -128,15 +133,27 @@ func (s *Service) SetWorkflowYaml(id string, text string) (WorkflowListResult, e
 
 // RunWorkflow 启动 workflow 执行；同一 workflow 并发运行被拒。
 func (s *Service) RunWorkflow(id string, params map[string]any) error {
-	lw, ok := s.wfReg.Workflows[id]
+	return s.runWorkflow(id, params, nil)
+}
+
+func (s *Service) runWorkflow(id string, params map[string]any, source *runSource) error {
+	lw, ok := s.workflowRegistry().Workflows[id]
 	if !ok {
 		return fmt.Errorf("未知 workflow %q", id)
 	}
 	ctx, ok := s.wfRunning.begin(id)
 	if !ok {
-		return fmt.Errorf("workflow %q 正在运行", id)
+		err := fmt.Errorf("workflow %q 正在运行", id)
+		if source != nil {
+			s.failScheduleStart(source.scheduleID, err)
+		}
+		return err
 	}
-	go s.executeWorkflow(ctx, id, lw, params)
+	if source != nil {
+		started := s.startScheduleRun(source.scheduleID)
+		source.token = started.token
+	}
+	go s.executeWorkflow(ctx, id, lw, params, source)
 	return nil
 }
 
@@ -146,13 +163,16 @@ func (s *Service) CancelWorkflow(id string) {
 }
 
 // executeWorkflow 在独立 goroutine 里执行 workflow（事件协议见 events.go 的 workflowEvents）。
-func (s *Service) executeWorkflow(ctx context.Context, id string, lw workflow.LoadedWorkflow, params map[string]any) {
+func (s *Service) executeWorkflow(ctx context.Context, id string, lw workflow.LoadedWorkflow, params map[string]any, source *runSource) {
 	defer s.wfRunning.end(id)
 	ev := newWorkflowEvents(s.app, id)
 
 	merged := s.mergeGlobalAndParams(params)
 	// 直跑与 cli 路径共用的 workflow step 回调构造（见 actionrun.WorkflowCallbacks）。
-	actionRun, shellRun := actionrun.WorkflowCallbacks(s.reg, s.runDeps, merged)
+	actionRun, shellRun := actionrun.WorkflowCallbacks(s.actionRegistry(), s.runDeps, merged)
 	res := (&workflow.Executor{}).Execute(ctx, lw, actionRun, shellRun, merged, ev.EmitFunc())
 	ev.Done(res.ExitCode, errStr(res.Err), res.Duration)
+	if source != nil {
+		s.finishScheduleRun(source, source.token, res.ExitCode, res.Err, res.Duration)
+	}
 }

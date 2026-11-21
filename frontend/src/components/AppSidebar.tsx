@@ -20,6 +20,7 @@ import {
   NoteIcon,
   PreferenceHorizontalIcon,
   Settings02Icon,
+  Calendar03Icon,
 } from "@hugeicons/core-free-icons";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
@@ -224,6 +225,19 @@ export function AppSidebar() {
                 className="size-4 shrink-0"
               />
               <span>{t("fragments.title")}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              onClick={() => setView("schedules")}
+              tooltip={t("scheduler.title")}
+            >
+              <HugeiconsIcon
+                icon={Calendar03Icon}
+                strokeWidth={1.75}
+                className="size-4 shrink-0"
+              />
+              <span>{t("scheduler.title")}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>

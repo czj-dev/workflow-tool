@@ -51,6 +51,9 @@ func (e *actionEvents) nextSeq() int64 { return e.seq.Add(1) }
 // 协议行转入同一流）。
 func (e *actionEvents) EmitFunc() runner.EmitFunc {
 	return func(stream, line string) {
+		if e.app == nil || e.app.Event == nil {
+			return
+		}
 		e.app.Event.Emit(eventName(e.id, "output"), map[string]any{
 			"stream": stream, "line": line, "seq": e.nextSeq(),
 		})
@@ -73,6 +76,9 @@ func (e *actionEvents) DoneUnordered(exitCode int, errMsg string, d time.Duratio
 }
 
 func (e *actionEvents) emitDone(exitCode int, errMsg string, d time.Duration, readout map[string]any, seq int64) {
+	if e.app == nil || e.app.Event == nil {
+		return
+	}
 	payload := map[string]any{
 		"exitCode": exitCode,
 		"err":      errMsg,
@@ -111,6 +117,9 @@ func (e *workflowEvents) EmitFunc() runner.EmitFunc {
 		if stream == "step-start" || stream == "step-skip" {
 			e.curStep = line
 		}
+		if e.app == nil || e.app.Event == nil {
+			return
+		}
 		e.app.Event.Emit(workflowEventName(e.id, "output"), map[string]string{
 			"stream": stream, "line": line, "step": e.curStep,
 		})
@@ -119,6 +128,9 @@ func (e *workflowEvents) EmitFunc() runner.EmitFunc {
 
 // Done 发送 workflow 结束事件（workflow 无 output 排序协议，done 直接应用）。
 func (e *workflowEvents) Done(exitCode int, errMsg string, d time.Duration) {
+	if e.app == nil || e.app.Event == nil {
+		return
+	}
 	e.app.Event.Emit(workflowEventName(e.id, "done"), map[string]any{
 		"exitCode": exitCode,
 		"err":      errMsg,

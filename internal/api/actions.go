@@ -47,8 +47,9 @@ func (s *Service) ListActions() ListResult {
 
 // buildListResult 从当前 registry 构造前端可见列表（ListActions 与 SetActionYaml 末尾共用）。
 func (s *Service) buildListResult() ListResult {
-	items := make([]ActionItem, 0, len(s.reg.Actions))
-	for _, la := range s.reg.Actions {
+	reg := s.actionRegistry()
+	items := make([]ActionItem, 0, len(reg.Actions))
+	for _, la := range reg.Actions {
 		items = append(items, ActionItem{
 			ID:          la.Def.ID,
 			Title:       la.Def.Title,
@@ -61,8 +62,8 @@ func (s *Service) buildListResult() ListResult {
 			LLM:         llmInfoOf(la.Def.Command),
 		})
 	}
-	errs := make([]string, 0, len(s.reg.Errors))
-	for _, e := range s.reg.Errors {
+	errs := make([]string, 0, len(reg.Errors))
+	for _, e := range reg.Errors {
 		errs = append(errs, fmt.Sprintf("%s: %s", e.File, e.Error))
 	}
 	return ListResult{Actions: items, Errors: errs}
@@ -79,12 +80,16 @@ func llmInfoOf(cmd registry.Command) *LLMInfo {
 // Reload 重扫 actions 目录重建 registry（编辑保存后调用）。
 // 低频操作：整体替换 reg 指针；正在运行的 action 持有旧 LoadedAction 副本，不受影响。
 func (s *Service) Reload() {
-	s.reg = registry.Load(filepath.Join(s.baseDir, "actions"), s.baseDir)
+	loaded := registry.Load(filepath.Join(s.baseDir, "actions"), s.baseDir)
+	s.regMu.Lock()
+	s.reg = loaded
+	s.regMu.Unlock()
+	s.reconcileSchedules()
 }
 
 // GetActionYaml 返回指定 action 源文件原文（含注释与格式）。
 func (s *Service) GetActionYaml(id string) (string, error) {
-	la, ok := s.reg.Actions[id]
+	la, ok := s.actionRegistry().Actions[id]
 	if !ok {
 		return "", fmt.Errorf("未知动作 %q", id)
 	}
@@ -98,7 +103,7 @@ func (s *Service) GetActionYaml(id string) (string, error) {
 // SetActionYaml 校验并写回 action 源文件，随后重载 registry，返回最新列表。
 // 禁止改 id（id 为文件锚点）；解析/校验失败时不写盘。
 func (s *Service) SetActionYaml(id string, text string) (ListResult, error) {
-	la, ok := s.reg.Actions[id]
+	la, ok := s.actionRegistry().Actions[id]
 	if !ok {
 		return ListResult{}, fmt.Errorf("未知动作 %q", id)
 	}
@@ -122,7 +127,7 @@ func (s *Service) SetActionYaml(id string, text string) (ListResult, error) {
 // AddPreset 给指定动作新增/覆盖一个 preset（同名覆盖），写回 yaml 并重载，返回最新列表。
 // 经 registry.AddPresetToYAML 在 yaml 节点树上操作，保留其余部分的注释与格式。
 func (s *Service) AddPreset(actionID, name, description string, values map[string]string) (ListResult, error) {
-	la, ok := s.reg.Actions[actionID]
+	la, ok := s.actionRegistry().Actions[actionID]
 	if !ok {
 		return ListResult{}, fmt.Errorf("未知动作 %q", actionID)
 	}
@@ -189,7 +194,7 @@ func (s *Service) GetVarReferenceCounts() map[string]int {
 		}
 	}
 	// actions：inline run + cwd + env values + script 脚本文件内容
-	for _, la := range s.reg.Actions {
+	for _, la := range s.actionRegistry().Actions {
 		add(la.Def.Command.Run)
 		add(la.Def.Command.Cwd)
 		for _, v := range la.Def.Command.Env {
@@ -203,8 +208,7 @@ func (s *Service) GetVarReferenceCounts() map[string]int {
 	}
 	// workflows：workflow 级 env + 每个 step 的 shell / params / env 值
 	// （运行时这些字段都会被 runner.Expand 展开 ${VAR}，故都需统计引用）
-	s.wfMu.Lock()
-	for _, lw := range s.wfReg.Workflows {
+	for _, lw := range s.workflowRegistry().Workflows {
 		for _, v := range lw.Def.Env {
 			add(v)
 		}
@@ -218,7 +222,6 @@ func (s *Service) GetVarReferenceCounts() map[string]int {
 			}
 		}
 	}
-	s.wfMu.Unlock()
 	// fragments
 	s.fMu.Lock()
 	for _, f := range s.fragments {

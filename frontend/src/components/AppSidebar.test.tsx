@@ -41,6 +41,12 @@ import { SidebarProvider } from "@/components/ui/sidebar";
 import { ThemeProvider } from "@/components/theme-provider";
 import { ActionRunnerProvider } from "../context/ActionRunnerProvider";
 import { AppSidebar } from "./AppSidebar";
+import { useActionRunner } from "../hooks/useActionRunner";
+
+function ViewProbe() {
+  const { view } = useActionRunner();
+  return <div data-testid="view-probe">{view}</div>;
+}
 
 beforeEach(() => {
   Object.keys(listeners).forEach((k) => delete listeners[k]);
@@ -71,6 +77,7 @@ function wrap() {
       <ActionRunnerProvider>
         <SidebarProvider>
           <AppSidebar />
+          <ViewProbe />
         </SidebarProvider>
       </ActionRunnerProvider>
     </ThemeProvider>
@@ -94,6 +101,16 @@ describe("AppSidebar", () => {
     mockListActions.mockResolvedValue({ actions: [], errors: [] });
     render(wrap());
     expect(await screen.findByText("全局配置")).toBeInTheDocument();
+  });
+
+  it("渲染调度入口并打开调度面板", async () => {
+    const user = userEvent.setup();
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    render(wrap());
+    const schedules = await screen.findByRole("button", { name: "调度" });
+    expect(schedules).toBeInTheDocument();
+    await user.click(schedules);
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("schedules");
   });
 
   it("点击有参数动作后展开预设子项", async () => {
