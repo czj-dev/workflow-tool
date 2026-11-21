@@ -61,3 +61,9 @@ fragments:
       content: 'UploadAgentSignalRequest.*?:|DVR_okhttp.OkHttpClient.*?:'
       tags:
         - Log
+    - title: 权限检测
+      content: |-
+        adb shell appops get com.baidu.che.codriver RECORD_AUDIO ACCESS_FINE_LOCATION
+        adb shell dumpsys package com.baidu.che.codriver | grep -E "RECORD_AUDIO|ACCESS_FINE_LOCATION" -A2
+      tags:
+        - adb
