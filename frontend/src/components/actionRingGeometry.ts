@@ -9,11 +9,29 @@ export interface RingGeometry {
 export const GAP_DEGREES = 1;
 export const SELECTED_OFFSET = 6;
 
-export function ringGeometry(rect: DOMRect, count: number): RingGeometry {
-  const x = rect.left + rect.width / 2;
-  const y = rect.top + rect.height / 2;
-  const outer = Math.max(0, Math.min(178, x - 8, window.innerWidth - x - 8, y - 8, window.innerHeight - y - 8));
-  return { x, y, outer, inner: Math.min(72, outer * 0.42), count };
+// 内孔半径 = 卡高一半（宽卡 72px 高 → inner=36，扇形内沿贴卡上下沿，
+// hub 正圆盘放大后正好填满内孔成为环心）。卡高异常时钳制在 [28, 64] 兜底。
+const MIN_INNER = 28;
+const MAX_INNER = 64;
+// 环离视口边的最小留白 —— 按视口（而非内容区）钳制，环允许压在左侧栏上借空间。
+const RING_MARGIN = 10;
+// 外内半径差低于此值说明空间不足，不开环。
+export const MIN_RING_BAND = 30;
+
+// 锚点 = hub（卡片图标容器）中心。极坐标数学与锚点位置无关，命中共用 ringHit。
+export function ringGeometry(hubRect: DOMRect, count: number, cardHeight: number): RingGeometry {
+  const x = hubRect.left + hubRect.width / 2;
+  const y = hubRect.top + hubRect.height / 2;
+  const inner = Math.max(MIN_INNER, Math.min(MAX_INNER, cardHeight / 2));
+  const outer = Math.max(0, Math.min(
+    178,
+    inner + 78,
+    x - RING_MARGIN,
+    window.innerWidth - x - RING_MARGIN,
+    y - RING_MARGIN,
+    window.innerHeight - y - RING_MARGIN,
+  ));
+  return { x, y, inner, outer, count };
 }
 
 export function polar(radius: number, angle: number) {

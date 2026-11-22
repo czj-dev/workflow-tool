@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 const { mockListActions, mockRunAction, mockOn } = vi.hoisted(() => ({
@@ -62,10 +62,19 @@ function wrap() {
 }
 
 function mockCardBounds(card: HTMLElement) {
+  // 宽卡 72px 高；环锚点在 .action-hub（40px 图标容器），中心 (220, 220)。
+  // 由卡高得 inner=36，由视口（jsdom 默认 1024×768）得 outer=min(178,114,...)=114。
   vi.spyOn(card, "getBoundingClientRect").mockReturnValue({
-    left: 200, top: 200, width: 130, height: 130, right: 330, bottom: 330,
+    left: 200, top: 200, width: 260, height: 72, right: 460, bottom: 272,
     x: 200, y: 200, toJSON: () => ({}),
   });
+  const hub = card.querySelector<HTMLElement>(".action-hub");
+  if (hub) {
+    vi.spyOn(hub, "getBoundingClientRect").mockReturnValue({
+      left: 200, top: 200, width: 40, height: 40, right: 240, bottom: 240,
+      x: 200, y: 200, toJSON: () => ({}),
+    });
+  }
 }
 
 const mkAction = (id: string, title: string, extra: Record<string, unknown> = {}) => ({
@@ -214,9 +223,13 @@ describe("ActionsGridView", () => {
     act(() => vi.advanceTimersByTime(1));
     expect(screen.getByTestId("preset-ring")).toBeInTheDocument();
     expect(mockRunAction).not.toHaveBeenCalled();
-    fireEvent.pointerMove(card, { pointerId: 1, clientX: 265, clientY: 365 });
-    fireEvent.pointerUp(card, { pointerId: 1, clientX: 265, clientY: 365 });
+    // (265,310) 距环心 (220,220) r≈101，落在下方扇区（抖音，index 1）；
+    // y 取 310 而非 315：选中扇区外移 6px 后仍需在 outer=114 内
+    fireEvent.pointerMove(card, { pointerId: 1, clientX: 265, clientY: 310 });
+    fireEvent.pointerUp(card, { pointerId: 1, clientX: 265, clientY: 310 });
     fireEvent.click(card);
+    // 摘瓣动画(300ms)结束后才执行事件
+    act(() => vi.advanceTimersByTime(400));
     expect(mockRunAction).toHaveBeenCalledTimes(1);
     expect(mockRunAction).toHaveBeenCalledWith("demo-pre", { APP: "com.ss.android.ugc.aweme" });
   });
@@ -245,9 +258,11 @@ describe("ActionsGridView", () => {
     const heldMove = new Event("touchmove", { bubbles: true, cancelable: true });
     fireEvent(card, heldMove);
     expect(heldMove.defaultPrevented).toBe(true);
-    fireEvent.pointerMove(card, { pointerId: 2, clientX: 265, clientY: 365 });
-    fireEvent.pointerUp(card, { pointerId: 2, clientX: 265, clientY: 365 });
+    fireEvent.pointerMove(card, { pointerId: 2, clientX: 265, clientY: 310 });
+    fireEvent.pointerUp(card, { pointerId: 2, clientX: 265, clientY: 310 });
     fireEvent.click(card);
+    // 摘瓣动画(300ms)结束后才执行事件
+    act(() => vi.advanceTimersByTime(400));
     expect(mockRunAction).toHaveBeenCalledExactlyOnceWith("touch", { K: "v" });
   });
 
@@ -263,10 +278,10 @@ describe("ActionsGridView", () => {
     fireEvent.pointerDown(card, { pointerId: 1, button: 0, clientX: 265, clientY: 265 });
     act(() => vi.advanceTimersByTime(450));
     expect(screen.queryByTestId("preset-selection-label")).not.toBeInTheDocument();
-    fireEvent.pointerMove(card, { pointerId: 1, clientX: 265, clientY: 365 });
+    fireEvent.pointerMove(card, { pointerId: 1, clientX: 265, clientY: 310 });
     expect(screen.getByTestId("preset-selection-label")).toHaveTextContent(fullName);
     expect(screen.getByTestId("preset-selection-label")).toHaveStyle({ left: "279px" });
-    fireEvent.pointerMove(card, { pointerId: 1, clientX: 275, clientY: 365 });
+    fireEvent.pointerMove(card, { pointerId: 1, clientX: 275, clientY: 310 });
     expect(screen.getByTestId("preset-selection-label")).toHaveStyle({ left: "289px" });
     fireEvent.pointerMove(card, { pointerId: 1, clientX: 265, clientY: 500 });
     expect(screen.queryByTestId("preset-selection-label")).not.toBeInTheDocument();
@@ -312,8 +327,11 @@ describe("ActionsGridView", () => {
     expect(screen.getByTestId("preset-ring")).toBeInTheDocument();
     expect(mockRunAction).not.toHaveBeenCalled();
     await user.keyboard("{ArrowRight}{ArrowRight}{Enter}");
-    expect(mockRunAction).toHaveBeenCalledWith("demo-more", { K: "2" });
-    expect(screen.queryByTestId("preset-ring")).not.toBeInTheDocument();
+    // 摘瓣动画(300ms)结束后才执行事件
+    await waitFor(() => {
+      expect(mockRunAction).toHaveBeenCalledWith("demo-more", { K: "2" });
+      expect(screen.queryByTestId("preset-ring")).not.toBeInTheDocument();
+    });
   });
 
   it("预设环打开时 Enter 和空格不执行默认动作", async () => {
@@ -332,7 +350,8 @@ describe("ActionsGridView", () => {
     expect(mockRunAction).not.toHaveBeenCalled();
     expect(screen.getByTestId("preset-ring")).toBeInTheDocument();
     await user.keyboard("{Enter}");
-    expect(mockRunAction).toHaveBeenCalledTimes(1);
+    // 摘瓣动画(300ms)结束后才执行事件
+    await waitFor(() => expect(mockRunAction).toHaveBeenCalledTimes(1));
   });
 
   it("取消环形选择后，默认点击仍只触发一次", async () => {
@@ -350,7 +369,8 @@ describe("ActionsGridView", () => {
     await user.keyboard("{Shift>}{F10}{/Shift}");
     expect(screen.getByTestId("preset-ring")).toBeInTheDocument();
     await user.keyboard("{Tab}");
-    expect(screen.queryByTestId("preset-ring")).not.toBeInTheDocument();
+    // 关环退场动画(170ms)结束后才卸载
+    await waitFor(() => expect(screen.queryByTestId("preset-ring")).not.toBeInTheDocument());
     await user.click(card);
     expect(mockRunAction).toHaveBeenCalledTimes(1);
     await user.click(card);
@@ -432,6 +452,33 @@ describe("ActionsGridView", () => {
     expect(document.body).not.toHaveClass("preset-ring-selecting");
   });
 
+  it("头部搜索按标题/id/描述过滤，无匹配显示空态", async () => {
+    const user = userEvent.setup();
+    mockListActions.mockResolvedValue({
+      actions: [
+        mkAction("adb-foo", "甲动作", { description: "描述一" }),
+        mkAction("log-bar", "乙动作", { description: "描述二" }),
+      ],
+      errors: [],
+    });
+    render(wrap());
+    await screen.findByText("甲动作");
+    const box = screen.getByPlaceholderText("搜索 名称 / id / 描述");
+    // 按 id 前缀命中
+    await user.type(box, "adb");
+    expect(screen.getByText("甲动作")).toBeInTheDocument();
+    expect(screen.queryByText("乙动作")).not.toBeInTheDocument();
+    await user.clear(box);
+    // 按标题命中
+    await user.type(box, "乙动作");
+    expect(screen.getByText("乙动作")).toBeInTheDocument();
+    expect(screen.queryByText("甲动作")).not.toBeInTheDocument();
+    await user.clear(box);
+    // 无匹配 → 空态
+    await user.type(box, "zzz");
+    expect(screen.getByText("没有匹配的动作")).toBeInTheDocument();
+  });
+
   it("无动作时渲染空态指引(不崩)", async () => {
     mockListActions.mockResolvedValue({ actions: [], errors: [] });
     render(wrap());
@@ -450,7 +497,8 @@ describe("ActionsGridView", () => {
     mockCardBounds(card);
     card.focus();
     await user.keyboard("{Shift>}{F10}{/Shift}{ArrowRight}{Enter}");
-    expect(mockRunAction).toHaveBeenCalledWith("sparse", { FILTER: "tag" });
+    // 摘瓣动画(300ms)结束后才执行事件
+    await waitFor(() => expect(mockRunAction).toHaveBeenCalledWith("sparse", { FILTER: "tag" }));
   });
 
   it("预设显式留空必填字段时打开预填表单", async () => {
@@ -470,8 +518,9 @@ describe("ActionsGridView", () => {
     mockCardBounds(card);
     card.focus();
     await user.keyboard("{Shift>}{F10}{/Shift}{ArrowRight}{Enter}");
+    // 摘瓣动画(300ms)结束后才走预填表单分支
+    await waitFor(() => expect(screen.getByTestId("form-open-probe")).toHaveTextContent("true"));
     expect(mockRunAction).not.toHaveBeenCalled();
-    expect(screen.getByTestId("form-open-probe")).toHaveTextContent("true");
     expect(JSON.parse(screen.getByTestId("form-values-probe").textContent ?? "{}")).toEqual({ LOCAL_PATH: "", REMOTE_PATH: "/sdcard/" });
   });
 
@@ -496,6 +545,8 @@ describe("ActionsGridView", () => {
     act(() => vi.advanceTimersByTime(450));
     fireEvent.pointerUp(card, { pointerId: 3, clientX: 5, clientY: 5 });
     fireEvent.click(card);
+    // 关环退场动画(RING_EXIT_MS=210)结束后才卸载
+    act(() => vi.advanceTimersByTime(250));
     expect(screen.queryByTestId("preset-ring")).not.toBeInTheDocument();
     expect(mockRunAction).not.toHaveBeenCalled();
   });

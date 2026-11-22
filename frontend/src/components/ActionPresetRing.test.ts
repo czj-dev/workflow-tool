@@ -29,15 +29,27 @@ describe("ringHit", () => {
 });
 
 describe("ringGeometry", () => {
-  it("限制圆环在视口内且保持卡片中心", () => {
+  it("锚定 hub 中心：内孔半径 = 卡高一半，外径钳制在视口内", () => {
     vi.stubGlobal("innerWidth", 320);
     vi.stubGlobal("innerHeight", 480);
-    const actual = ringGeometry({ left: 8, top: 100, width: 130, height: 130 } as DOMRect, 3);
-    expect(actual.x).toBe(73);
-    expect(actual.y).toBe(165);
-    expect(actual.outer).toBe(65);
-    expect(actual.inner).toBeLessThan(actual.outer);
-    expect(ringGeometry({ left: -60, top: 0, width: 130, height: 130 } as DOMRect, 1).outer).toBe(0);
+    const hub = { left: 180, top: 100, width: 40, height: 40 } as DOMRect;
+    const actual = ringGeometry(hub, 3, 72);
+    expect(actual.x).toBe(200);
+    expect(actual.y).toBe(120);
+    expect(actual.inner).toBe(36);
+    // min(178, inner+78=114, x-10=190, 320-x-10=110, y-10=110, 480-y-10=350)
+    expect(actual.outer).toBe(110);
+    // hub 贴到视口边缘外：外径被 x-10 钳到 0
+    expect(ringGeometry({ left: -20, top: 100, width: 40, height: 40 } as DOMRect, 1, 72).outer).toBe(0);
+    vi.unstubAllGlobals();
+  });
+
+  it("卡高异常时内孔半径被钳制在 [28, 64]", () => {
+    vi.stubGlobal("innerWidth", 1280);
+    vi.stubGlobal("innerHeight", 800);
+    const hub = { left: 400, top: 300, width: 40, height: 40 } as DOMRect;
+    expect(ringGeometry(hub, 2, 40).inner).toBe(28);
+    expect(ringGeometry(hub, 2, 200).inner).toBe(64);
     vi.unstubAllGlobals();
   });
 });

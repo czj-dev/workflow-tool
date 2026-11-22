@@ -1,6 +1,15 @@
 import { createPortal } from "react-dom";
+import type { CSSProperties } from "react";
 import type { Preset } from "../../bindings/workflow-tool/internal/registry/models.js";
+import { ActionIcon } from "./ActionIcon";
 import { GAP_DEGREES, SELECTED_OFFSET, polar, type RingGeometry } from "./actionRingGeometry";
+
+// 开环编排（点 1）：hub 先形变为正圆盘(~200ms)，扇形延迟 RING_OPEN_DELAY_MS 后
+// 以「折扇展开」方式从收束位一起旋出：所有扇片初始折叠到 0 号扇片（正上方），
+// 由每片的 --fan-from 角度变量驱动，像折扇打开而非逐片弹出。
+export const RING_OPEN_DELAY_MS = 150;
+// 摘瓣（点 2）：选中扇片沿自身角度飘出的距离(px)
+const PETAL_FLY_DISTANCE = 56;
 
 function sectorPath(inner: number, outer: number, start: number, end: number, center: number): string {
   const a = polar(outer, start);
@@ -18,16 +27,24 @@ interface ActionPresetRingProps {
   cursor?: { x: number; y: number };
   keyboard: boolean;
   label: string;
+  /** hub 轴帽盖盘用的图标名(与卡片 hub 一致,视觉上重叠为同一圈盘) */
+  hubIcon: string;
+  /** 关环退场中：扇形组反向缩回环心（点 3） */
+  exiting?: boolean;
+  /** 摘瓣中：该 index 的扇片向外飘出、其余缩回，动画结束才执行事件（点 2） */
+  plucking?: number;
   onChoose: (index: number) => void;
   onHover: (index: number) => void;
 }
 
-export function ActionPresetRing({ presets, geometry, selected, cursor, keyboard, label, onChoose, onHover }: ActionPresetRingProps) {
+export function ActionPresetRing({
+  presets, geometry, selected, cursor, keyboard, label, hubIcon, exiting, plucking, onChoose, onHover,
+}: ActionPresetRingProps) {
   const pad = SELECTED_OFFSET + 4;
   const mid = geometry.outer + pad;
   const size = mid * 2;
   const step = 360 / presets.length;
-  const selectedPreset = presets[selected];
+  const selectedPreset = selected >= 0 ? presets[selected] : undefined;
   const offset = selectedPreset ? polar(geometry.inner + (geometry.outer - geometry.inner) * 0.58, -90 + selected * step) : null;
   const anchor = cursor ?? (offset ? { x: geometry.x + offset.x, y: geometry.y + offset.y } : null);
   const placeLeft = anchor ? anchor.x > window.innerWidth / 2 : false;
@@ -52,45 +69,79 @@ export function ActionPresetRing({ presets, geometry, selected, cursor, keyboard
         const position = polar(geometry.inner + (geometry.outer - geometry.inner) * 0.58, angle);
         const shift = polar(selected === index ? SELECTED_OFFSET : 0, angle);
         const active = selected === index;
+        const fly = polar(PETAL_FLY_DISTANCE, angle);
+        // 外层 g 承担生命周期动画（展开/收束/摘瓣），内层 g 只做选中位移，互不抢占 transform
+        const sectorClass = exiting
+          ? "preset-ring-fold"
+          : plucking === undefined
+            ? "preset-ring-spread"
+            : index === plucking
+              ? "preset-ring-fly"
+              : "preset-ring-drop";
         return (
           <g
             key={preset.name}
             role="option"
             aria-label={preset.name}
             aria-selected={active}
-            className={keyboard ? "pointer-events-auto cursor-pointer" : ""}
-            style={{ transform: `translate(${shift.x}px, ${shift.y}px)`, transition: "transform 140ms ease-out" }}
+            className={sectorClass}
+            style={{
+              transformOrigin: `${mid}px ${mid}px`,
+              // 折扇:每片的收束起点角度(折叠到 0 号扇片)。延迟用 CSS 变量而非
+              // animationDelay 内联——内联 delay 会覆盖 fold/fly/drop 类里“无延迟”的设定。
+              "--spread-delay": `${RING_OPEN_DELAY_MS}ms`,
+              "--fan-from": `${-(index * step)}deg`,
+              "--fly-x": `${fly.x}px`,
+              "--fly-y": `${fly.y}px`,
+            } as CSSProperties}
             onPointerDown={(event) => event.stopPropagation()}
             onPointerUp={(event) => event.stopPropagation()}
             onPointerEnter={() => { if (keyboard) onHover(index); }}
             onClick={(event) => { event.stopPropagation(); if (keyboard) onChoose(index); }}
           >
-            <title>{preset.name}</title>
-            <path
-              d={sectorPath(geometry.inner, geometry.outer, start, end, mid)}
-              fill={active ? "var(--primary)" : "var(--card)"}
-              stroke={active ? "var(--primary)" : "var(--border)"}
-              strokeWidth="1.5"
-              className="transition-colors duration-150 motion-reduce:transition-none"
-            />
-            <text
-              x={mid + position.x}
-              y={mid + position.y}
-              fill={active ? "var(--primary-foreground)" : "var(--foreground)"}
-              textAnchor="middle"
-              dominantBaseline="central"
-              className="pointer-events-none select-none fill-current font-mono text-[11px] font-semibold"
-              style={{ fill: active ? "var(--primary-foreground)" : "var(--foreground)" }}
-            >
-              {preset.name.length > (geometry.outer < 110 ? 4 : 7)
-                ? `${preset.name.slice(0, geometry.outer < 110 ? 3 : 6)}…`
-                : preset.name}
-            </text>
+            <g style={{ transform: `translate(${shift.x}px, ${shift.y}px)`, transition: "transform 140ms ease-out" }}>
+              <title>{preset.name}</title>
+              <path
+                d={sectorPath(geometry.inner, geometry.outer, start, end, mid)}
+                fill={active ? "var(--primary)" : "var(--card)"}
+                stroke={active ? "var(--primary)" : "var(--border)"}
+                strokeWidth="1.5"
+                className="transition-colors duration-150 motion-reduce:transition-none"
+              />
+              <text
+                x={mid + position.x}
+                y={mid + position.y}
+                fill={active ? "var(--primary-foreground)" : "var(--foreground)"}
+                textAnchor="middle"
+                dominantBaseline="central"
+                className="pointer-events-none select-none fill-current font-mono text-[11px] font-semibold"
+                style={{ fill: active ? "var(--primary-foreground)" : "var(--foreground)" }}
+              >
+                {preset.name.length > (geometry.outer < 110 ? 4 : 7)
+                  ? `${preset.name.slice(0, geometry.outer < 110 ? 3 : 6)}…`
+                  : preset.name}
+              </text>
+            </g>
           </g>
         );
       })}
     </svg>
-    {selectedPreset && anchor && (
+    {/* 盖盘:复制 hub 正圆盘置于扇叶之上(z 51 > svg 50)。展开/收束时扇叶从盘底滑入滑出，
+        不叠在盘面上;稳态下与真实 hub 完全重合，视觉上就是同一只圆盘。 */}
+    <div
+      aria-hidden="true"
+      className="pointer-events-none fixed z-[51] grid place-items-center rounded-[50%] bg-primary text-primary-foreground shadow-[0_2px_12px_rgb(0_0_0/0.3)]"
+      style={{
+        left: geometry.x - geometry.inner,
+        top: geometry.y - geometry.inner,
+        width: geometry.inner * 2,
+        height: geometry.inner * 2,
+      }}
+    >
+      {/* 图标视觉尺寸对齐真实 hub:size-5(20px)×scale(1.8)=36px=size-9 */}
+      <ActionIcon name={hubIcon} className="size-9" />
+    </div>
+    {selectedPreset && anchor && !exiting && plucking === undefined && (
       <div
         data-testid="preset-selection-label"
         aria-hidden="true"

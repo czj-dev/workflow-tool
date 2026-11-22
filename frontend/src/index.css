@@ -630,13 +630,57 @@
     background: var(--primary);
   }
 
+  /* 预设环生命周期编排(挂在每片扇形的外层 g 上;transform-origin 由组件内联注入环心):
+     spread 开环:折扇展开——扇片从收束位(全部折叠到 0 号扇片,--fan-from)一起旋出
+     fold   关环:spread 的反向,折扇收束回一叠后卸载
+     fly    摘瓣:选中扇片沿自身角度向外飘出(方向 --fly-x/--fly-y)
+     drop   摘瓣:其余扇片快速缩回淡出 */
+  .preset-ring-spread,
+  .preset-ring-fold,
+  .preset-ring-fly,
+  .preset-ring-drop {
+    transform-box: view-box;
+  }
+  .preset-ring-spread {
+    animation: preset-ring-spread 380ms cubic-bezier(0.22, 1.08, 0.36, 1) both;
+    animation-delay: var(--spread-delay, 150ms);
+  }
+  .preset-ring-fold {
+    animation: preset-ring-fold 200ms cubic-bezier(0.55, 0, 0.8, 0.3) both;
+  }
+  .preset-ring-fly {
+    animation: preset-ring-fly 300ms cubic-bezier(0.3, 0.6, 0.35, 1) both;
+  }
+  .preset-ring-drop {
+    animation: preset-ring-drop 200ms cubic-bezier(0.5, 0, 0.8, 0.4) both;
+  }
+  /* 扇叶全程不透明:半透明会透出叠片层次而穿帮;收束位大部分藏在盖盘之下，
+     仅叶尖露出，展开前就是一叠实色折扇 */
+  @keyframes preset-ring-spread {
+    from { transform: rotate(var(--fan-from, 0deg)) scale(0.62); }
+  }
+  @keyframes preset-ring-fold {
+    0%, 60% { opacity: 1; }
+    100% { opacity: 0; transform: rotate(var(--fan-from, 0deg)) scale(0.62); }
+  }
+  @keyframes preset-ring-fly {
+    to { opacity: 0; transform: translate(var(--fly-x), var(--fly-y)) scale(1.2); }
+  }
+  @keyframes preset-ring-drop {
+    to { opacity: 0; transform: scale(0.5); }
+  }
+
   /* 系统偏好减少动效:流光降级为静态实色,呼吸/涟漪静止,保留信息 */
   @media (prefers-reduced-motion: reduce) {
     .live-pulse,
     .live-pulse::after,
     .spine-running,
     .spine-flow-h,
-    .animate-spin {
+    .animate-spin,
+    .preset-ring-spread,
+    .preset-ring-fold,
+    .preset-ring-fly,
+    .preset-ring-drop {
       animation: none !important;
     }
     .live-pulse::after { opacity: 0; }
