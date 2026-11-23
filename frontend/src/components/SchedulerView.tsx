@@ -1,28 +1,40 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Add01Icon, Cancel01Icon, Delete02Icon, Edit02Icon, PlayIcon } from "@hugeicons/core-free-icons";
+import { Add01Icon, Edit02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Empty, EmptyDescription } from "@/components/ui/empty";
-import { Input } from "@/components/ui/input";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Sheet, SheetContent, SheetFooter, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { SidebarTrigger, useSidebar } from "@/components/ui/sidebar";
 import { Switch } from "@/components/ui/switch";
-import { Textarea } from "@/components/ui/textarea";
-import { IconButton } from "./IconButton";
+import { ActionIcon } from "./ActionIcon";
+import {
+  GhostBtn,
+  NarrativeZone,
+  QuickHint,
+  RunPill,
+  RunningFlow,
+  TickRuler,
+  ambFor,
+  narrativeStamp,
+} from "./GridCardParts";
+import { ScheduleFormSheet, type ScheduleFormTarget, type ScheduleFormValue } from "./ScheduleFormSheet";
 import { useActionRunner } from "../hooks/useActionRunner";
 import {
+  describeScheduleCron,
+  formatScheduleNextRun,
+  nextScheduleRuns,
   parseScheduleCron,
-  SCHEDULE_CRON_FIELDS,
-  serializeScheduleCron,
-  type ScheduleCron,
-  type ScheduleCronField,
 } from "../lib/scheduleCron";
 
-const SIDEBAR_LEFT = { expanded: "16rem", collapsed: "3rem" } as const;
+// Schedules 视图（定稿原型 v2 卡阵）：按 targetKind 分组的双态卡网格（动作=amber、
+// 工作流=green，按组序循环取色；空组省略；停用项原位降透明不沉底）。紧凑态 = 身份
+// （目标+句子+下次读数），展开态 = 意图（叙事区原始 cron + 未来 3 次触发 + 最近结果
+// + 编辑/二次确认删除/启停/立即运行）。表单走 ScheduleFormSheet（拨盘编辑器）。
+
+const EYEBROW = "font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80";
 const DEFAULT_CRON = "0 9 * * 1-5";
+const GROUP_KINDS = ["action", "workflow"] as const;
 
 type Schedule = {
   id: string;
@@ -43,48 +55,6 @@ type Schedule = {
   } | null;
 };
 
-type ScheduleInput = Omit<Schedule, "nextRun" | "running" | "lastRun">;
-type CronFieldKey = keyof ScheduleCron;
-
-type CronDraft = {
-  value: ScheduleCron;
-  raw: string;
-  changed: boolean;
-  error: string;
-};
-
-const EMPTY_FORM: ScheduleInput = {
-  id: "",
-  name: "",
-  enabled: true,
-  cron: DEFAULT_CRON,
-  targetKind: "action",
-  targetId: "",
-  params: {},
-};
-
-function formatDate(value: string, locale: string): string {
-  if (!value) return "--";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "--";
-  return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeStyle: "short" }).format(date);
-}
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function parseParams(text: string): Record<string, unknown> | null {
-  if (!text.trim()) return {};
-  try {
-    const parsed: unknown = JSON.parse(text);
-    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    return parsed as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
 function createScheduleId(existingIds: string[]): string {
   const used = new Set(existingIds);
   let id = `schedule-${crypto.randomUUID().toLowerCase()}`;
@@ -92,64 +62,14 @@ function createScheduleId(existingIds: string[]): string {
   return id;
 }
 
-function createCronDraft(raw: string): CronDraft {
-  try {
-    return { value: parseScheduleCron(raw), raw, changed: false, error: "" };
-  } catch (error: unknown) {
-    return { value: parseScheduleCron(DEFAULT_CRON), raw, changed: false, error: getErrorMessage(error) };
-  }
-}
-
-interface CronFieldPickerProps {
-  label: string;
-  fieldKey: CronFieldKey;
-  field: ScheduleCronField;
-  min: number;
-  max: number;
-  onChange: (key: CronFieldKey, field: ScheduleCronField) => void;
-  anyLabel: string;
-  emptyLabel: string;
-}
-
-function CronFieldPicker({ label, fieldKey, field, min, max, onChange, anyLabel, emptyLabel }: CronFieldPickerProps) {
-  const selected = new Set(field.values);
-  const values = Array.from({ length: max - min + 1 }, (_, index) => index + min);
-  const toggleValue = (value: number, checked: boolean) => {
-    const next = checked ? [...selected, value] : [...selected].filter((item) => item !== value);
-    onChange(fieldKey, { mode: "values", values: next.sort((a, b) => a - b) });
-  };
-
+function InfoRow({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <fieldset className="grid gap-2 rounded-lg border border-border/70 p-3">
-      <legend className="px-1 text-sm font-medium">{label}</legend>
-      <label className="flex items-center gap-2 text-sm">
-        <input
-          type="checkbox"
-          checked={field.mode === "any"}
-          onChange={(event) =>
-            onChange(fieldKey, event.target.checked ? { mode: "any", values: [] } : { mode: "values", values: [min] })
-          }
-        />
-        {anyLabel}
-      </label>
-      <div className="grid grid-cols-6 gap-x-2 gap-y-1 sm:grid-cols-10">
-        {values.map((value) => (
-          <label key={value} className="flex items-center gap-1 text-xs tabular-nums text-muted-foreground">
-            <input
-              type="checkbox"
-              checked={field.mode === "values" && selected.has(value)}
-              disabled={field.mode === "any"}
-              aria-label={`${label} ${value}`}
-              onChange={(event) => toggleValue(value, event.target.checked)}
-            />
-            {value}
-          </label>
-        ))}
-      </div>
-      {field.mode === "values" && field.values.length === 0 && (
-        <p className="text-xs text-destructive">{emptyLabel}</p>
-      )}
-    </fieldset>
+    <div className="flex gap-3.5">
+      <span className="w-16 flex-none pt-0.5 font-mono text-[10.5px] uppercase tracking-[0.1em] text-muted-foreground">
+        {label}
+      </span>
+      <div className="min-w-0 flex-1 text-[13px]">{children}</div>
+    </div>
   );
 }
 
@@ -157,15 +77,208 @@ interface SchedulerViewProps {
   active?: boolean;
 }
 
+interface ScheduleCardProps {
+  schedule: Schedule;
+  amb: string;
+  expanded: boolean;
+  pendingDelete: boolean;
+  target: ScheduleFormTarget;
+  sentence: string;
+  next: Date | null;
+  next3: Date[];
+  onToggleExpand: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onToggleEnabled: (checked: boolean) => void;
+  onRunNow: () => void;
+}
+
+function ScheduleCard({
+  schedule, amb, expanded, pendingDelete, target, sentence, next, next3,
+  onToggleExpand, onEdit, onDelete, onToggleEnabled, onRunNow,
+}: ScheduleCardProps) {
+  const { t } = useTranslation();
+  const { enabled, running, lastRun } = schedule;
+  const startedAt = lastRun?.startedAt ? new Date(lastRun.startedAt).getTime() : null;
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={schedule.name}
+      aria-expanded={expanded}
+      data-running={running || undefined}
+      data-expanded={expanded || undefined}
+      onClick={onToggleExpand}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === "Escape" && expanded) { event.preventDefault(); onToggleExpand(); return; }
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onToggleExpand(); }
+      }}
+      style={{ "--amb": amb } as CSSProperties}
+      className={`dual-card group relative flex cursor-pointer select-none flex-col rounded-lg border border-border
+        transition-[border-color,box-shadow] duration-150 ease-out focus-visible:outline-none motion-reduce:transition-none
+        ${expanded ? "col-span-2 gap-3.5 p-5 max-md:col-span-1" : "gap-2.5 p-3.5"}
+        ${!enabled && !running ? "opacity-[0.72]" : ""}`}
+    >
+      {running && <RunningFlow />}
+
+      {/* 仪表带：状态点 + 下次读数（今天/明天措辞） */}
+      <div className="flex h-3 items-center gap-2">
+        <span
+          className={`size-[7px] shrink-0 rounded-full
+            ${running ? "bg-primary live-pulse" : enabled ? "bg-[color-mix(in_oklab,var(--amb)_75%,transparent)]" : "bg-foreground/20"}`}
+        />
+        <span className="ml-auto font-mono text-[10.5px] tracking-[0.06em] tabular-nums text-muted-foreground">
+          {running
+            ? t("scheduler.status.running")
+            : next
+              ? formatScheduleNextRun(next, t)
+              : !enabled
+                ? t("scheduler.disabledLabel")
+                : "--"}
+        </span>
+      </div>
+
+      {/* 身份区：hub + 名称 + 目标/id */}
+      <div className="flex min-w-0 items-start gap-2.5">
+        <span className="dual-hub grid size-10 shrink-0 place-items-center rounded-[27.5%]">
+          <ActionIcon name={target.icon ?? "hi:clock"} className="size-5" />
+        </span>
+        <span className="min-w-0 flex-1 pt-0.5 font-mono text-[13.5px] font-semibold leading-tight -tracking-[0.01em]">
+          <span className="block break-all">{schedule.name}</span>
+          <span className="mt-1 block truncate text-[11px] font-normal tracking-[0.015em] text-muted-foreground">
+            {expanded
+              ? schedule.id
+              : `${t(`scheduler.kind.${schedule.targetKind}`, schedule.targetKind)} · ${target.title} · ${schedule.id}`}
+          </span>
+        </span>
+      </div>
+
+      {expanded ? (
+        <>
+          {/* 叙事区：原始 cron stamp + 人读句子 */}
+          <NarrativeZone stamp={schedule.cron}>{sentence}</NarrativeZone>
+
+          <div className="grid gap-1.5">
+            <InfoRow label={t("scheduler.nextTriggers")}>
+              {next3.length > 0 ? (
+                <span className="flex flex-wrap gap-x-3.5 gap-y-1 font-mono text-[11.5px] tabular-nums">
+                  {next3.map((date, index) => (
+                    <span key={date.getTime()} className={index === 0 ? "" : "text-muted-foreground"}>
+                      {formatScheduleNextRun(date, t)}
+                      {index === 0 ? ` · ${t(`scheduler.weekday.${date.getDay()}`)}` : ""}
+                    </span>
+                  ))}
+                </span>
+              ) : ("--")}
+            </InfoRow>
+            <InfoRow label={t("scheduler.lastRun")}>
+              {lastRun ? (
+                <>
+                  <span className={`font-semibold ${lastRun.status === "failed" ? "text-destructive" : "text-success"}`}>
+                    {t(`scheduler.status.${lastRun.status}`, lastRun.status)}
+                  </span>
+                  {lastRun.duration && (
+                    <span className="ml-1.5 text-[11.5px] text-muted-foreground">· {lastRun.duration}</span>
+                  )}
+                  {startedAt !== null && !Number.isNaN(startedAt) && (
+                    <span className="ml-1.5 text-[11.5px] text-muted-foreground">· {narrativeStamp(startedAt)}</span>
+                  )}
+                  {lastRun.error && (
+                    <div className="truncate text-[12px] text-destructive" title={lastRun.error}>{lastRun.error}</div>
+                  )}
+                </>
+              ) : ("--")}
+            </InfoRow>
+            <InfoRow label={t("scheduler.target")}>
+              {t(`scheduler.kind.${schedule.targetKind}`, schedule.targetKind)} · {target.title}
+            </InfoRow>
+            <InfoRow label={t("scheduler.paramsLabel")}>
+              <span className="break-all font-mono text-[11.5px]">{JSON.stringify(schedule.params)}</span>
+            </InfoRow>
+          </div>
+
+          {/* 展开态功能行：编辑 / 二次确认删除 / 启停 / 立即运行 */}
+          <div className="mt-auto flex flex-wrap items-center gap-2.5 border-t border-dashed
+            border-[color-mix(in_oklab,var(--amb)_30%,var(--border))] pt-3.5">
+            <GhostBtn
+              label={t("scheduler.editShort")}
+              onClick={onEdit}
+              icon={<HugeiconsIcon icon={Edit02Icon} strokeWidth={2} className="size-3" />}
+            />
+            <button
+              type="button"
+              aria-label={pendingDelete ? t("scheduler.confirmDelete") : t("scheduler.delete", { name: schedule.name })}
+              onClick={(event) => { event.stopPropagation(); onDelete(); }}
+              className={`inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border px-3
+                font-mono text-[11.5px] tracking-[0.04em] transition-colors
+                ${pendingDelete
+                  ? "border-destructive/60 bg-destructive/12 text-destructive"
+                  : "border-border bg-card/55 text-muted-foreground hover:border-[color-mix(in_oklab,var(--amb)_50%,transparent)] hover:text-foreground"}`}
+            >
+              {pendingDelete ? t("scheduler.confirmDelete") : "⌫"}
+            </button>
+            <span className="inline-flex items-center gap-2 font-mono text-[11px] tracking-[0.06em] text-muted-foreground">
+              <span onClick={(event) => event.stopPropagation()}>
+                <Switch
+                  checked={enabled}
+                  aria-label={enabled
+                    ? t("scheduler.disable", { name: schedule.name })
+                    : t("scheduler.enable", { name: schedule.name })}
+                  onCheckedChange={onToggleEnabled}
+                />
+              </span>
+              {enabled ? t("scheduler.enabledLabel") : t("scheduler.disabledLabel")}
+            </span>
+            <RunPill
+              label={t("scheduler.runNowShort")}
+              running={running}
+              runningLabel={t("scheduler.status.running")}
+              onClick={onRunNow}
+            />
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="break-words text-xs leading-relaxed text-foreground/85">{sentence}</div>
+
+          {/* 紧凑态页脚：最近结果 + 快照入口 */}
+          <div className="mt-auto flex items-center justify-end border-t border-dashed
+            border-[color-mix(in_oklab,var(--amb)_30%,var(--border))] pt-2">
+            <span className="mr-auto flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              {lastRun ? (
+                <>
+                  <span className={`size-[5px] rounded-full ${lastRun.status === "failed" ? "bg-destructive" : "bg-success"}`} />
+                  {lastRun.duration || t(`scheduler.status.${lastRun.status}`, lastRun.status)}
+                </>
+              ) : ("--")}
+            </span>
+            {running ? (
+              <span className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.02em] text-primary">
+                <span className="size-1.5 rounded-full bg-primary live-pulse" />
+                {t("scheduler.status.running")} ▸
+              </span>
+            ) : enabled ? (
+              <QuickHint label={t("scheduler.runNowShort")} onClick={onRunNow} />
+            ) : (
+              <span className="text-[10px] text-muted-foreground">{t("scheduler.disabledLabel")}</span>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function SchedulerView({ active = true }: SchedulerViewProps) {
-  const { t, i18n } = useTranslation();
-  const { state: sidebarState, isMobile } = useSidebar();
+  const { t } = useTranslation();
+  const { isMobile } = useSidebar();
   const {
     schedules,
     scheduleErrors,
     actions,
     workflows,
-    fragmentsOpen,
     setFragmentsOpen,
     setFormSheetOpen,
     saveSchedule,
@@ -174,11 +287,16 @@ export function SchedulerView({ active = true }: SchedulerViewProps) {
     runScheduleNow,
   } = useActionRunner();
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<ScheduleInput>(EMPTY_FORM);
-  const [cronDraft, setCronDraft] = useState<CronDraft>(() => createCronDraft(DEFAULT_CRON));
-  const [paramsText, setParamsText] = useState("");
-  const [formError, setFormError] = useState("");
+  const [seed, setSeed] = useState<{ key: string; value: ScheduleFormValue; creating: boolean }>({
+    key: "init",
+    creating: true,
+    value: {
+      id: "", name: "", enabled: true, cron: DEFAULT_CRON,
+      targetKind: "action", targetId: "", params: {},
+    },
+  });
+  const seedSeq = useRef(0);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
   useEffect(() => {
@@ -187,86 +305,87 @@ export function SchedulerView({ active = true }: SchedulerViewProps) {
     return () => window.clearTimeout(timer);
   }, [pendingDelete]);
 
-  const targets = useMemo(
-    () => (form.targetKind === "action" ? actions : workflows),
-    [actions, form.targetKind, workflows],
-  );
-  const sidebarLeft = sidebarState === "expanded" ? SIDEBAR_LEFT.expanded : SIDEBAR_LEFT.collapsed;
+  const targetOf = (schedule: Schedule): ScheduleFormTarget => {
+    const list = schedule.targetKind === "workflow" ? workflows : actions;
+    return list.find((item) => item.id === schedule.targetId) ?? { id: schedule.targetId, title: schedule.targetId };
+  };
+
+  const safeSentence = (schedule: Schedule): string => {
+    try {
+      return describeScheduleCron(parseScheduleCron(schedule.cron), t) ?? schedule.cron;
+    } catch {
+      return schedule.cron;
+    }
+  };
+
+  // 下次单点：后端 nextRun 优先（权威），缺失/非法时本地从 cron 推算
+  const nextOf = (schedule: Schedule): Date | null => {
+    if (!schedule.enabled && !schedule.running) return null;
+    if (schedule.nextRun) {
+      const date = new Date(schedule.nextRun);
+      if (!Number.isNaN(date.getTime())) return date;
+    }
+    try {
+      return nextScheduleRuns(schedule.cron, 1)[0] ?? null;
+    } catch {
+      return null;
+    }
+  };
+
+  const next3Of = (schedule: Schedule): Date[] => {
+    if (!schedule.enabled && !schedule.running) return [];
+    try {
+      return nextScheduleRuns(schedule.cron, 3);
+    } catch {
+      return [];
+    }
+  };
 
   const openCreate = () => {
     const targetKind = actions.length > 0 ? "action" : "workflow";
     const targetId = targetKind === "action" ? actions[0]?.id ?? "" : workflows[0]?.id ?? "";
     setFormSheetOpen(false);
     if (isMobile) setFragmentsOpen(false);
-    setEditingId(null);
-    setForm({ ...EMPTY_FORM, id: createScheduleId(schedules.map((item) => item.id)), targetKind, targetId });
-    setCronDraft(createCronDraft(DEFAULT_CRON));
-    setParamsText("{}");
-    setFormError("");
+    seedSeq.current += 1;
+    setSeed({
+      key: `new:${seedSeq.current}`,
+      creating: true,
+      value: {
+        id: createScheduleId(schedules.map((item) => item.id)),
+        name: "",
+        enabled: true,
+        cron: DEFAULT_CRON,
+        targetKind,
+        targetId,
+        params: {},
+      },
+    });
     setSheetOpen(true);
   };
 
   const openEdit = (schedule: Schedule) => {
     setFormSheetOpen(false);
     if (isMobile) setFragmentsOpen(false);
-    setEditingId(schedule.id);
-    setForm({
-      id: schedule.id,
-      name: schedule.name,
-      enabled: schedule.enabled,
-      cron: schedule.cron,
-      targetKind: schedule.targetKind,
-      targetId: schedule.targetId,
-      params: schedule.params ?? {},
+    seedSeq.current += 1;
+    setSeed({
+      key: `${schedule.id}:${seedSeq.current}`,
+      creating: false,
+      value: {
+        id: schedule.id,
+        name: schedule.name,
+        enabled: schedule.enabled,
+        cron: schedule.cron,
+        targetKind: schedule.targetKind === "workflow" ? "workflow" : "action",
+        targetId: schedule.targetId,
+        params: schedule.params ?? {},
+      },
     });
-    setCronDraft(createCronDraft(schedule.cron));
-    setParamsText(JSON.stringify(schedule.params ?? {}, null, 2));
-    setFormError("");
     setSheetOpen(true);
   };
 
-  const updateForm = (field: keyof ScheduleInput, value: string | boolean) => {
-    setForm((current) => ({ ...current, [field]: value } as ScheduleInput));
-  };
-
-  const handleCronFieldChange = (key: CronFieldKey, field: ScheduleCronField) => {
-    setCronDraft((current) => ({ ...current, value: { ...current.value, [key]: field }, changed: true, error: "" }));
-  };
-
-  const handleTargetKind = (value: string | null) => {
-    if (value !== "action" && value !== "workflow") return;
-    const firstTarget = value === "action" ? actions[0]?.id ?? "" : workflows[0]?.id ?? "";
-    setForm((current) => ({ ...current, targetKind: value, targetId: firstTarget }));
-  };
-
-  const handleSave = async () => {
-    const params = parseParams(paramsText);
-    if (params === null) {
-      setFormError(t("scheduler.invalidParams"));
-      return;
-    }
-    if (!form.name.trim() || !form.targetId) {
-      setFormError(t("scheduler.required"));
-      return;
-    }
-    let cron = cronDraft.raw;
-    if (cronDraft.changed) {
-      try {
-        cron = serializeScheduleCron(cronDraft.value);
-      } catch (error: unknown) {
-        setFormError(getErrorMessage(error));
-        return;
-      }
-    } else if (cronDraft.error) {
-      setFormError(t("scheduler.invalidCron"));
-      return;
-    }
-    try {
-      await saveSchedule({ ...form, name: form.name.trim(), cron, params });
-      setSheetOpen(false);
-    } catch (error: unknown) {
-      setFormError(getErrorMessage(error));
-    }
+  const handleFormSave = async (value: ScheduleFormValue) => {
+    await saveSchedule(value);
+    setSheetOpen(false);
   };
 
   const confirmDelete = async (id: string) => {
@@ -282,18 +401,17 @@ export function SchedulerView({ active = true }: SchedulerViewProps) {
     void operation().catch(() => undefined);
   };
 
-  const targetLabel = (kind: string, id: string) => {
-    const list = kind === "workflow" ? workflows : actions;
-    return list.find((item) => item.id === id)?.title ?? id;
-  };
-
   return (
     <main className={active ? "flex min-h-0 min-w-0 flex-1 flex-col" : "hidden"}>
-      <header className="flex items-center justify-between gap-2 border-b px-4 py-2">
-        <div className="flex items-center gap-2">
-          <SidebarTrigger />
-          <h1 className="text-sm font-semibold">{t("scheduler.title")}</h1>
-        </div>
+      <header className="flex items-center gap-2 border-b px-4 py-2">
+        <SidebarTrigger />
+        <h1 className="flex-none text-sm font-semibold">{t("scheduler.title")}</h1>
+        <span className="ml-auto font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground tabular-nums">
+          {t("scheduler.countLine", {
+            total: schedules.length,
+            on: schedules.filter((item) => item.enabled).length,
+          })}
+        </span>
         <Button size="sm" onClick={openCreate}>
           <HugeiconsIcon icon={Add01Icon} strokeWidth={1.75} />
           {t("scheduler.add")}
@@ -317,192 +435,56 @@ export function SchedulerView({ active = true }: SchedulerViewProps) {
             <EmptyDescription>{t("scheduler.empty")}</EmptyDescription>
           </Empty>
         ) : (
-          <div className="overflow-x-auto rounded-lg border">
-            <table className="w-full min-w-[850px] text-sm">
-              <thead className="border-b bg-muted/40 text-left text-xs text-muted-foreground">
-                <tr>
-                  <th className="px-3 py-2">{t("scheduler.name")}</th>
-                  <th className="px-3 py-2">{t("scheduler.target")}</th>
-                  <th className="px-3 py-2 font-mono">{t("scheduler.cron")}</th>
-                  <th className="px-3 py-2">{t("scheduler.nextRun")}</th>
-                  <th className="px-3 py-2">{t("scheduler.running")}</th>
-                  <th className="px-3 py-2">{t("scheduler.lastRun")}</th>
-                  <th className="px-3 py-2 text-right">{t("scheduler.actions")}</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {schedules.map((schedule: Schedule) => (
-                  <tr key={schedule.id} aria-label={schedule.name} className="hover:bg-muted/30">
-                    <td className="px-3 py-3">
-                      <div className="font-medium">{schedule.name}</div>
-                      <div className="font-mono text-[11px] text-muted-foreground">{schedule.id}</div>
-                    </td>
-                    <td className="px-3 py-3">
-                      <div>{targetLabel(schedule.targetKind, schedule.targetId)}</div>
-                      <div className="font-mono text-[11px] text-muted-foreground">
-                        {t(`scheduler.kind.${schedule.targetKind}`, schedule.targetKind)}
-                      </div>
-                    </td>
-                    <td className="px-3 py-3 font-mono text-xs">{schedule.cron}</td>
-                    <td className="px-3 py-3 text-xs">{formatDate(schedule.nextRun, i18n.language)}</td>
-                    <td className="px-3 py-3">
-                      {schedule.running ? <span className="text-primary">{t("scheduler.status.running")}</span> : t("scheduler.status.idle")}
-                    </td>
-                    <td className="max-w-52 px-3 py-3 text-xs">
-                      <div className="flex items-center gap-1.5">
-                        <span className={schedule.lastRun?.status === "failed" ? "text-destructive" : "text-primary"}>
-                          {schedule.lastRun ? t(`scheduler.status.${schedule.lastRun.status}`, schedule.lastRun.status) : "--"}
-                        </span>
-                        {schedule.lastRun?.duration && <span className="text-muted-foreground">· {schedule.lastRun.duration}</span>}
-                      </div>
-                      {schedule.lastRun?.startedAt && <div className="text-muted-foreground">{formatDate(schedule.lastRun.startedAt, i18n.language)}</div>}
-                      {schedule.lastRun?.error && <div className="truncate text-destructive" title={schedule.lastRun.error}>{schedule.lastRun.error}</div>}
-                    </td>
-                    <td className="px-3 py-3">
-                      <div className="flex justify-end gap-1">
-                        <Switch
-                          checked={schedule.enabled}
-                          aria-label={schedule.enabled ? t("scheduler.disable", { name: schedule.name }) : t("scheduler.enable", { name: schedule.name })}
-                          onCheckedChange={(checked) => runRowAction(() => setScheduleEnabled(schedule.id, checked))}
-                        />
-                        <IconButton icon={PlayIcon} label={t("scheduler.runNow", { name: schedule.name })} onClick={() => runRowAction(() => runScheduleNow(schedule.id))} />
-                        <IconButton icon={Edit02Icon} label={t("scheduler.edit", { name: schedule.name })} onClick={() => openEdit(schedule)} />
-                        <IconButton
-                          icon={Delete02Icon}
-                          label={pendingDelete === schedule.id ? t("scheduler.confirmDelete") : t("scheduler.delete", { name: schedule.name })}
-                          variant={pendingDelete === schedule.id ? "destructive" : "ghost"}
-                          onClick={() => runRowAction(() => confirmDelete(schedule.id))}
-                        />
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          GROUP_KINDS.map((kind, groupIndex) => {
+            const items = schedules.filter((schedule) => schedule.targetKind === kind);
+            if (items.length === 0) return null;
+            const enabledCount = items.filter((schedule) => schedule.enabled).length;
+            return (
+              <section key={kind}>
+                <div className="grid grid-cols-[auto_1fr_auto] items-center gap-3 pb-3">
+                  <span className={EYEBROW}>{t(`scheduler.group.${kind}`)}</span>
+                  <TickRuler total={items.length} lit={enabledCount} />
+                  <span className="font-mono text-[11px] uppercase tracking-[0.14em] text-muted-foreground tabular-nums">
+                    {t("scheduler.countLine", { total: items.length, on: enabledCount })}
+                  </span>
+                </div>
+                <div className="grid grid-cols-[repeat(auto-fill,minmax(248px,1fr))] gap-2.5">
+                  {items.map((schedule) => (
+                    <ScheduleCard
+                      key={schedule.id}
+                      schedule={schedule}
+                      amb={ambFor(groupIndex)}
+                      expanded={expandedId === schedule.id}
+                      pendingDelete={pendingDelete === schedule.id}
+                      target={targetOf(schedule)}
+                      sentence={safeSentence(schedule)}
+                      next={nextOf(schedule)}
+                      next3={next3Of(schedule)}
+                      onToggleExpand={() =>
+                        setExpandedId((current) => (current === schedule.id ? null : schedule.id))
+                      }
+                      onEdit={() => openEdit(schedule)}
+                      onDelete={() => void confirmDelete(schedule.id)}
+                      onToggleEnabled={(checked) => runRowAction(() => setScheduleEnabled(schedule.id, checked))}
+                      onRunNow={() => runRowAction(() => runScheduleNow(schedule.id))}
+                    />
+                  ))}
+                </div>
+              </section>
+            );
+          })
         )}
       </div>
 
-      <Sheet
-        open={sheetOpen && active && (!isMobile || !fragmentsOpen)}
-        modal={false}
-        disablePointerDismissal
-        onOpenChange={setSheetOpen}
-      >
-        <SheetContent
-          side="left"
-          overlay={false}
-          showCloseButton={false}
-          data-scheduler-sheet=""
-          initialFocus={() => document.querySelector<HTMLElement>("[data-scheduler-sheet] input:not(:disabled), [data-scheduler-sheet] textarea") ?? true}
-          style={{
-            left: isMobile ? 0 : sidebarLeft,
-            right: isMobile ? 0 : fragmentsOpen ? "50vw" : `calc((100vw - ${sidebarLeft}) * 0.4)`,
-          }}
-          className="gap-0 transition-all data-[side=left]:w-auto data-[side=left]:sm:max-w-none"
-        >
-          <SheetHeader className="flex-row items-center justify-between gap-2 border-b px-4 py-2.5">
-            <SheetTitle className="text-sm font-semibold">{editingId ? t("scheduler.editTitle") : t("scheduler.addTitle")}</SheetTitle>
-            <IconButton
-              icon={Cancel01Icon}
-              label={t("scheduler.close")}
-              className="text-muted-foreground/60 hover:text-foreground"
-              onClick={() => setSheetOpen(false)}
-            />
-          </SheetHeader>
-          <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="mx-auto grid w-full max-w-3xl gap-4 px-6 py-4" data-scheduler-sheet-form="">
-              <label className="grid gap-1 text-sm" htmlFor="schedule-id">
-                {t("scheduler.id")}
-                <Input id="schedule-id" value={form.id} disabled />
-              </label>
-              <label className="grid gap-1 text-sm" htmlFor="schedule-name">
-                {t("scheduler.name")}
-                <Input id="schedule-name" value={form.name} onChange={(event) => updateForm("name", event.target.value)} />
-              </label>
-              <div className="grid gap-2 text-sm">
-                <span>{t("scheduler.targetKind")}</span>
-                <Select value={form.targetKind} onValueChange={handleTargetKind}>
-                  <SelectTrigger aria-label={t("scheduler.targetKind")}><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="action">{t("scheduler.kind.action")}</SelectItem>
-                    <SelectItem value="workflow">{t("scheduler.kind.workflow")}</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2 text-sm">
-                <span>{t("scheduler.targetId")}</span>
-                <Select value={form.targetId} onValueChange={(value) => value && updateForm("targetId", value)}>
-                  <SelectTrigger aria-label={t("scheduler.targetId")}><SelectValue placeholder={t("scheduler.selectTarget")} /></SelectTrigger>
-                  <SelectContent>
-                    {targets.map((target) => <SelectItem key={target.id} value={target.id}>{target.title}</SelectItem>)}
-                  </SelectContent>
-                </Select>
-              </div>
-              <label className="flex items-center justify-between gap-3 text-sm" htmlFor="schedule-enabled">
-                {t("scheduler.enabled")}
-                <Switch id="schedule-enabled" checked={form.enabled} onCheckedChange={(checked) => updateForm("enabled", checked)} />
-              </label>
-
-              <section className="grid gap-3" aria-labelledby="schedule-date-heading">
-                <div>
-                  <h2 id="schedule-date-heading" className="text-sm font-medium">{t("scheduler.dateConditions")}</h2>
-                  <p className="text-xs text-muted-foreground">{t("scheduler.dateConditionsHint")}</p>
-                </div>
-                {SCHEDULE_CRON_FIELDS.filter(({ key }) => key === "month" || key === "day" || key === "weekday").map(({ key, min, max }) => (
-                  <CronFieldPicker
-                    key={key}
-                    label={t(`scheduler.cronField.${key}`)}
-                    fieldKey={key}
-                    field={cronDraft.value[key]}
-                    min={min}
-                    max={max}
-                    anyLabel={t("scheduler.any")}
-                    emptyLabel={t("scheduler.selectAtLeastOne")}
-                    onChange={handleCronFieldChange}
-                  />
-                ))}
-                {cronDraft.value.day.mode === "values" && cronDraft.value.weekday.mode === "values" && (
-                  <p className="text-xs text-muted-foreground">{t("scheduler.dateOrHint")}</p>
-                )}
-              </section>
-
-              <section className="grid gap-3" aria-labelledby="schedule-time-heading">
-                <div>
-                  <h2 id="schedule-time-heading" className="text-sm font-medium">{t("scheduler.timeConditions")}</h2>
-                  <p className="text-xs text-muted-foreground">{t("scheduler.timeConditionsHint")}</p>
-                </div>
-                {SCHEDULE_CRON_FIELDS.filter(({ key }) => key === "hour" || key === "minute").map(({ key, min, max }) => (
-                  <CronFieldPicker
-                    key={key}
-                    label={t(`scheduler.cronField.${key}`)}
-                    fieldKey={key}
-                    field={cronDraft.value[key]}
-                    min={min}
-                    max={max}
-                    anyLabel={t("scheduler.any")}
-                    emptyLabel={t("scheduler.selectAtLeastOne")}
-                    onChange={handleCronFieldChange}
-                  />
-                ))}
-              </section>
-
-              {cronDraft.error && !cronDraft.changed && (
-                <Alert variant="destructive"><AlertDescription>{t("scheduler.invalidCron")}: {cronDraft.raw}</AlertDescription></Alert>
-              )}
-              <label className="grid gap-1 text-sm" htmlFor="schedule-params">
-                {t("scheduler.params")}
-                <Textarea id="schedule-params" className="min-h-32" value={paramsText} onChange={(event) => setParamsText(event.target.value)} placeholder="{}" />
-              </label>
-              {formError && <p className="text-sm text-destructive" role="alert">{formError}</p>}
-            </div>
-          </div>
-          <SheetFooter className="flex-row justify-end border-t px-6 py-3">
-            <Button variant="outline" onClick={() => setSheetOpen(false)}>{t("scheduler.cancel")}</Button>
-            <Button onClick={() => void handleSave()}>{t("scheduler.save")}</Button>
-          </SheetFooter>
-        </SheetContent>
-      </Sheet>
+      <ScheduleFormSheet
+        open={sheetOpen}
+        active={active}
+        seed={seed}
+        actions={actions}
+        workflows={workflows}
+        onSave={handleFormSave}
+        onClose={() => setSheetOpen(false)}
+      />
     </main>
   );
 }
