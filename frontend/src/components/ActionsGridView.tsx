@@ -1,29 +1,32 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Edit02Icon, Search01Icon } from "@hugeicons/core-free-icons";
+import { Edit02Icon, FirstBracketIcon, Search01Icon } from "@hugeicons/core-free-icons";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@/components/ui/input-group";
 import { useActionRunner } from "../hooks/useActionRunner";
-import { useActionUsage, groupLabel, MISC_KEY } from "../hooks/useActionUsage";
+import { useActionUsage, groupLabel, MISC_KEY, compareGroupKeys } from "../hooks/useActionUsage";
 import { missingRequired, resolveActionParams } from "../lib/params";
 import { ActionIcon } from "./ActionIcon";
 import { ActionPresetRing } from "./ActionPresetRing";
 import { ringGeometry, ringHit, MIN_RING_BAND, type RingGeometry } from "./actionRingGeometry";
-import { TickRuler, RunningFlow } from "./GridCardParts";
+import {
+  TickRuler,
+  StatusRail,
+  RunningFlow,
+  ambFor,
+  NarrativeZone,
+  PresetDots,
+  PresetChips,
+  GhostBtn,
+  RunPill,
+  QuickHint,
+} from "./GridCardParts";
 import type { ActionItem } from "../../bindings/workflow-tool/internal/api/models.js";
 import type { Preset } from "../../bindings/workflow-tool/internal/registry/models.js";
 
 const EYEBROW =
   "font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80";
-
-const ICON_TINT = [
-  { bg: "bg-primary/10", glow: "shadow-primary/20" },
-  { bg: "bg-primary/16", glow: "shadow-primary/25" },
-  { bg: "bg-primary/22", glow: "shadow-primary/30" },
-  { bg: "bg-primary/30", glow: "shadow-primary/40" },
-  { bg: "bg-primary/40", glow: "shadow-primary/50" },
-] as const;
 
 // hub 形变弹簧曲线：开环时圆角方块 → 正圆盘（scale 1.8，直径 72 == 内孔直径）
 const HUB_EASE = "ease-[cubic-bezier(0.2,0.85,0.3,1.18)]";
@@ -47,9 +50,10 @@ type OpenRing = {
 
 export function ActionsGridView() {
   const { t } = useTranslation();
-  const { actions, globalConfig, runAction, selectPreset, isRunning, focusRunning } = useActionRunner();
+  const { actions, globalConfig, runAction, selectPreset, isRunning, focusRunning, openYamlEditor } = useActionRunner();
   const { groupByPrefix, footprintLevel, getScore, topActions } = useActionUsage();
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(null);       // 环开着（或退场中）的卡
+  const [expandedId, setExpandedId] = useState<string | null>(null); // 双态：展开的卡
   const [query, setQuery] = useState("");
 
   const allShellActions = actions.filter((a) => !a.llm);
@@ -59,11 +63,7 @@ export function ActionsGridView() {
     ? allShellActions.filter((a) => [a.title, a.id, a.description ?? ""].join(" ").toLowerCase().includes(normalized))
     : allShellActions;
   const groups = groupByPrefix(shellActions);
-  const groupEntries = Object.entries(groups).sort(([a], [b]) => {
-    if (a === MISC_KEY) return 1;
-    if (b === MISC_KEY) return -1;
-    return a.localeCompare(b);
-  });
+  const groupEntries = Object.entries(groups).sort(([a], [b]) => compareGroupKeys(a, b));
 
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
@@ -101,7 +101,7 @@ export function ActionsGridView() {
             <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">{t("grid.noResults")}</p>
           </div>
         )}
-        {groupEntries.map(([key, items]) => {
+        {groupEntries.map(([key, items], groupIndex) => {
           const lit = items.reduce((n, it) => (getScore(it.id) > 0 ? n + 1 : n), 0);
           return (
             <section key={key}>
@@ -117,17 +117,27 @@ export function ActionsGridView() {
                   <ActionCard
                     key={action.id}
                     action={action}
+                    group={key === MISC_KEY ? "misc" : key}
+                    amb={ambFor(groupIndex)}
                     running={isRunning(action.id)}
                     level={footprintLevel(action.id)}
                     globalConfig={globalConfig}
                     isOpen={openId === action.id}
                     dimmed={openId !== null && openId !== action.id}
+                    expanded={expandedId === action.id}
                     onOpen={() => setOpenId(action.id)}
                     onClose={() => setOpenId((current) => current === action.id ? null : current)}
+                    onToggleExpand={() =>
+                      setExpandedId((current) => (current === action.id ? null : action.id))
+                    }
+                    onCollapse={() =>
+                      setExpandedId((current) => (current === action.id ? null : current))
+                    }
                     onRun={(values) => { void runAction(action.id, values); }}
                     onEdit={() => selectPreset(action.id, "")}
                     onFocus={() => focusRunning(action.id, action.stream === "logcat" ? "logcat" : "output")}
                     onPresetEdit={(name) => selectPreset(action.id, name)}
+                    onEditYaml={() => openYamlEditor(action.id, "action")}
                   />
                 ))}
               </div>
@@ -141,21 +151,29 @@ export function ActionsGridView() {
 
 interface ActionCardProps {
   action: ActionItem;
+  group: string;
+  /** 基础氛围色（CSS 变量串，按分组显示序循环）；运行时由卡内覆写为 primary */
+  amb: string;
   running: boolean;
   level: number;
   globalConfig: Record<string, string>;
   isOpen: boolean;
   dimmed: boolean;
+  expanded: boolean;
   onOpen: () => void;
   onClose: () => void;
+  onToggleExpand: () => void;
+  onCollapse: () => void;
   onRun: (values: Record<string, string>) => void;
   onEdit: () => void;
   onFocus: () => void;
   onPresetEdit: (name: string) => void;
+  onEditYaml: () => void;
 }
 
 function ActionCard({
-  action, running, level, globalConfig, isOpen, dimmed, onOpen, onClose, onRun, onEdit, onFocus, onPresetEdit,
+  action, group, amb, running, level, globalConfig, isOpen, dimmed, expanded,
+  onOpen, onClose, onToggleExpand, onCollapse, onRun, onEdit, onFocus, onPresetEdit, onEditYaml,
 }: ActionCardProps) {
   const { t } = useTranslation();
   const cardRef = useRef<HTMLDivElement>(null);
@@ -167,13 +185,15 @@ function ActionCard({
   const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [ring, setRing] = useState<OpenRing | null>(null);
   const presets = action.presets ?? [];
-  const canOpen = presets.length > 0 && !running;
+  const hasParams = (action.params?.length ?? 0) > 0;
+  // 氛围色：运行让位 primary；盖盘/卡面同源注入（hub 染色 + 环盖盘动态取色）
+  const ambColor = running ? "var(--primary)" : amb;
+  const canOpen = presets.length > 0 && !running && !expanded; // 展开态不出环（chips 接管）
   // activeRing:渲染用(含退场/摘瓣动画期);liveRing:交互语义上的“环开着”
   // —— 动画期间视为已关闭:点击立即回落默认行为,选区锁定即时解除。
   const activeRing = isOpen ? ring : null;
   const liveRing = activeRing && !activeRing.exiting && activeRing.plucking === undefined ? activeRing : null;
   const isPointerRingOpen = !!liveRing && !liveRing.keyboard;
-  const tint = ICON_TINT[Math.min(level, ICON_TINT.length - 1)];
 
   useEffect(() => {
     if (!isPointerRingOpen) return;
@@ -230,12 +250,10 @@ function ActionCard({
   const openRing = (keyboard: boolean) => {
     if (!canOpen || !cardRef.current || !hubRef.current) return;
     clearCloseTimer(); // 若正处于退场中,作废未完成的关闭
-    // 锚点 = hub 中心；内孔直径 = 卡高（正圆盘 hub 开环时填满内孔）
-    const geometry = ringGeometry(
-      hubRef.current.getBoundingClientRect(),
-      presets.length,
-      cardRef.current.getBoundingClientRect().height,
-    );
+    // 锚点 = hub 中心；内孔直径 = hub 形变后的圆盘直径（size-10 × 1.8 = 72，
+    // 与盖盘完全重合）。竖版卡高不再参与几何推导。
+    const hubRect = hubRef.current.getBoundingClientRect();
+    const geometry = ringGeometry(hubRect, presets.length, hubRect.height * 1.8);
     if (geometry.outer < geometry.inner + MIN_RING_BAND) return;
     const next = { geometry, selected: -1, keyboard };
     ringRef.current = next;
@@ -350,13 +368,13 @@ function ActionCard({
       role="button"
       tabIndex={0}
       aria-label={action.title}
-      aria-expanded={canOpen ? !!liveRing : undefined}
-      aria-keyshortcuts={canOpen ? "Shift+F10" : undefined}
-      title={tip || action.title}
+      aria-expanded={expanded}
+      aria-keyshortcuts={presets.length > 0 && !running ? "Shift+F10" : undefined}
+      title={expanded ? undefined : tip || action.title}
       onClick={() => {
         if (suppressClickRef.current) { suppressClickRef.current = false; return; }
         if (liveRing) { closeRing(); return; }
-        activate();
+        onToggleExpand();
       }}
       onKeyDown={(event) => {
         if (event.target !== event.currentTarget) return;
@@ -376,7 +394,8 @@ function ActionCard({
             return;
           }
         }
-        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); activate(); }
+        if (event.key === "Escape" && expanded) { event.preventDefault(); onCollapse(); return; }
+        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onToggleExpand(); }
       }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
@@ -384,67 +403,130 @@ function ActionCard({
       onPointerCancel={onPointerCancel}
       onLostPointerCapture={(event) => { if (holdRef.current?.pointerId === event.pointerId) onPointerCancel(); }}
       data-running={running || undefined}
+      data-expanded={expanded || undefined}
+      style={{ "--amb": ambColor } as CSSProperties}
       className={`
-        group relative flex h-[72px] cursor-pointer select-none items-center gap-3 rounded-xl border px-3
-        bg-gradient-to-b from-card to-background/70
+        dual-card group relative flex cursor-pointer select-none flex-col rounded-lg border
         transition-[border-color,box-shadow,translate,opacity,scale] duration-150 ease-out
-        after:pointer-events-none after:absolute after:inset-x-2.5 after:top-px after:h-px
-        after:bg-gradient-to-r after:from-transparent after:via-card-foreground/12 after:to-transparent
-        hover:-translate-y-px hover:border-primary/60
-        hover:shadow-[0_5px_14px_rgb(0_0_0/0.2),0_1px_3px_rgb(0_0_0/0.14)]
-        focus-visible:-translate-y-px focus-visible:border-primary/60
-        focus-visible:shadow-[0_5px_14px_rgb(0_0_0/0.2),0_1px_3px_rgb(0_0_0/0.14)]
-        focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary/60
-        active:translate-y-px
+        ${expanded ? "col-span-2 gap-3.5 p-5" : "gap-2.5 p-3.5"}
+        hover:border-[color-mix(in_oklch,var(--amb)_55%,transparent)]
+        focus-visible:border-[color-mix(in_oklch,var(--amb)_55%,transparent)] focus-visible:outline-none
+        data-[expanded]:border-[color-mix(in_oklch,var(--amb)_40%,transparent)]
         motion-reduce:transition-none
         ${dimmed ? "opacity-40 scale-[0.985]" : ""}
         ${activeRing
-          ? "z-10 border-primary after:opacity-0 ring-4 ring-primary/15 shadow-[0_5px_14px_rgb(0_0_0/0.2),0_1px_3px_rgb(0_0_0/0.14)]"
+          ? // 环开态阴影提权(!)：避免被 .dual-card:hover 的 amb 内描边(同属性)覆盖
+            "z-10 border-primary ring-4! ring-primary/15 shadow-[0_5px_14px_rgb(0_0_0/0.2),0_1px_3px_rgb(0_0_0/0.14)]!"
           : running
-            ? "border-primary shadow-[0_1px_2px_rgb(0_0_0/0.1),0_2px_5px_rgb(0_0_0/0.06)]"
-            : "border-border shadow-[0_1px_2px_rgb(0_0_0/0.1),0_2px_5px_rgb(0_0_0/0.06)]"}
+            ? "border-primary"
+            : "border-border"}
       `}
     >
-      {running && <RunningFlow className="rounded-t-[11px]" />}
-      <div
-        ref={hubRef}
-        className={`action-hub relative grid size-10 flex-none place-items-center rounded-[27.5%]
-          transition-[transform,border-radius,background-color,color,box-shadow] duration-[200ms] ${HUB_EASE} motion-reduce:transition-none
-          ${activeRing
-            ? // 圆盘态用 50% 而非 rounded-full(9999px):9999px↔27.5% 插值时前段一直等效全圆，
-              // 方形度只在动画尾部瞬间恢复，收尾会“跳”一下；50%↔27.5% 则全程线性同步
-              "scale-[1.8] rounded-[50%] bg-primary text-primary-foreground shadow-[0_2px_12px_rgb(0_0_0/0.3)]"
-            : // 按住时轻微收缩作预备(蓄力)，开环时从收缩位弹开成正圆盘；
-              // 圆角用百分比(40px×27.5%=11px)以便随 scale 同步放大，避免“先变大再变圆”
-              `group-active:scale-[0.96] text-primary shadow-[inset_0_0_12px] ${tint.bg} ${tint.glow}`}`}
-      >
-        {/* 图标尺寸固定不变：完全由 hub 的 scale 带动，避免父级缩放与自身尺寸两条曲线叠加造成跳变 */}
-        <ActionIcon name={action.icon} className="size-5" />
-      </div>
-      <div className={`flex min-w-0 flex-1 flex-col gap-0.5 transition-opacity duration-150 ${activeRing ? "opacity-30" : ""}`}>
-        <span className="truncate text-[13px] font-semibold leading-tight">{action.title}</span>
-        <span className="truncate font-mono text-[11px] tracking-[0.015em] text-muted-foreground">{action.id}</span>
-      </div>
-      {presets.length > 0 && (
-        <span
-          aria-hidden="true"
-          title={t("grid.presetsCount", { count: presets.length })}
-          className={`flex flex-none items-center gap-1 pr-0.5 transition-opacity duration-150 ${activeRing ? "pointer-events-none opacity-0" : ""}`}
-        >
-          {presets.map((p) => <i key={p.name} className="size-1 rounded-full bg-primary/40" />)}
-        </span>
+      {running && <RunningFlow />}
+
+      <StatusRail level={level} score={0} compact />
+
+      {/* —— 紧凑态：身份 —— */}
+      {!expanded && (
+        <>
+          <div className="flex min-w-0 items-start gap-2.5">
+            <div
+              ref={hubRef}
+              data-ring-open={liveRing ? "" : undefined}
+              className={`dual-hub action-hub relative grid size-10 flex-none place-items-center rounded-[27.5%]
+                transition-[transform,border-radius,background-color,color,box-shadow] duration-[200ms] ${HUB_EASE} motion-reduce:transition-none
+                ${activeRing
+                  ? // 圆盘态用 50% 而非 rounded-full(9999px):9999px↔27.5% 插值时前段一直等效全圆，
+                    // 方形度只在动画尾部瞬间恢复，收尾会“跳”一下；50%↔27.5% 则全程线性同步
+                    "scale-[1.8] rounded-[50%] shadow-[0_2px_12px_rgb(0_0_0/0.3)]"
+                  : // 按住时轻微收缩作预备(蓄力)，开环时从收缩位弹开成正圆盘；
+                    // 圆角用百分比(40px×27.5%=11px)以便随 scale 同步放大，避免“先变大再变圆”
+                    "group-active:scale-[0.96]"}`}
+            >
+              {/* 图标尺寸固定不变：完全由 hub 的 scale 带动，避免父级缩放与自身尺寸两条曲线叠加造成跳变 */}
+              <ActionIcon name={action.icon} className="size-5" />
+            </div>
+            <span className="min-w-0 flex-1 pt-0.5 font-mono text-[13.5px] font-semibold leading-tight -tracking-[0.01em]">
+              <span className="block truncate">{action.title}</span>
+              {action.description ? (
+                <span className="mt-1 block truncate text-[11px] font-normal tracking-[0.015em] text-muted-foreground">
+                  {action.description}
+                </span>
+              ) : (
+                <span className="mt-1 block truncate text-[11px] font-normal tracking-[0.015em] text-muted-foreground/50">
+                  {action.id}
+                </span>
+              )}
+            </span>
+            <PresetDots count={presets.length} />
+          </div>
+          <div className={`mt-auto flex items-center justify-end border-t border-dashed pt-2
+            border-[color-mix(in_oklch,var(--amb)_30%,var(--border))]
+            transition-opacity duration-150 ${activeRing ? "opacity-0" : ""}`}>
+            {running ? (
+              // 读数态仍可点：回到运行视图（旧「点运行中的卡回到输出」契约的紧凑态承接）
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); onFocus(); }}
+                className="flex cursor-pointer items-center gap-1.5 font-mono text-[10px] tracking-[0.06em] text-primary"
+              >
+                <span className="size-1.5 rounded-full bg-primary live-pulse" />
+                {t("workflow.running")} ▸
+              </button>
+            ) : (
+              <QuickHint label={t("grid.run")} onClick={() => activate()} />
+            )}
+          </div>
+        </>
       )}
-      {!activeRing && (
-        <button
-          type="button"
-          aria-label={t("grid.editParams")}
-          title={t("grid.editParams")}
-          onClick={(event) => { event.stopPropagation(); onEdit(); }}
-          className="absolute right-1 top-1 z-10 grid size-7 place-items-center rounded text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 hover:bg-card hover:text-foreground cursor-pointer"
-        >
-          <HugeiconsIcon icon={Edit02Icon} strokeWidth={2} className="size-3" />
-        </button>
+
+      {/* —— 展开态：意图 —— */}
+      {expanded && (
+        <>
+          <div className="flex items-center gap-3">
+            <span className="dual-hub flex size-10 shrink-0 items-center justify-center rounded-[27.5%]">
+              <ActionIcon name={action.icon} className="size-5" />
+            </span>
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="font-mono text-base font-bold leading-tight -tracking-[0.01em] break-all">
+                {action.title}
+              </span>
+              <span className="truncate font-mono text-[11px] tracking-[0.015em] text-muted-foreground">
+                {group} · {action.id}
+              </span>
+            </span>
+          </div>
+          <NarrativeZone>
+            {action.description || action.id}
+          </NarrativeZone>
+          <div className="mt-auto flex flex-wrap items-center gap-2.5 border-t border-dashed
+            border-[color-mix(in_oklch,var(--amb)_30%,var(--border))] pt-3.5">
+            <PresetChips
+              presets={presets}
+              onChoose={(name) => activate(presets.find((p) => p.name === name))}
+            />
+            {hasParams && (
+              <GhostBtn
+                label={t("grid.editForm")}
+                onClick={onEdit}
+                icon={<HugeiconsIcon icon={Edit02Icon} strokeWidth={2} className="size-3" />}
+              />
+            )}
+            <GhostBtn
+              label={t("grid.editConfig")}
+              onClick={onEditYaml}
+              icon={<HugeiconsIcon icon={FirstBracketIcon} strokeWidth={2} className="size-3" />}
+            />
+            <RunPill
+              label={t("grid.run")}
+              running={running}
+              runningLabel={t("workflow.running")}
+              onClick={() => activate()}
+            />
+          </div>
+        </>
       )}
+
       {activeRing && (
         <>
           <span className="sr-only" aria-live="polite">
@@ -458,6 +540,7 @@ function ActionCard({
             keyboard={activeRing.keyboard}
             label={t("form.presetsLabel")}
             hubIcon={action.icon}
+            amb={ambColor}
             exiting={activeRing.exiting}
             plucking={activeRing.plucking}
             onChoose={choose}

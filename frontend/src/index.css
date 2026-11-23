@@ -118,6 +118,11 @@
     /* 输入卡片浮起阴影：浅色极轻，深色更明显（v3 输入卡片语言） */
     --card-sh: 0 1px 2px rgb(0 0 0 / 0.05);
     --card-sh-hover: 0 2px 6px rgb(0 0 0 / 0.08);
+    /* 双态卡氛围色四源（ADR-0003）：amber/green/blue 取 chart 板，紫取 mark 板（无新色值） */
+    --amb-amber: var(--chart-1);
+    --amb-green: var(--chart-2);
+    --amb-blue: var(--chart-4);
+    --amb-violet: oklch(0.55 0.15 310);
 }
 
 /* —— 精密控制台 · 深色(主力)—— */
@@ -175,6 +180,11 @@
     --mark-8: oklch(0.74 0.14 350 / 36%);
     --card-sh: 0 1px 3px rgb(0 0 0 / 0.3);
     --card-sh-hover: 0 3px 8px rgb(0 0 0 / 0.35);
+    /* 深色氛围四源：紫同深色 mark 板紫 */
+    --amb-amber: var(--chart-1);
+    --amb-green: var(--chart-2);
+    --amb-blue: var(--chart-4);
+    --amb-violet: oklch(0.7 0.15 310);
 }
 
 @layer base {
@@ -628,6 +638,40 @@
   .tick-ruler > i[data-lit] {
     height: 9px;
     background: var(--primary);
+  }
+
+  /* —— 双态卡氛围染色（ADR-0003，token 表见 .design/workflow-card-mockup.html）——
+     --amb 由卡根内联注入：组色四源循环，运行卡覆写为 --primary（同一规则自动回落）。
+     辉光梯 = 顶部定向 radial 洗染（设计稿三档，QQ 音乐封面氛围的极淡版）：
+     紧凑 idle = 10% 辉光 + 5% 底染 → hover = 14% 辉光 + 8% 底染 + 1px amb 内描边
+     → 展开 = 18% 辉光 + 115° 线性 12% + 6% 底染（展开 hover 不再升档，规则序后置）。 */
+  .dual-card {
+    background:
+      radial-gradient(130% 80% at 16% 0%, color-mix(in oklch, var(--amb) 10%, transparent), transparent 58%),
+      color-mix(in oklch, var(--amb) 5%, var(--card));
+  }
+  .dual-card:hover,
+  .dual-card:focus-visible {
+    background:
+      radial-gradient(130% 80% at 16% 0%, color-mix(in oklch, var(--amb) 14%, transparent), transparent 58%),
+      color-mix(in oklch, var(--amb) 8%, var(--card));
+    box-shadow: inset 0 0 0 1px color-mix(in oklch, var(--amb) 26%, transparent);
+  }
+  .dual-card[data-expanded] {
+    background:
+      radial-gradient(120% 90% at 12% 0%, color-mix(in oklch, var(--amb) 18%, transparent), transparent 55%),
+      linear-gradient(115deg, color-mix(in oklch, var(--amb) 12%, transparent), transparent 55%),
+      color-mix(in oklch, var(--amb) 6%, var(--card));
+  }
+  /* hub（卡头图标）：amb 染色；开环形变为 amb 实心盘（盖盘同色，与卡面同源） */
+  .dual-hub {
+    background: color-mix(in oklch, var(--amb) 10%, var(--card));
+    color: var(--amb);
+    box-shadow: inset 0 0 12px color-mix(in oklch, var(--amb) 20%, transparent);
+  }
+  .dual-hub[data-ring-open] {
+    background: var(--amb);
+    color: color-mix(in oklch, var(--amb) 25%, oklch(0.16 0.01 245));
   }
 
   /* 预设环生命周期编排(挂在每片扇形的外层 g 上;transform-origin 由组件内联注入环心):

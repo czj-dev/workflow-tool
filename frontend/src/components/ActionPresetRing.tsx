@@ -29,6 +29,8 @@ interface ActionPresetRingProps {
   label: string;
   /** hub 轴帽盖盘用的图标名(与卡片 hub 一致,视觉上重叠为同一圈盘) */
   hubIcon: string;
+  /** 盖盘氛围色（CSS 变量串，取自卡根 --amb）：按下开环时盘面动态取卡面同源色，回落 primary */
+  amb: string;
   /** 关环退场中：扇形组反向缩回环心（点 3） */
   exiting?: boolean;
   /** 摘瓣中：该 index 的扇片向外飘出、其余缩回，动画结束才执行事件（点 2） */
@@ -38,7 +40,7 @@ interface ActionPresetRingProps {
 }
 
 export function ActionPresetRing({
-  presets, geometry, selected, cursor, keyboard, label, hubIcon, exiting, plucking, onChoose, onHover,
+  presets, geometry, selected, cursor, keyboard, label, hubIcon, amb, exiting, plucking, onChoose, onHover,
 }: ActionPresetRingProps) {
   const pad = SELECTED_OFFSET + 4;
   const mid = geometry.outer + pad;
@@ -127,16 +129,21 @@ export function ActionPresetRing({
       })}
     </svg>
     {/* 盖盘:复制 hub 正圆盘置于扇叶之上(z 51 > svg 50)。展开/收束时扇叶从盘底滑入滑出，
-        不叠在盘面上;稳态下与真实 hub 完全重合，视觉上就是同一只圆盘。 */}
+        不叠在盘面上;稳态下与真实 hub 完全重合，视觉上就是同一只圆盘。
+        盘面动态取卡面 --amb（开环即取色，设计稿 ring-cover 同源），未注入时回落 primary。 */}
     <div
       aria-hidden="true"
-      className="pointer-events-none fixed z-[51] grid place-items-center rounded-[50%] bg-primary text-primary-foreground shadow-[0_2px_12px_rgb(0_0_0/0.3)]"
+      className="pointer-events-none fixed z-[51] grid place-items-center rounded-[50%]
+        bg-[var(--amb,var(--primary))]
+        text-[color-mix(in_oklch,var(--amb,var(--primary))_25%,oklch(0.16_0.01_245))]
+        shadow-[0_2px_12px_rgb(0_0_0/0.3)]"
       style={{
+        "--amb": amb,
         left: geometry.x - geometry.inner,
         top: geometry.y - geometry.inner,
         width: geometry.inner * 2,
         height: geometry.inner * 2,
-      }}
+      } as CSSProperties}
     >
       {/* 图标视觉尺寸对齐真实 hub:size-5(20px)×scale(1.8)=36px=size-9 */}
       <ActionIcon name={hubIcon} className="size-9" />

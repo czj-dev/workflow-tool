@@ -62,8 +62,9 @@ function wrap() {
 }
 
 function mockCardBounds(card: HTMLElement) {
-  // 宽卡 72px 高；环锚点在 .action-hub（40px 图标容器），中心 (220, 220)。
-  // 由卡高得 inner=36，由视口（jsdom 默认 1024×768）得 outer=min(178,114,...)=114。
+  // 环锚点在 .action-hub（size-10=40px），中心 (220,220)；形变后圆盘直径 = 40×1.8 = 72
+  // → inner=36，由视口（jsdom 默认 1024×768）得 outer=min(178,114,...)=114。
+  // 卡片矩形 mock 保留（部分分支仍读取），几何推导已全部走 hub。
   vi.spyOn(card, "getBoundingClientRect").mockReturnValue({
     left: 200, top: 200, width: 260, height: 72, right: 460, bottom: 272,
     x: 200, y: 200, toJSON: () => ({}),
@@ -87,8 +88,11 @@ const mkAction = (id: string, title: string, extra: Record<string, unknown> = {}
   ...extra,
 });
 
+// 双态契约辅助：紧凑态 quick 入口 / 展开态 RUN 胶囊（二者不同时存在，同用 /运行/ 匹配）。
+const quickRun = (card: HTMLElement) => within(card).getByRole("button", { name: /运行/ });
+
 describe("ActionsGridView", () => {
-  it("点击必填无默认值的卡片进表单(不直接执行)", async () => {
+  it("紧凑态 quick 入口对必填无默认值的卡片进表单(不直接执行)", async () => {
     const user = userEvent.setup();
     mockListActions.mockResolvedValue({
       actions: [
@@ -101,14 +105,15 @@ describe("ActionsGridView", () => {
       errors: [],
     });
     render(wrap());
-    await user.click(await screen.findByText("必填无默认"));
+    const card = await screen.findByRole("button", { name: "必填无默认" });
+    await user.click(quickRun(card));
     expect(mockRunAction).not.toHaveBeenCalled();
     // onEdit → selectPreset("") → 打开表单抽屉（主区视图原地不动）
     expect(screen.getByTestId("view-probe")).toHaveTextContent("output");
     expect(screen.getByTestId("form-open-probe")).toHaveTextContent("true");
   });
 
-  it("点击必填且带默认值的卡片直接运行(回填默认值, 如 adb-debug-activity)", async () => {
+  it("紧凑态 quick 入口运行必填且带默认值的卡片(回填默认值, 如 adb-debug-activity)", async () => {
     const user = userEvent.setup();
     mockListActions.mockResolvedValue({
       actions: [
@@ -121,12 +126,13 @@ describe("ActionsGridView", () => {
       errors: [],
     });
     render(wrap());
-    await user.click(await screen.findByText("必填带默认"));
+    const card = await screen.findByRole("button", { name: "必填带默认" });
+    await user.click(quickRun(card));
     expect(mockRunAction).toHaveBeenCalledWith("demo-req-def", { EXEC_ID: "展示语音链路悬框" });
     expect(screen.getByTestId("view-probe")).toHaveTextContent("output");
   });
 
-  it("点击全可选无默认值的卡片直接运行(不进表单)", async () => {
+  it("紧凑态 quick 入口运行全可选无默认值的卡片(不进表单)", async () => {
     const user = userEvent.setup();
     mockListActions.mockResolvedValue({
       actions: [
@@ -139,12 +145,13 @@ describe("ActionsGridView", () => {
       errors: [],
     });
     render(wrap());
-    await user.click(await screen.findByText("全可选"));
+    const card = await screen.findByRole("button", { name: "全可选" });
+    await user.click(quickRun(card));
     expect(mockRunAction).toHaveBeenCalledWith("demo-opt", { TEXT: "" });
     expect(screen.getByTestId("view-probe")).toHaveTextContent("output");
   });
 
-  it("点击仅带默认值(无必填)的卡片直接运行(不进表单, 如 adb-scrcpy)", async () => {
+  it("紧凑态 quick 入口运行仅带默认值(无必填)的卡片(不进表单, 如 adb-scrcpy)", async () => {
     const user = userEvent.setup();
     mockListActions.mockResolvedValue({
       actions: [
@@ -157,40 +164,88 @@ describe("ActionsGridView", () => {
       errors: [],
     });
     render(wrap());
-    await user.click(await screen.findByText("可选带默认"));
+    const card = await screen.findByRole("button", { name: "可选带默认" });
+    await user.click(quickRun(card));
     // 直接运行，且把默认值带上
     expect(mockRunAction).toHaveBeenCalledWith("demo-opt-def", { MAX_SIZE: "1280" });
     expect(screen.getByTestId("view-probe")).toHaveTextContent("output");
   });
 
-  it("点击运行中的卡片回到输出视图(不重复启动)", async () => {
+  it("展开态「编辑配置」进入该 action 的 YAML 编辑页", async () => {
+    const user = userEvent.setup();
+    mockListActions.mockResolvedValue({ actions: [mkAction("demo-yml", "编配卡")], errors: [] });
+    render(wrap());
+    const card = await screen.findByRole("button", { name: "编配卡" });
+    await user.click(card); // 单击=就地展开
+    await user.click(within(card).getByRole("button", { name: "编辑配置" }));
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("edit");
+  });
+
+  it("点运行中的读数回到输出视图(不重复启动)", async () => {
     const user = userEvent.setup();
     mockListActions.mockResolvedValue({
       actions: [mkAction("demo-run", "直跑")],
       errors: [],
     });
     render(wrap());
-    // 用 role 查询：Tooltip 打开后其内容也含 title 文本，getByText 会命中多个
-    await user.click(await screen.findByRole("button", { name: /直跑/ }));
+    const card = await screen.findByRole("button", { name: "直跑" });
+    await user.click(quickRun(card));
     expect(mockRunAction).toHaveBeenCalledTimes(1);
-    // 仍在运行（done 未发）→ 再点卡片应回到输出视图，不再发 RunAction
-    await user.click(screen.getByRole("button", { name: /直跑/ }));
+    // 仍在运行（done 未发）→ quick 入口转为读数态，点击应回到输出视图，不再发 RunAction
+    await user.click(screen.getByRole("button", { name: /运行中/ }));
     expect(mockRunAction).toHaveBeenCalledTimes(1);
     expect(screen.getByTestId("view-probe")).toHaveTextContent("output");
   });
 
-  it("点击无参数卡片直接运行", async () => {
+  it("单击卡片就地展开，再单击收起(展开态显形 RUN 主控)", async () => {
+    const user = userEvent.setup();
+    mockListActions.mockResolvedValue({
+      actions: [mkAction("demo-expand", "开关卡")],
+      errors: [],
+    });
+    render(wrap());
+    const card = await screen.findByRole("button", { name: "开关卡" });
+    await user.click(card);
+    expect(card).toHaveAttribute("aria-expanded", "true");
+    expect(within(card).getByRole("button", { name: /运行/ })).toBeInTheDocument();
+    await user.click(card);
+    expect(card).toHaveAttribute("aria-expanded", "false");
+    expect(mockRunAction).not.toHaveBeenCalled();
+  });
+
+  it("展开态 RUN 胶囊前台运行并切到输出视图", async () => {
     const user = userEvent.setup();
     mockListActions.mockResolvedValue({
       actions: [mkAction("demo-run", "直跑")],
       errors: [],
     });
     render(wrap());
-    await user.click(await screen.findByText("直跑"));
+    const card = await screen.findByRole("button", { name: "直跑" });
+    await user.click(card);
+    await user.click(within(card).getByRole("button", { name: /运行/ }));
     expect(mockRunAction).toHaveBeenCalledWith("demo-run", {});
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("output");
   });
 
-  it("普通点击在释放指针捕获后仍运行", async () => {
+  it("展开态 chips 直接以预设值运行", async () => {
+    const user = userEvent.setup();
+    mockListActions.mockResolvedValue({
+      actions: [mkAction("demo-pre", "带预设", {
+        presets: [
+          { name: "微信", values: { APP: "com.tencent.mm" } },
+          { name: "抖音", values: { APP: "com.ss.android.ugc.aweme" } },
+        ],
+      })],
+      errors: [],
+    });
+    render(wrap());
+    const card = await screen.findByRole("button", { name: /带预设/ });
+    await user.click(card);
+    await user.click(within(card).getByRole("button", { name: /微信/ }));
+    await waitFor(() => expect(mockRunAction).toHaveBeenCalledWith("demo-pre", { APP: "com.tencent.mm" }));
+  });
+
+  it("普通点击在释放指针捕获后正常展开(不误运行)", async () => {
     mockListActions.mockResolvedValue({ actions: [mkAction("capture", "捕获测试", {
       presets: [{ name: "常用", values: {} }],
     })], errors: [] });
@@ -200,7 +255,9 @@ describe("ActionsGridView", () => {
     fireEvent.pointerUp(card, { pointerId: 1, clientX: 50, clientY: 50 });
     fireEvent.lostPointerCapture(card, { pointerId: 1 });
     fireEvent.click(card);
-    expect(mockRunAction).toHaveBeenCalledWith("capture", {});
+    // 快速点按（未达 450ms）→ 单击契约：就地展开而非运行
+    expect(card).toHaveAttribute("aria-expanded", "true");
+    expect(mockRunAction).not.toHaveBeenCalled();
   });
 
   it("长按 450ms 展开，拖到预设松开只运行一次", async () => {
@@ -334,7 +391,7 @@ describe("ActionsGridView", () => {
     });
   });
 
-  it("预设环打开时 Enter 和空格不执行默认动作", async () => {
+  it("预设环打开时 Enter 和空格不展开卡片也不执行默认动作", async () => {
     const user = userEvent.setup();
     mockListActions.mockResolvedValue({ actions: [mkAction("keyboard-guard", "防误触", {
       presets: [{ name: "重启到恢复模式", values: {} }],
@@ -345,6 +402,7 @@ describe("ActionsGridView", () => {
     card.focus();
     await user.keyboard("{Shift>}{F10}{/Shift}{Enter} ");
     expect(mockRunAction).not.toHaveBeenCalled();
+    expect(card).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByTestId("preset-ring")).toBeInTheDocument();
     await user.keyboard("{ArrowRight} ");
     expect(mockRunAction).not.toHaveBeenCalled();
@@ -354,7 +412,7 @@ describe("ActionsGridView", () => {
     await waitFor(() => expect(mockRunAction).toHaveBeenCalledTimes(1));
   });
 
-  it("取消环形选择后，默认点击仍只触发一次", async () => {
+  it("取消环形选择后，单击卡片只展开不误运行", async () => {
     const user = userEvent.setup();
     mockListActions.mockResolvedValue({
       actions: [mkAction("demo-stop", "防冒泡", { presets: [{ name: "一号", values: { K: "x" } }] })],
@@ -369,33 +427,44 @@ describe("ActionsGridView", () => {
     await user.keyboard("{Shift>}{F10}{/Shift}");
     expect(screen.getByTestId("preset-ring")).toBeInTheDocument();
     await user.keyboard("{Tab}");
-    // 关环退场动画(170ms)结束后才卸载
+    // 关环退场动画(210ms)结束后才卸载
     await waitFor(() => expect(screen.queryByTestId("preset-ring")).not.toBeInTheDocument());
     await user.click(card);
-    expect(mockRunAction).toHaveBeenCalledTimes(1);
-    await user.click(card);
-    expect(mockRunAction).toHaveBeenCalledTimes(1);
+    // 单击契约：展开而非运行
+    expect(mockRunAction).not.toHaveBeenCalled();
+    expect(card).toHaveAttribute("aria-expanded", "true");
+    await user.click(within(card).getByRole("button", { name: /一号/ }));
+    expect(mockRunAction).toHaveBeenCalledWith("demo-stop", { K: "x" });
   });
 
-  it("点击 hover 浮现的编辑入口进表单", async () => {
+  it("展开态编辑表单入口进表单(不运行)", async () => {
     const user = userEvent.setup();
     mockListActions.mockResolvedValue({
-      actions: [mkAction("demo-gear", "齿轮")],
+      actions: [mkAction("demo-gear", "齿轮", {
+        params: [{ id: "TEXT", label: "文本", type: "text", required: false, default: "x", options: [] }],
+      })],
       errors: [],
     });
     render(wrap());
-    const gear = await screen.findByRole("button", { name: "编辑参数" });
-    await user.click(gear);
+    const card = await screen.findByRole("button", { name: "齿轮" });
+    await user.click(card);
+    await user.click(within(card).getByRole("button", { name: "编辑表单" }));
     expect(mockRunAction).not.toHaveBeenCalled();
     expect(screen.getByTestId("form-open-probe")).toHaveTextContent("true");
   });
 
   it("键盘激活编辑按钮只打开表单，不启动卡片动作", async () => {
     const user = userEvent.setup();
-    mockListActions.mockResolvedValue({ actions: [mkAction("keyboard-edit", "键盘编辑")], errors: [] });
+    mockListActions.mockResolvedValue({
+      actions: [mkAction("keyboard-edit", "键盘编辑", {
+        params: [{ id: "TEXT", label: "文本", type: "text", required: false, default: "x", options: [] }],
+      })],
+      errors: [],
+    });
     render(wrap());
     const card = await screen.findByRole("button", { name: "键盘编辑" });
-    const edit = within(card).getByRole("button", { name: "编辑参数" });
+    await user.click(card);
+    const edit = within(card).getByRole("button", { name: "编辑表单" });
     edit.focus();
     await user.keyboard("{Enter}");
     expect(screen.getByTestId("form-open-probe")).toHaveTextContent("true");
@@ -548,18 +617,24 @@ describe("ActionsGridView", () => {
     // 关环退场动画(RING_EXIT_MS=210)结束后才卸载
     act(() => vi.advanceTimersByTime(250));
     expect(screen.queryByTestId("preset-ring")).not.toBeInTheDocument();
+    // 环外松开 → 抑制后续 click（不展开不运行）
+    expect(card).toHaveAttribute("aria-expanded", "false");
     expect(mockRunAction).not.toHaveBeenCalled();
   });
 
-  it("有预设的卡片仍能直接编辑参数，无预设的卡片不打开环", async () => {
+  it("有预设的卡片展开后仍能编辑表单，无预设的卡片不打开环", async () => {
     const user = userEvent.setup();
     mockListActions.mockResolvedValue({ actions: [
-      mkAction("edit-preset", "有预设", { presets: [{ name: "常用", values: {} }] }),
+      mkAction("edit-preset", "有预设", {
+        params: [{ id: "T", label: "文本", type: "text", required: false, default: "", options: [] }],
+        presets: [{ name: "常用", values: {} }],
+      }),
       mkAction("no-preset", "无预设"),
     ], errors: [] });
     render(wrap());
     const presetCard = await screen.findByRole("button", { name: "有预设" });
-    await user.click(within(presetCard).getByRole("button", { name: "编辑参数" }));
+    await user.click(presetCard);
+    await user.click(within(presetCard).getByRole("button", { name: "编辑表单" }));
     expect(screen.getByTestId("form-open-probe")).toHaveTextContent("true");
     expect(mockRunAction).not.toHaveBeenCalled();
     const card = screen.getByRole("button", { name: "无预设" });

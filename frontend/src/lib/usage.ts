@@ -22,8 +22,19 @@ const PREFIX_LABELS: Record<string, string> = {
   adb: "ADB",
   claude: "Claude",
   log: "LOG",
+  demo: "演示",
 };
 export const MISC_KEY = "__misc__";
+// 演示/验收用动作组：显示名「演示」，排序恒压轴（业务组字母序在前，杂项最后）
+export const DEMO_KEY = "demo";
+
+// 分组排序：业务组按字母序 → 演示组压轴 → 无前缀杂项恒最后。
+// 三个 grid 视图共用，保证三类页的分组次序一致。
+export function compareGroupKeys(a: string, b: string): number {
+  const rank = (key: string) => (key === MISC_KEY ? 2 : key === DEMO_KEY ? 1 : 0);
+  const diff = rank(a) - rank(b);
+  return diff !== 0 ? diff : a.localeCompare(b);
+}
 
 export function readUsage(key: string): UsageMap {
   try {

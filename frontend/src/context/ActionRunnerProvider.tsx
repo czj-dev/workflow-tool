@@ -215,12 +215,14 @@ export interface RunnerContextValue {
   rerun: (id: string) => void;
   // 用 lastRunParams[id] 预填表单并切到 form / workflow-form 视图，供用户改后再跑
   editRerun: (id: string) => void;
-  // 打开某 LLM 卡片的聊天页空态
-  openLlmChat: (id: string) => void;
+  // 打开某 LLM 卡片的聊天页空态；presetName 非空时带预设进对话（预填合并 preset > default > 全局）
+  openLlmChat: (id: string, presetName?: string) => void;
   // 把 id 切回 currentId 并切视图（用于点侧栏"运行中的动作"回到其输出）
   focusRunning: (id: string, targetView: "output" | "llm-chat" | "logcat") => void;
   // 把仍在运行的 workflow 切回 workflow 视图（点侧栏运行中 workflow 用）
   focusWorkflow: (id: string) => void;
+  // 从卡面直达 YAML 编辑页（action → edit / workflow → workflow-edit），编辑器以 currentId 初始化
+  openYamlEditor: (id: string, kind: "action" | "workflow") => void;
   cancel: () => void;
   clearOutput: () => void;
   copyOutput: () => Promise<void>;
@@ -1101,17 +1103,19 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
 
   // openLlmChat：打开某 LLM 卡片的聊天页（空态）——设为当前、清上次输出缓冲、切 llm-chat。
   // 与 focusRunning("llm-chat") 的区别：那个是切回仍在跑的动作（status=running），这个是全新空态。
-  const openLlmChat = (id: string) => {
-    // 按 selectPreset 的同一优先级预填 formValues（default > 全局配置），否则上个动作的
+  const openLlmChat = (id: string, presetName?: string) => {
+    // 按 selectPreset 的同一优先级预填 formValues（preset > default > 全局配置），否则上个动作的
     // 同名 param 值会残留到这张卡片（聊天页的 chip / composer 直接读 formValues）。
+    // presetName（网格卡 chips 的「带预设进对话」）只覆写预设显式给出的 key，稀疏预设保留回退。
     const a = actions.find((x) => x.id === id);
+    const preset = presetName ? a?.presets?.find((x) => x.name === presetName) : undefined;
     const vals: Record<string, string> = {};
     a?.params?.forEach((spec) => {
-      vals[spec.id] = spec.default || globalConfig[spec.id] || "";
+      vals[spec.id] = preset?.values?.[spec.id] ?? (spec.default || globalConfig[spec.id] || "");
     });
     setFormValues(vals);
     setCurrentId(id);
-    setSelectedPreset(null);
+    setSelectedPreset(presetName || null);
     setLines([]);
     resetSeqState();
     setLlmText("");
@@ -1141,6 +1145,15 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setCurrentId(id);
     setSelectedPreset(null);
     setView("workflow");
+  };
+
+  // openYamlEditor：从卡面直达该对象的 YAML 编辑页（网格卡展开态「编辑配置」）。
+  // 只做导航 + 设 currentId（编辑器以 currentId 初始化 editingId），不动 status/output 缓冲。
+  const openYamlEditor = (id: string, kind: "action" | "workflow") => {
+    setFormSheetOpen(false); // 导航离开：表单抽屉关闭
+    setCurrentId(id);
+    setSelectedPreset(null);
+    setView(kind === "workflow" ? "workflow-edit" : "edit");
   };
 
   // runWorkflow：先同步订阅事件再启动执行，确保不漏首帧。
@@ -1486,6 +1499,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     openLlmChat,
     focusRunning,
     focusWorkflow,
+    openYamlEditor,
     cancel,
     clearOutput,
     copyOutput,

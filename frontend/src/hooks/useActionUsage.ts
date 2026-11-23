@@ -3,7 +3,7 @@ import { RunnerContext } from "../context/ActionRunnerProvider";
 import { footprintOf, groupByPrefix, topItems, type Bucket } from "../lib/usage";
 
 // 算法与常量都在 lib/usage：此处转出，调用点无需知道拆分。
-export { FOOTPRINT_SEGMENTS, MISC_KEY, groupLabel } from "../lib/usage";
+export { FOOTPRINT_SEGMENTS, MISC_KEY, DEMO_KEY, groupLabel, compareGroupKeys } from "../lib/usage";
 
 // 使用频次读取层：分数由 ActionRunnerProvider 单点持有（写入在 runAction / runWorkflow），
 // 本 hook 只按桶取那一份 state 并绑定纯算法——多个组件同时读到的必然是同一份，
