@@ -17,6 +17,7 @@ type ActionItem struct {
 	Title       string               `json:"title"`
 	Icon        string               `json:"icon"`
 	Description string               `json:"description"`
+	Color       string               `json:"color"`
 	Params      []registry.ParamSpec `json:"params"`
 	Presets     []registry.Preset    `json:"presets"`
 	Stream      string               `json:"stream"`
@@ -55,6 +56,7 @@ func (s *Service) buildListResult() ListResult {
 			Title:       la.Def.Title,
 			Icon:        la.Def.Icon,
 			Description: la.Def.Description,
+			Color:       la.Def.Color,
 			Params:      la.Def.Params,
 			Presets:     la.Def.Presets,
 			Stream:      la.Def.Command.Stream,

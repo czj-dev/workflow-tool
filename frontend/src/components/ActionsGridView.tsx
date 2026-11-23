@@ -15,6 +15,7 @@ import {
   StatusRail,
   RunningFlow,
   ambFor,
+  ambColorFor,
   NarrativeZone,
   PresetDots,
   PresetChips,
@@ -118,7 +119,7 @@ export function ActionsGridView() {
                     key={action.id}
                     action={action}
                     group={key === MISC_KEY ? "misc" : key}
-                    amb={ambFor(groupIndex)}
+                    amb={ambColorFor(action.color) ?? ambFor(groupIndex)}
                     running={isRunning(action.id)}
                     level={footprintLevel(action.id)}
                     globalConfig={globalConfig}
@@ -152,7 +153,7 @@ export function ActionsGridView() {
 interface ActionCardProps {
   action: ActionItem;
   group: string;
-  /** 基础氛围色（CSS 变量串，按分组显示序循环）；运行时由卡内覆写为 primary */
+  /** 氛围色（CSS 变量串，按分组显示序循环）；恒为组色，运行不夺氛围（ADR-0003） */
   amb: string;
   running: boolean;
   level: number;
@@ -186,8 +187,8 @@ function ActionCard({
   const [ring, setRing] = useState<OpenRing | null>(null);
   const presets = action.presets ?? [];
   const hasParams = (action.params?.length ?? 0) > 0;
-  // 氛围色：运行让位 primary；盖盘/卡面同源注入（hub 染色 + 环盖盘动态取色）
-  const ambColor = running ? "var(--primary)" : amb;
+  // 氛围色恒为组色（原型 inline --amb 恒胜出的层叠语义）；运行让位只走
+  // index.css 的边框/流光规则，不再整卡覆写
   const canOpen = presets.length > 0 && !running && !expanded; // 展开态不出环（chips 接管）
   // activeRing:渲染用(含退场/摘瓣动画期);liveRing:交互语义上的“环开着”
   // —— 动画期间视为已关闭:点击立即回落默认行为,选区锁定即时解除。
@@ -404,22 +405,18 @@ function ActionCard({
       onLostPointerCapture={(event) => { if (holdRef.current?.pointerId === event.pointerId) onPointerCancel(); }}
       data-running={running || undefined}
       data-expanded={expanded || undefined}
-      style={{ "--amb": ambColor } as CSSProperties}
+      style={{ "--amb": amb } as CSSProperties}
       className={`
         dual-card group relative flex cursor-pointer select-none flex-col rounded-lg border
         transition-[border-color,box-shadow,translate,opacity,scale] duration-150 ease-out
         ${expanded ? "col-span-2 gap-3.5 p-5" : "gap-2.5 p-3.5"}
-        hover:border-[color-mix(in_oklch,var(--amb)_55%,transparent)]
-        focus-visible:border-[color-mix(in_oklch,var(--amb)_55%,transparent)] focus-visible:outline-none
-        data-[expanded]:border-[color-mix(in_oklch,var(--amb)_40%,transparent)]
+        focus-visible:outline-none
         motion-reduce:transition-none
         ${dimmed ? "opacity-40 scale-[0.985]" : ""}
         ${activeRing
           ? // 环开态阴影提权(!)：避免被 .dual-card:hover 的 amb 内描边(同属性)覆盖
             "z-10 border-primary ring-4! ring-primary/15 shadow-[0_5px_14px_rgb(0_0_0/0.2),0_1px_3px_rgb(0_0_0/0.14)]!"
-          : running
-            ? "border-primary"
-            : "border-border"}
+          : "border-border"}
       `}
     >
       {running && <RunningFlow />}
@@ -461,7 +458,7 @@ function ActionCard({
             <PresetDots count={presets.length} />
           </div>
           <div className={`mt-auto flex items-center justify-end border-t border-dashed pt-2
-            border-[color-mix(in_oklch,var(--amb)_30%,var(--border))]
+            border-[color-mix(in_oklab,var(--amb)_30%,var(--border))]
             transition-opacity duration-150 ${activeRing ? "opacity-0" : ""}`}>
             {running ? (
               // 读数态仍可点：回到运行视图（旧「点运行中的卡回到输出」契约的紧凑态承接）
@@ -500,7 +497,7 @@ function ActionCard({
             {action.description || action.id}
           </NarrativeZone>
           <div className="mt-auto flex flex-wrap items-center gap-2.5 border-t border-dashed
-            border-[color-mix(in_oklch,var(--amb)_30%,var(--border))] pt-3.5">
+            border-[color-mix(in_oklab,var(--amb)_30%,var(--border))] pt-3.5">
             <PresetChips
               presets={presets}
               onChoose={(name) => activate(presets.find((p) => p.name === name))}
@@ -540,7 +537,7 @@ function ActionCard({
             keyboard={activeRing.keyboard}
             label={t("form.presetsLabel")}
             hubIcon={action.icon}
-            amb={ambColor}
+            amb={amb}
             exiting={activeRing.exiting}
             plucking={activeRing.plucking}
             onChoose={choose}

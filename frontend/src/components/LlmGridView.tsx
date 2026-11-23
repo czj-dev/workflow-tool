@@ -13,6 +13,7 @@ import {
   StatusRail,
   RunningFlow,
   ambFor,
+  ambColorFor,
   NarrativeZone,
   PresetDots,
   PresetChips,
@@ -72,7 +73,7 @@ export function LlmGridView() {
                     key={action.id}
                     action={action}
                     group={key === MISC_KEY ? "misc" : key}
-                    amb={ambFor(groupIndex)}
+                    amb={ambColorFor(action.color) ?? ambFor(groupIndex)}
                     running={isRunning(action.id)}
                     level={footprintLevel(action.id)}
                     score={getScore(action.id)}
@@ -105,7 +106,7 @@ export function LlmGridView() {
 interface LlmCardProps {
   action: ActionItem;
   group: string;
-  /** 基础氛围色（按分组显示序循环）；运行时由卡内覆写为 primary */
+  /** 氛围色（按分组显示序循环）；恒为组色，运行不夺氛围（ADR-0003） */
   amb: string;
   running: boolean;
   level: number;
@@ -147,14 +148,11 @@ function LlmCard({
       }}
       data-running={running || undefined}
       data-expanded={expanded || undefined}
-      style={{ "--amb": running ? "var(--primary)" : amb } as CSSProperties}
-      className={`dual-card group relative flex cursor-pointer flex-col rounded-lg border p-3.5
+      style={{ "--amb": amb } as CSSProperties}
+      className={`dual-card group relative flex cursor-pointer flex-col rounded-lg border border-border p-3.5
         transition-[border-color,box-shadow,background-color] duration-150 ease-out
         ${expanded ? "col-span-2 gap-3.5 p-5" : "gap-2.5"}
-        hover:border-[color-mix(in_oklch,var(--amb)_55%,transparent)]
-        focus-visible:border-[color-mix(in_oklch,var(--amb)_55%,transparent)] focus-visible:outline-none
-        data-[expanded]:border-[color-mix(in_oklch,var(--amb)_40%,transparent)]
-        ${running ? "border-primary" : "border-border"}`}
+        focus-visible:outline-none`}
     >
       {running && <RunningFlow />}
 
@@ -176,7 +174,7 @@ function LlmCard({
             {action.description || <span className="text-muted-foreground/50">{action.id}</span>}
           </span>
           <div className="mt-auto flex items-center justify-end border-t border-dashed
-            border-[color-mix(in_oklch,var(--amb)_30%,var(--border))] pt-2
+            border-[color-mix(in_oklab,var(--amb)_30%,var(--border))] pt-2
             font-mono text-[10px] tracking-[0.06em] uppercase">
             {running ? (
               // 读数态仍可点：focusRunning 切回聊天页（会话还在流式输出）
@@ -215,7 +213,7 @@ function LlmCard({
             {summary}
           </NarrativeZone>
           <div className="mt-auto flex flex-wrap items-center gap-2.5 border-t border-dashed
-            border-[color-mix(in_oklch,var(--amb)_30%,var(--border))] pt-3.5">
+            border-[color-mix(in_oklab,var(--amb)_30%,var(--border))] pt-3.5">
             <PresetChips presets={presets} onChoose={onOpenPreset} />
             <GhostBtn
               label={t("grid.editConfig")}

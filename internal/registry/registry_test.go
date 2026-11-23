@@ -605,8 +605,44 @@ func TestValidate_ScriptExtension(t *testing.T) {
 	if err := Validate(bad); err == nil {
 		t.Fatal(".rb 扩展名应报错")
 	}
-	override := &ActionDef{ID: "a", Title: "A", Command: Command{Script: "./s/hello.pl", Shell: "perl {0}"}}
+override := &ActionDef{ID: "a", Title: "A", Command: Command{Script: "./s/hello.pl", Shell: "perl {0}"}}
 	if err := Validate(override); err != nil {
 		t.Fatalf("script + 显式 shell 应合法（校验不该比引擎更严）: %v", err)
+	}
+}
+
+// TestValidate_ColorField 校验顶层 color 字段（ADR-0003 备注②）：合法四色名放行、
+// 非法名报错、不写（空串）放行——前端回落分组序循环。
+func TestValidate_ColorField(t *testing.T) {
+	cases := []struct {
+		name    string
+		yaml    string
+		wantErr string
+	}{
+		{"合法色名 green", "id: a\ntitle: A\ncolor: green\ncommand:\n  run: echo\n", ""},
+		{"不写 color 放行", "id: a\ntitle: A\ncommand:\n  run: echo\n", ""},
+		{"非法色名", "id: a\ntitle: A\ncolor: red\ncommand:\n  run: echo\n", "color 非法"},
+	}
+	for _, c := range cases {
+		def, err := ParseAction([]byte(c.yaml))
+		if err != nil {
+			t.Fatalf("%s: parse: %v", c.name, err)
+		}
+		err = Validate(def)
+		if c.wantErr == "" {
+			if err != nil {
+				t.Errorf("%s: 不应报错, got %v", c.name, err)
+			}
+		} else if err == nil || !strings.Contains(err.Error(), c.wantErr) {
+			t.Errorf("%s: 应报含 %q 的错误, got %v", c.name, c.wantErr, err)
+		}
+	}
+	// 解析面：合法色名应落到 Def.Color
+	def, err := ParseAction([]byte("id: a\ntitle: A\ncolor: violet\ncommand:\n  run: echo\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if def.Color != "violet" {
+		t.Fatalf("want color=violet, got %q", def.Color)
 	}
 }

@@ -22,6 +22,8 @@ type ActionDef struct {
 	Title       string      `yaml:"title"`
 	Icon        string      `yaml:"icon"`
 	Description string      `yaml:"description"`
+	// Color 可选，卡片氛围色名（ValidAmbColors）；空 = 缺省按分组序循环（ADR-0003）。
+	Color       string      `yaml:"color"`
 	Command     Command     `yaml:"command"`
 	Params      []ParamSpec `yaml:"params"`
 	Presets     []Preset    `yaml:"presets"`
@@ -135,6 +137,12 @@ type SkillMeta struct {
 
 var idPattern = regexp.MustCompile(`^[a-z0-9-]+$`)
 
+// ValidAmbColors 是 action/workflow 顶层 color 字段的合法取值，对应前端 ADR-0003
+// 四色板 token（--amb-amber/green/blue/violet）。空串 = 未声明，前端回落分组序循环。
+var ValidAmbColors = map[string]bool{
+	"amber": true, "green": true, "blue": true, "violet": true,
+}
+
 // Load 扫描 dir 下所有 *.yaml，返回 Registry。
 // baseDir 用于运行时解析相对 script 路径（Registry 仅透传，不做路径解析）。
 func Load(dir, baseDir string) *Registry {
@@ -199,6 +207,9 @@ func Validate(def *ActionDef) error {
 	}
 	if def.Title == "" {
 		return fmt.Errorf("title 必填")
+	}
+	if def.Color != "" && !ValidAmbColors[def.Color] {
+		return fmt.Errorf("color 非法 %q（应为 amber/green/blue/violet，不写则按分组序循环）", def.Color)
 	}
 	if def.HMI != nil && def.HMI.Tree != nil && def.HMI.Tree.Click != nil {
 		click := def.HMI.Tree.Click

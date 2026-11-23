@@ -8,6 +8,7 @@
 id: my-workflow                # 必填，^[a-z0-9-]+$ 全局唯一
 title: 我的工作流               # 必填
 icon: hi:workflow              # 可选，hugeicons key 或 emoji
+color: violet                  # 可选，卡片氛围色：amber | green | blue | violet（不写按组序循环）
 description: 简要说明           # 可选
 
 env:                           # 可选，workflow 级默认环境变量，注入所有 step

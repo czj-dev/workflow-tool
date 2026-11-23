@@ -232,7 +232,7 @@ export function WorkflowView() {
               const nodeCls = {
                 pending: "size-2 bg-transparent border-2 border-muted-foreground/40",
                 running:
-                  "size-2.5 bg-primary shadow-[0_0_0_3px_color-mix(in_oklch,var(--primary)_22%,transparent)] live-pulse",
+                  "size-2.5 bg-primary shadow-[0_0_0_3px_color-mix(in_oklab,var(--primary)_22%,transparent)] live-pulse",
                 done: "size-2 bg-success",
                 error: "size-2 bg-destructive",
                 skipped:

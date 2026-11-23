@@ -26,6 +26,7 @@ type WorkflowItem struct {
 	Title       string               `json:"title"`
 	Icon        string               `json:"icon"`
 	Description string               `json:"description"`
+	Color       string               `json:"color"`
 	StepCount   int                  `json:"stepCount"`
 	Params      []registry.ParamSpec `json:"params"`
 	Steps       []WorkflowStepInfo   `json:"steps"`
@@ -48,6 +49,7 @@ func (s *Service) ListWorkflows() WorkflowListResult {
 			Title:       lw.Def.Title,
 			Icon:        lw.Def.Icon,
 			Description: lw.Def.Description,
+			Color:       lw.Def.Color,
 			StepCount:   len(lw.Def.Steps),
 			Params:      lw.Def.Params,
 			Steps:       steps,

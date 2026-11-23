@@ -233,6 +233,22 @@ describe("WorkflowsGridView", () => {
     expect(mockRunWorkflow).toHaveBeenCalledWith("demo-opt", {});
   });
 
+  it("YAML color 字段优先于组序循环注入 --amb", async () => {
+    mockListWorkflows.mockResolvedValue({
+      workflows: [
+        mkWf("demo-plain", "缺省色流"),
+        mkWf("demo-violet", "紫色流", { color: "violet" }),
+      ],
+      errors: [],
+    });
+    render(wrap());
+    const plain = await screen.findByRole("button", { name: "缺省色流" });
+    const violet = screen.getByRole("button", { name: "紫色流" });
+    // 同组（demo，组序 0=amber）：未写 color 回落组循环，写了用逐卡 token
+    expect(plain.style.getPropertyValue("--amb")).toBe("var(--amb-amber)");
+    expect(violet.style.getPropertyValue("--amb")).toBe("var(--amb-violet)");
+  });
+
   it("渲染个性图标(emoji 原样显示)", async () => {
     mockListWorkflows.mockResolvedValue({
       workflows: [mkWf("demo-emoji", "表情", { icon: "🚀" })],

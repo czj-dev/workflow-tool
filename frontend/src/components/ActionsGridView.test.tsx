@@ -548,6 +548,22 @@ describe("ActionsGridView", () => {
     expect(screen.getByText("没有匹配的动作")).toBeInTheDocument();
   });
 
+  it("YAML color 字段优先于组序循环注入 --amb", async () => {
+    mockListActions.mockResolvedValue({
+      actions: [
+        mkAction("demo-plain", "缺省色卡"),
+        mkAction("demo-blue", "蓝色卡", { color: "blue" }),
+      ],
+      errors: [],
+    });
+    render(wrap());
+    const plain = await screen.findByRole("button", { name: "缺省色卡" });
+    const blue = screen.getByRole("button", { name: "蓝色卡" });
+    // 同组（demo，组序 0=amber）：未写 color 回落组循环，写了用逐卡 token
+    expect(plain.style.getPropertyValue("--amb")).toBe("var(--amb-amber)");
+    expect(blue.style.getPropertyValue("--amb")).toBe("var(--amb-blue)");
+  });
+
   it("无动作时渲染空态指引(不崩)", async () => {
     mockListActions.mockResolvedValue({ actions: [], errors: [] });
     render(wrap());

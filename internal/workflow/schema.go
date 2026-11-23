@@ -29,6 +29,8 @@ type WorkflowDef struct {
 	Title       string               `yaml:"title"`
 	Icon        string               `yaml:"icon"`
 	Description string               `yaml:"description"`
+	// Color 可选，卡片氛围色名（registry.ValidAmbColors）；空 = 缺省按分组序循环（ADR-0003）。
+	Color       string               `yaml:"color"`
 	Env         map[string]string    `yaml:"env"` // workflow 级默认环境变量
 	Params      []registry.ParamSpec `yaml:"params"`
 	Steps       []Step               `yaml:"steps"`
@@ -64,6 +66,9 @@ func Validate(def *WorkflowDef) error {
 	}
 	if def.Title == "" {
 		return fmt.Errorf("title 必填")
+	}
+	if def.Color != "" && !registry.ValidAmbColors[def.Color] {
+		return fmt.Errorf("color 非法 %q（应为 amber/green/blue/violet，不写则按分组序循环）", def.Color)
 	}
 	if len(def.Steps) == 0 {
 		return fmt.Errorf("steps 不能为空")

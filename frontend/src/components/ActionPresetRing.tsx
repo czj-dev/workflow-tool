@@ -135,7 +135,7 @@ export function ActionPresetRing({
       aria-hidden="true"
       className="pointer-events-none fixed z-[51] grid place-items-center rounded-[50%]
         bg-[var(--amb,var(--primary))]
-        text-[color-mix(in_oklch,var(--amb,var(--primary))_25%,oklch(0.16_0.01_245))]
+        text-[color-mix(in_oklab,var(--amb,var(--primary))_25%,oklch(0.16_0.01_245))]
         shadow-[0_2px_12px_rgb(0_0_0/0.3)]"
       style={{
         "--amb": amb,

@@ -102,7 +102,7 @@ const chromeTheme = EditorView.theme({
   ".cm-cursor, .cm-dropCursor": { borderLeftColor: "var(--primary)" },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection, .cm-line ::selection":
     {
-      backgroundColor: "color-mix(in oklch, var(--primary) 22%, transparent)",
+      backgroundColor: "color-mix(in oklab, var(--primary) 22%, transparent)",
     },
   ".cm-gutters": {
     backgroundColor: "transparent",
@@ -114,10 +114,10 @@ const chromeTheme = EditorView.theme({
     color: "var(--foreground)",
   },
   ".cm-activeLine": {
-    backgroundColor: "color-mix(in oklch, var(--foreground) 5%, transparent)",
+    backgroundColor: "color-mix(in oklab, var(--foreground) 5%, transparent)",
   },
   ".cm-foldPlaceholder": {
-    backgroundColor: "color-mix(in oklch, var(--primary) 18%, transparent)",
+    backgroundColor: "color-mix(in oklab, var(--primary) 18%, transparent)",
     color: "var(--primary)",
     border: "none",
     borderRadius: "4px",
@@ -135,7 +135,7 @@ const chromeTheme = EditorView.theme({
     borderRadius: "4px",
   },
   ".cm-searchMatch": {
-    backgroundColor: "color-mix(in oklch, var(--primary) 30%, transparent)",
+    backgroundColor: "color-mix(in oklab, var(--primary) 30%, transparent)",
   },
   ".cm-searchMatch-selected": {
     backgroundColor: "var(--primary)",

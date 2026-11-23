@@ -73,13 +73,26 @@ export function ambFor(index: number): string {
   return AMB_CYCLE[((index % n) + n) % n];
 }
 
+// YAML 可选 color 字段（ADR-0003 备注②落地）：逐卡声明氛围色，已知名 → token；
+// 未写 / 未知名返回 null，调用方回落 ambFor 组序循环。白名单与 Go 侧
+// registry.ValidAmbColors 保持同步（amber/green/blue/violet）。
+const AMB_BY_NAME: Record<string, string> = {
+  amber: "var(--amb-amber)",
+  green: "var(--amb-green)",
+  blue: "var(--amb-blue)",
+  violet: "var(--amb-violet)",
+};
+export function ambColorFor(color?: string): string | null {
+  return color ? (AMB_BY_NAME[color] ?? null) : null;
+}
+
 // 预设点阵：紧凑态 hub 旁的「有预设、可长按」暗示（结构即提示）。
 export function PresetDots({ count }: { count: number }) {
   if (count <= 0) return null;
   return (
     <span aria-hidden="true" className="flex flex-none items-center gap-[3px] self-start pt-2.5">
       {Array.from({ length: count }, (_, i) => (
-        <i key={i} className="size-[3px] rounded-full bg-[color-mix(in_oklch,var(--amb)_70%,transparent)]" />
+        <i key={i} className="size-[3px] rounded-full bg-[color-mix(in_oklab,var(--amb)_70%,transparent)]" />
       ))}
     </span>
   );
@@ -92,13 +105,13 @@ export function NarrativeZone({ stamp, children }: { stamp?: ReactNode; children
       <span
         aria-hidden="true"
         className="shrink-0 select-none pt-px font-serif text-[26px] leading-none
-          text-[color-mix(in_oklch,var(--amb)_55%,transparent)]"
+          text-[color-mix(in_oklab,var(--amb)_55%,transparent)]"
       >
         ❝
       </span>
       <p className="line-clamp-4 max-w-64ch text-[13px] leading-[1.75] text-foreground/85">
         {stamp && (
-          <span className="mr-2 font-mono text-[10.5px] tracking-[0.04em] text-[color-mix(in_oklch,var(--amb)_80%,var(--muted-foreground))]">
+          <span className="mr-2 font-mono text-[10.5px] tracking-[0.04em] text-[color-mix(in_oklab,var(--amb)_80%,var(--muted-foreground))]">
             {stamp}
           </span>
         )}
@@ -124,10 +137,10 @@ export function PresetChips({
           title={preset.description || preset.name}
           onClick={(e) => { e.stopPropagation(); onChoose(preset.name); }}
           className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-dashed
-            border-[color-mix(in_oklch,var(--amb)_40%,var(--border))] bg-muted/55 px-2.5
+            border-[color-mix(in_oklab,var(--amb)_40%,var(--border))] bg-muted/55 px-2.5
             font-mono text-[11px] tracking-[0.02em] text-muted-foreground transition-colors
-            hover:border-solid hover:border-[color-mix(in_oklch,var(--amb)_65%,transparent)]
-            hover:bg-[color-mix(in_oklch,var(--amb)_10%,transparent)] hover:text-foreground
+            hover:border-solid hover:border-[color-mix(in_oklab,var(--amb)_65%,transparent)]
+            hover:bg-[color-mix(in_oklab,var(--amb)_10%,transparent)] hover:text-foreground
             focus-visible:outline-none focus-visible:border-solid"
         >
           <span aria-hidden="true" className="text-[9px] text-[var(--amb)]">▸</span>
@@ -149,8 +162,8 @@ export function GhostBtn({
       className="inline-flex h-8 cursor-pointer items-center gap-1.5 rounded-md border
         border-border bg-card/55 px-3 font-mono text-[11.5px] tracking-[0.04em]
         text-muted-foreground transition-colors
-        hover:border-[color-mix(in_oklch,var(--amb)_50%,transparent)] hover:text-foreground
-        focus-visible:outline-none focus-visible:border-[color-mix(in_oklch,var(--amb)_50%,transparent)]"
+        hover:border-[color-mix(in_oklab,var(--amb)_50%,transparent)] hover:text-foreground
+        focus-visible:outline-none focus-visible:border-[color-mix(in_oklab,var(--amb)_50%,transparent)]"
     >
       {icon}
       {label}
@@ -171,7 +184,7 @@ export function RunPill({
   if (running) {
     return (
       <span className="ml-auto inline-flex h-9 items-center gap-2 rounded-full
-        bg-[color-mix(in_oklch,var(--primary)_15%,transparent)] px-4.5
+        bg-[color-mix(in_oklab,var(--primary)_15%,transparent)] px-4.5
         font-mono text-[12px] font-bold tracking-[0.18em] text-primary">
         {live && <span className="size-1.5 rounded-full bg-primary live-pulse" />}
         {runningLabel ?? label}

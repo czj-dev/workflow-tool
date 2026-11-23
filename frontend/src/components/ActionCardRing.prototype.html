@@ -32,7 +32,7 @@
     .brand { display:flex; align-items:center; gap:10px; padding:0 4px 22px; font:600 13px var(--font-mono); text-transform:uppercase }
     .brand b { display:grid; place-items:center; width:32px; height:32px; border-radius:8px; background:var(--primary); color:var(--primary-foreground); font-size:19px }
     .nav { display:block; width:100%; padding:9px 12px; text-align:left; border:0; border-radius:6px; background:transparent; color:var(--muted-foreground); font-size:13px }
-    .nav.current { background:color-mix(in oklch,var(--primary) 12%,transparent); color:var(--primary) }
+    .nav.current { background:color-mix(in oklab,var(--primary) 12%,transparent); color:var(--primary) }
     .page { min-width:0 }
     header { height:42px; display:flex; align-items:center; justify-content:space-between; gap:12px; padding:0 16px; border-bottom:1px solid var(--border) }
     header strong { font-size:14px; font-weight:600 }
@@ -41,15 +41,15 @@
     section { margin-bottom:24px }
     .section-head { display:grid; grid-template-columns:auto 1fr auto; align-items:center; gap:12px; margin-bottom:12px; color:var(--muted-foreground); font:600 11px var(--font-mono); letter-spacing:.12em; text-transform:uppercase }
     .tick-ruler { display:flex; align-items:flex-end; gap:5px; height:12px; padding-bottom:3px; border-bottom:1px solid var(--border) }
-    .tick-ruler i { width:1px; height:5px; background:color-mix(in oklch,var(--foreground) 22%,transparent) }
+    .tick-ruler i { width:1px; height:5px; background:color-mix(in oklab,var(--foreground) 22%,transparent) }
     .tick-ruler i:first-child { height:9px; background:var(--primary) }
     .section-head span:last-child { grid-column:3; grid-row:1; font-weight:400 }
     .cards { display:grid; grid-template-columns:repeat(auto-fill,130px); gap:10px }
-    .card { position:relative; width:130px; height:130px; border:1px solid var(--border); border-radius:12px; background:linear-gradient(180deg,var(--card),color-mix(in oklch,var(--background) 70%,transparent)); color:var(--foreground); box-shadow:0 1px 2px #0003,0 2px 5px #0002; user-select:none; touch-action:none; transition:border-color .15s,transform .15s,box-shadow .15s }
+    .card { position:relative; width:130px; height:130px; border:1px solid var(--border); border-radius:12px; background:linear-gradient(180deg,var(--card),color-mix(in oklab,var(--background) 70%,transparent)); color:var(--foreground); box-shadow:0 1px 2px #0003,0 2px 5px #0002; user-select:none; touch-action:none; transition:border-color .15s,transform .15s,box-shadow .15s }
     .card.no-presets { touch-action:auto }
-    .card:hover,.card:focus-within { border-color:color-mix(in oklch,var(--primary) 60%,transparent); box-shadow:0 5px 14px #0006,0 1px 3px #0005 }
-    .card.armed { border-color:var(--primary); box-shadow:0 0 0 2px color-mix(in oklch,var(--primary) 25%,transparent) }
-    .card.radial-active,.card.radial-active:hover,.card.radial-active:focus-within { z-index:12; border-radius:50%; border-color:var(--primary); transform:scale(var(--hub-scale,1)); box-shadow:0 12px 32px #000a,0 0 0 3px color-mix(in oklch,var(--primary) 18%,transparent) }
+    .card:hover,.card:focus-within { border-color:color-mix(in oklab,var(--primary) 60%,transparent); box-shadow:0 5px 14px #0006,0 1px 3px #0005 }
+    .card.armed { border-color:var(--primary); box-shadow:0 0 0 2px color-mix(in oklab,var(--primary) 25%,transparent) }
+    .card.radial-active,.card.radial-active:hover,.card.radial-active:focus-within { z-index:12; border-radius:50%; border-color:var(--primary); transform:scale(var(--hub-scale,1)); box-shadow:0 12px 32px #000a,0 0 0 3px color-mix(in oklab,var(--primary) 18%,transparent) }
     .card.radial-active .card-foot,.card.radial-active .card-rail { display:none }
     .card.radial-active .card-face { padding:10px 5px }
     .card.radial-active .card-face:focus-visible { outline:none }
@@ -57,14 +57,14 @@
     .card.radial-active .card-name { width:120px; font-size:calc(12px / var(--hub-scale,1)) }
     .card-face { position:absolute; inset:0; width:100%; border:0; background:none; color:inherit; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:9px; padding:10px 5px 16px }
     .card-rail { position:absolute; top:9px; left:9px; display:flex; align-items:center; gap:6px; pointer-events:none }
-    .card-rail::before { content:""; width:4px; height:4px; border-radius:50%; background:color-mix(in oklch,var(--foreground) 25%,transparent) }
-    .card-rail i { display:block; width:6px; height:3px; border-radius:1px; background:color-mix(in oklch,var(--foreground) 12%,transparent) }
-    .card-rail i:first-of-type,.card-rail i:nth-of-type(2) { background:color-mix(in oklch,var(--primary) 65%,transparent) }
-    .glyph { display:grid; place-items:center; width:50px; height:50px; border-radius:12px; background:color-mix(in oklch,var(--primary) 18%,transparent); color:var(--primary); box-shadow:inset 0 0 14px color-mix(in oklch,var(--primary) 25%,transparent); font-size:25px }
+    .card-rail::before { content:""; width:4px; height:4px; border-radius:50%; background:color-mix(in oklab,var(--foreground) 25%,transparent) }
+    .card-rail i { display:block; width:6px; height:3px; border-radius:1px; background:color-mix(in oklab,var(--foreground) 12%,transparent) }
+    .card-rail i:first-of-type,.card-rail i:nth-of-type(2) { background:color-mix(in oklab,var(--primary) 65%,transparent) }
+    .glyph { display:grid; place-items:center; width:50px; height:50px; border-radius:12px; background:color-mix(in oklab,var(--primary) 18%,transparent); color:var(--primary); box-shadow:inset 0 0 14px color-mix(in oklab,var(--primary) 25%,transparent); font-size:25px }
     .card-name { width:112px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font:600 12px var(--font-mono); text-align:center }
     .card-foot { position:absolute; bottom:8px; left:8px; right:8px; display:flex; align-items:center; justify-content:center; pointer-events:none }
     .count { display:flex; height:6px; align-items:center; gap:4px }
-    .count i { display:block; width:4px; height:4px; border-radius:50%; background:color-mix(in oklch,var(--primary) 40%,transparent) }
+    .count i { display:block; width:4px; height:4px; border-radius:50%; background:color-mix(in oklab,var(--primary) 40%,transparent) }
     .controls { position:absolute; right:0; bottom:0; display:flex; gap:1px; pointer-events:none; opacity:0; transition:opacity .15s }
     .card:hover .controls,.card:focus-within .controls { pointer-events:auto; opacity:1 }
     .icon { width:22px; height:22px; display:grid; place-items:center; border:0; border-radius:4px; background:var(--card); color:var(--muted-foreground); font-size:14px }
@@ -80,14 +80,14 @@
     .ring[hidden],.sheet[hidden],.drag-ghost[hidden],.drag-line[hidden] { display:none }
     .donut { position:absolute; overflow:visible; filter:drop-shadow(0 12px 24px #000b) }
     .segment { cursor:pointer; pointer-events:auto; transition:transform 120ms }
-    .segment path { fill:color-mix(in oklch,var(--card) 65%,var(--muted)); stroke:color-mix(in oklch,var(--foreground) 15%,transparent); stroke-width:1; transition:fill 120ms,stroke 120ms }
-    .segment.selected path { fill:color-mix(in oklch,var(--primary) 20%,var(--card)); stroke:var(--primary) }
+    .segment path { fill:color-mix(in oklab,var(--card) 65%,var(--muted)); stroke:color-mix(in oklab,var(--foreground) 15%,transparent); stroke-width:1; transition:fill 120ms,stroke 120ms }
+    .segment.selected path { fill:color-mix(in oklab,var(--primary) 20%,var(--card)); stroke:var(--primary) }
     .segment text { fill:var(--foreground); font:600 12px "Noto Sans Variable","PingFang SC",sans-serif; text-anchor:middle; dominant-baseline:middle; pointer-events:none }
     .segment.selected text { fill:var(--primary) }
     .segment .hint { fill:var(--muted-foreground); font-size:9px; font-weight:400 }
     .segment.selected .hint { fill:var(--primary) }
-    .drag-line { position:fixed; z-index:14; height:2px; transform-origin:left center; background:linear-gradient(90deg,transparent,var(--primary)); box-shadow:0 0 9px color-mix(in oklch,var(--primary) 35%,transparent); pointer-events:none }
-    .drag-ghost { position:fixed; z-index:15; padding:6px 10px; border:1px solid color-mix(in oklch,var(--primary) 45%,transparent); border-radius:6px; background:var(--card); color:var(--primary); box-shadow:0 7px 18px #0009; font-size:11px; font-weight:600; pointer-events:none; white-space:nowrap }
+    .drag-line { position:fixed; z-index:14; height:2px; transform-origin:left center; background:linear-gradient(90deg,transparent,var(--primary)); box-shadow:0 0 9px color-mix(in oklab,var(--primary) 35%,transparent); pointer-events:none }
+    .drag-ghost { position:fixed; z-index:15; padding:6px 10px; border:1px solid color-mix(in oklab,var(--primary) 45%,transparent); border-radius:6px; background:var(--card); color:var(--primary); box-shadow:0 7px 18px #0009; font-size:11px; font-weight:600; pointer-events:none; white-space:nowrap }
     .sheet { position:fixed; inset:0; z-index:20; background:#0009; display:flex; justify-content:flex-end }
     .panel { width:min(400px,100%); height:100%; overflow-y:auto; background:var(--sidebar); border-left:1px solid var(--border); padding:24px; box-shadow:-18px 0 40px #0006 }
     .panel-head { display:flex; align-items:start; justify-content:space-between; gap:12px; margin-bottom:24px }

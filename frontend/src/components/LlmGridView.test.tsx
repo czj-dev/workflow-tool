@@ -119,6 +119,22 @@ describe("LlmGridView", () => {
     expect(screen.getByTestId("view-probe")).toHaveTextContent("llm-chat");
   });
 
+  it("YAML color 字段优先于组序循环注入 --amb", async () => {
+    mockListActions.mockResolvedValue({
+      actions: [
+        mkLlmAction(),
+        { ...mkLlmAction(), id: "llm-green", title: "绿聊", color: "green" },
+      ],
+      errors: [],
+    });
+    render(wrap());
+    const plain = await screen.findByRole("button", { name: "翻译助手" });
+    const green = screen.getByRole("button", { name: "绿聊" });
+    // 同组（llm，组序 0=amber）：未写 color 回落组循环，写了用逐卡 token
+    expect(plain.style.getPropertyValue("--amb")).toBe("var(--amb-amber)");
+    expect(green.style.getPropertyValue("--amb")).toBe("var(--amb-green)");
+  });
+
   it("chips 带预设进对话(预填 preset 值)", async () => {
     const user = userEvent.setup();
     mockListActions.mockResolvedValue({ actions: [mkLlmAction()], errors: [] });

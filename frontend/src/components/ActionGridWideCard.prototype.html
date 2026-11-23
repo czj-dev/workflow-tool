@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<!-- ============================================================================
+  宽卡网格原型 v2 —— actions-grid 卡片重设计
+  卡片:横向宽卡,信息密度优先 —— 左侧 40px 图标 hub + 完整 title + id 副行。
+  ring v2 几何与动效(相对 v1 的修正):
+   1) 卡高(72px) == 环内孔直径,环展开时上下沿正好贴卡上下沿;
+   2) 锚点 = hub 中心,外半径按【视口】钳制 —— 环可压到左侧栏上借空间
+      (与生产 ringGeometry 语义一致,原型内 mock 了 220px 侧栏验证此场景);
+   3) 开环动画:hub 由圆角方块变形为正圆盘(直径 72px == 内孔直径),
+      实心 primary + 反色图标,圆边贴合扇形内沿成为环心;
+      扇形组从环心弹出;dots/编辑按钮淡出、标题降透明度收纳;
+      卡片 primary 边框 + 外发光与环融合;关环全部可逆。
+  交互:长按 450ms 开环(角度追踪)· Shift+F10 键盘开环 · 快速点按模拟运行
+       · "/" 聚焦搜索 · 右上角切主题。
+  数据:真实 36 个 shell action(排除 5 个 llm 形态),usage 模拟
+       (截屏=0 沉底,复现"找半天找不到"场景)。
+  ============================================================================ -->
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>宽卡网格原型 · actions-grid</title>
+<script src="https://cdn.jsdelivr.net/npm/lucide@latest/dist/umd/lucide.min.js"></script>
+<style>
+  :root {
+    --background: oklch(0.985 0 0);
+    --card: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --muted-foreground: oklch(0.52 0 0);
+    --border: oklch(0.91 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --success: oklch(0.627 0.17 149.2);
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.08), 0 2px 5px rgb(0 0 0 / 0.05);
+    --shadow-lift: 0 5px 14px rgb(0 0 0 / 0.16), 0 1px 3px rgb(0 0 0 / 0.12);
+  }
+  html.dark {
+    --background: oklch(0.155 0 0);
+    --card: oklch(0.205 0 0);
+    --foreground: oklch(0.96 0 0);
+    --muted-foreground: oklch(0.66 0 0);
+    --border: oklch(0.3 0 0);
+    --primary: oklch(0.9 0 0);
+    --primary-foreground: oklch(0.16 0 0);
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4), 0 2px 5px rgb(0 0 0 / 0.3);
+    --shadow-lift: 0 5px 14px rgb(0 0 0 / 0.5), 0 1px 3px rgb(0 0 0 / 0.4);
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--background);
+    color: var(--foreground);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+    font-size: 14px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 布局:mock 侧栏占位(仅模拟真实 app 的左栏空间,环可借用) */
+  .shell { display: flex; min-height: 100vh; }
+  .content { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .mockside {
+    width: 220px; flex: none; padding: 12px 10px;
+    border-right: 1px solid var(--border);
+    background: color-mix(in oklab, var(--card) 55%, var(--background));
+  }
+  .mockside .brand { display: flex; align-items: center; gap: 8px; padding: 6px 8px 14px; font-weight: 600; font-size: 13px; }
+  .mockside .brand i { width: 26px; height: 26px; border-radius: 8px; background: var(--primary); color: var(--primary-foreground); display: grid; place-items: center; font-style: normal; font-size: 11px; font-family: ui-monospace, monospace; }
+  .mockside .row { display: flex; align-items: center; gap: 8px; padding: 7px 8px; border-radius: 8px; color: var(--muted-foreground); font-size: 12.5px; }
+  .mockside .row i { width: 16px; height: 16px; border-radius: 5px; background: var(--border); flex: none; }
+  .mockside .cap { margin: 14px 8px 6px; }
+  .mono { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+  .eyebrow {
+    font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    font-size: 11px; font-weight: 600; text-transform: uppercase;
+    letter-spacing: 0.16em; color: color-mix(in oklab, var(--muted-foreground) 80%, transparent);
+  }
+
+  /* ── 头部:搜索(Fragments 模式)+ 主题切换 ─────────────────────────── */
+  header {
+    position: sticky; top: 0; z-index: 20;
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 16px; border-bottom: 1px solid var(--border);
+    background: color-mix(in oklab, var(--background) 92%, transparent);
+    backdrop-filter: blur(8px);
+  }
+  header h1 { font-size: 14px; font-weight: 600; margin-right: 4px; }
+  .searchbox {
+    flex: 1; max-width: 420px; display: flex; align-items: center; gap: 8px;
+    border: 1px solid var(--border); border-radius: 10px;
+    background: var(--card); padding: 6px 10px;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .searchbox:focus-within { border-color: color-mix(in oklab, var(--primary) 55%, var(--border)); box-shadow: 0 0 0 3px color-mix(in oklab, var(--primary) 14%, transparent); }
+  .searchbox svg { width: 15px; height: 15px; color: var(--muted-foreground); flex: none; }
+  .searchbox input { border: none; outline: none; background: transparent; width: 100%; font-size: 13px; color: var(--foreground); }
+  .searchbox kbd {
+    font-family: ui-monospace, monospace; font-size: 10px; color: var(--muted-foreground);
+    border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; flex: none;
+  }
+  .count { font-size: 11px; letter-spacing: .1em; color: var(--muted-foreground); margin-left: auto; white-space: nowrap; }
+  .iconbtn {
+    display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px;
+    border: 1px solid var(--border); background: var(--card); color: var(--foreground);
+    cursor: pointer; flex: none; transition: border-color .15s, transform .1s;
+  }
+  .iconbtn:hover { border-color: color-mix(in oklab, var(--primary) 55%, var(--border)); }
+  .iconbtn svg { width: 15px; height: 15px; }
+
+  .hint {
+    display: flex; gap: 14px; flex-wrap: wrap; align-items: center;
+    padding: 7px 16px; border-bottom: 1px solid var(--border);
+    font-size: 11px; color: var(--muted-foreground); background: color-mix(in oklab, var(--card) 40%, var(--background));
+  }
+  .hint b { font-weight: 600; color: var(--foreground); }
+
+  main { padding: 16px; display: flex; flex-direction: column; gap: 26px; max-width: 1280px; }
+
+  /* 分组头:eyebrow + 刻度尺 + 计数(沿用现网格设计语言) */
+  .group-head { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; padding-bottom: 10px; }
+  .ruler { display: flex; gap: 3px; height: 10px; align-items: center; }
+  .ruler i { width: 6px; height: 2px; border-radius: 1px; background: var(--border); }
+  .ruler i.lit { background: color-mix(in oklab, var(--primary) 65%, var(--border)); }
+  .group-count { font-size: 11px; letter-spacing: .12em; color: var(--muted-foreground); font-family: ui-monospace, monospace; text-transform: uppercase; }
+
+  /* ── 宽卡:hub + title/id 副行 ─────────────────────────────────────── */
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); gap: 10px; }
+  :root { --card-h: 72px; } /* 卡高 == 环内孔直径:环展开时上下边正好贴卡上下沿 */
+  .card {
+    position: relative; display: flex; align-items: center; gap: 11px;
+    padding: 12px 12px; min-height: var(--card-h);
+    background: linear-gradient(to bottom, var(--card), color-mix(in oklab, var(--card) 88%, var(--background)));
+    border: 1px solid var(--border); border-radius: 12px;
+    box-shadow: var(--shadow-card);
+    cursor: pointer; user-select: none; -webkit-user-select: none;
+    transition: transform .15s ease, border-color .15s, box-shadow .15s, opacity .2s;
+    outline: none;
+  }
+  .card::after {
+    content: ""; position: absolute; left: 10px; right: 10px; top: 1px; height: 1px;
+    background: linear-gradient(to right, transparent, color-mix(in oklab, var(--foreground) 10%, transparent), transparent);
+    pointer-events: none;
+  }
+  .card:hover, .card:focus-visible { transform: translateY(-1px); border-color: color-mix(in oklab, var(--primary) 55%, var(--border)); box-shadow: var(--shadow-lift); }
+  .card:focus-visible { box-shadow: var(--shadow-lift), 0 0 0 2px color-mix(in oklab, var(--primary) 40%, transparent); }
+  .card:active { transform: translateY(0); }
+
+  .card .hub {
+    position: relative; flex: none;
+    width: 40px; height: 40px; border-radius: 11px;
+    display: grid; place-items: center;
+    color: var(--primary);
+    background: color-mix(in oklab, var(--primary) 9%, transparent);
+    box-shadow: inset 0 0 12px color-mix(in oklab, var(--primary) 12%, transparent);
+    /* 开环时变形为正圆盘放大到内孔直径(见 .ring-active) */
+    transition: transform 240ms cubic-bezier(.2,.85,.3,1.18),
+                border-radius 240ms cubic-bezier(.2,.85,.3,1.18),
+                box-shadow .2s, background .2s, color .2s;
+  }
+  .card .hub svg { width: 19px; height: 19px; transition: width .22s cubic-bezier(.2,.85,.3,1.15), height .22s cubic-bezier(.2,.85,.3,1.15); }
+  .card .hub .fb { display: none; font-size: 15px; font-weight: 600; }
+  body:not(.lucide-ok) .card .hub .fb { display: block; }
+  body:not(.lucide-ok) .card .hub svg { display: none; }
+
+  .card .meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2.5px; transition: opacity .18s; }
+  .card .title { font-size: 13.5px; font-weight: 600; line-height: 1.25; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card .aid { font-size: 11px; color: var(--muted-foreground); letter-spacing: .015em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  .card .dots { display: flex; gap: 4px; flex: none; align-items: center; padding-right: 2px; transition: opacity .18s; }
+  .card .dots i { width: 4px; height: 4px; border-radius: 50%; background: color-mix(in oklab, var(--primary) 40%, transparent); }
+
+  .card .edit {
+    position: absolute; right: 5px; top: 5px; z-index: 2;
+    display: grid; place-items: center; width: 24px; height: 24px; border-radius: 6px;
+    border: none; background: transparent; color: var(--muted-foreground);
+    opacity: 0; cursor: pointer; transition: opacity .15s, background .15s, color .15s;
+  }
+  .card:hover .edit, .card:focus-visible .edit, .card .edit:focus-visible { opacity: 1; }
+  .card .edit:hover { background: var(--card); color: var(--foreground); }
+  .card .edit svg { width: 13px; height: 13px; }
+
+  /* 运行态(点按模拟):顶流光 + 边框 */
+  .card.running { border-color: color-mix(in oklab, var(--primary) 65%, var(--border)); overflow: hidden; }
+  .card.running::before {
+    content: ""; position: absolute; inset: 0 0 auto 0; height: 2px;
+    background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--primary) 70%, transparent), transparent);
+    animation: flow 1.2s linear infinite;
+  }
+  @keyframes flow { from { transform: translateX(-100%);} to { transform: translateX(100%);} }
+
+  /* ── ring 开启态:图标填满内孔 + 内部收纳 + 边框融合 ───────────────── */
+  body.ring-open .card:not(.ring-active) { opacity: .42; transform: scale(.985); }
+  .card.ring-active {
+    border-color: var(--primary); z-index: 5;
+    box-shadow: var(--shadow-lift), 0 0 0 4px color-mix(in oklab, var(--primary) 15%, transparent);
+  }
+  /* 正圆盘:直径 72px(40×1.8)== 环内孔直径(inner=36),圆边贴合扇形内沿 */
+  .card.ring-active .hub {
+    background: var(--primary);
+    color: var(--primary-foreground);
+    border-radius: 50%;
+    transform: scale(1.8);
+    box-shadow: 0 2px 12px color-mix(in oklab, var(--primary) 38%, transparent);
+  }
+  .card.ring-active .hub svg { width: 24px; height: 24px; }
+  /* 开环时收纳:dots / 编辑按钮淡出,标题降透明度 —— 视觉只留 hub + 环 */
+  .card.ring-active .meta { opacity: .3; }
+  .card.ring-active .dots { opacity: 0; pointer-events: none; }
+  .card.ring-active .edit { opacity: 0 !important; pointer-events: none; }
+
+  /* ring 入场:扇形组从环心弹性弹出 */
+  #ringLayer g.ring-pop {
+    transform-box: fill-box; transform-origin: center;
+    animation: ringPop 200ms cubic-bezier(.2,.8,.3,1.08) both;
+  }
+  @keyframes ringPop { from { opacity: 0; transform: scale(.8); } }
+
+  /* ring SVG(portal 到 body) */
+  #ringLayer { position: fixed; inset: 0; z-index: 50; pointer-events: none; }
+  #ringLayer .sector { transition: transform 140ms ease-out, fill .15s, stroke .15s; }
+  #ringLayer .sector.kbd { pointer-events: auto; cursor: pointer; }
+  #ringLayer text { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size: 11px; font-weight: 600; }
+  #ringLabel {
+    position: fixed; z-index: 60; max-width: 240px;
+    border: 1px solid color-mix(in oklab, var(--primary) 50%, var(--border));
+    background: var(--card); color: var(--foreground);
+    font-size: 12px; font-weight: 600; padding: 6px 10px; border-radius: 8px;
+    box-shadow: var(--shadow-lift); word-break: break-all; pointer-events: none;
+  }
+
+  /* toast */
+  #toast {
+    position: fixed; left: 50%; bottom: 26px; transform: translateX(-50%) translateY(8px);
+    z-index: 80; background: var(--foreground); color: var(--background);
+    font-size: 12.5px; font-weight: 600; padding: 7px 14px; border-radius: 999px;
+    opacity: 0; transition: opacity .18s, transform .18s; pointer-events: none;
+    box-shadow: var(--shadow-lift); max-width: 70vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  .empty { text-align: center; color: var(--muted-foreground); padding: 60px 0; font-size: 13px; }
+</style>
+</head>
+<body>
+<div class="shell">
+<aside class="mockside">
+  <div class="brand"><i>WT</i>workflow-tool</div>
+  <div class="cap eyebrow">常用工作流</div>
+  <div class="row"><i></i>语音验证…</div>
+  <div class="row"><i></i>提测检查</div>
+  <div class="cap eyebrow">常用动作</div>
+  <div class="row"><i></i>抓取日志</div>
+  <div class="row"><i></i>模拟按键</div>
+  <div class="row"><i></i>安装 APK</div>
+</aside>
+<div class="content">
+<header>
+  <h1>动作</h1>
+  <div class="searchbox">
+    <i data-lucide="search"></i>
+    <input id="q" type="text" placeholder="搜索动作 / id / 描述…" autocomplete="off">
+    <kbd>/</kbd>
+  </div>
+  <span class="count mono" id="count"></span>
+  <button class="iconbtn" id="themeBtn" title="切换主题"><i data-lucide="moon"></i></button>
+</header>
+
+<div class="hint">
+  <span><b>长按卡片 450ms</b> 开 preset 环(锚定图标 hub)</span>
+  <span><b>Shift+F10</b> 键盘开环 · <b>←→</b> 旋转 · <b>Enter</b> 选中</span>
+  <span><b>快速点按</b> 模拟运行</span>
+  <span><b>/</b> 搜索</span>
+</div>
+
+<main id="main"></main>
+</div><!-- /.content -->
+</div><!-- /.shell -->
+<div id="ringLayer"></div>
+<div id="toast"></div>
+
+<script>
+/* ── 真实数据(36 个 shell action,5 个 llm 形态已排除)────────────── */
+const ACTIONS = [
+  {"id":"adb-app-details","title":"应用详情","icon":"hi:file","description":"查看应用版本号 / APK 大小 / 数据大小","presets":[],"usage":1},
+  {"id":"adb-battery","title":"电池信息","icon":"hi:car","description":"查看设备电池状况(dumpsys battery)","presets":[],"usage":0},
+  {"id":"adb-broadcast","title":"发送广播","icon":"hi:radio","description":"am broadcast 发送广播(泛化自原 adb-query / adb-car-broadcast)","presets":["车控激活","你好小度","打开空调"],"usage":2},
+  {"id":"adb-debug-activity","title":"拉起测试页面","icon":"hi:test","description":"adb shell am start 指定 Activity","presets":["DebugActivity","MainActivity"],"usage":1},
+  {"id":"adb-delete-file","title":"删除设备文件","icon":"hi:cancel","description":"⚠️ 破坏性操作:删除设备上的文件或目录(不可恢复),请确认路径无误","presets":[],"usage":0},
+  {"id":"adb-device-info","title":"设备信息","icon":"hi:settings","description":"聚合设备画像:概览(型号/品牌/系统/VIN/分辨率/密度/IP/MAC) + 详情(车型标识/构建/芯片/OEM车机定制属性/序列号/CPU/内存/内核)","presets":[],"usage":4},
+  {"id":"adb-force-stop","title":"强制停止","icon":"hi:cancel","description":"强制停止指定应用(am force-stop)","presets":[],"usage":5},
+  {"id":"adb-foreground-activity","title":"前台信息","icon":"hi:test","description":"一键查看前台 Activity、焦点窗口(多 display 分组)与 View 树(uiautomator 无障碍树),格式化报告","presets":["全部","仅 View 树"],"usage":3},
+  {"id":"adb-input-text","title":"输入文本","icon":"hi:text","description":"向设备输入文本;纯英文走 input text,含中文等非 ASCII 经 ADBKeyboard 输入法广播(未安装自动安装内嵌 APK)","presets":[],"usage":0},
+  {"id":"adb-install","title":"安装 APK","icon":"hi:package","description":"adb install 安装指定 APK 到激活设备(-r 覆盖安装,可选 -t 测试包 / -d 降级)","presets":["语音"],"usage":12},
+  {"id":"adb-keyevent","title":"模拟按键","icon":"hi:flash","description":"模拟设备按键(input keyevent),常用键见预设","presets":["HOME(3)","BACK(4)","MENU(82)","POWER(26)","音量+(24)","音量-(25)","语音","播放","播放/暂停"],"usage":18},
+  {"id":"adb-list-files","title":"设备文件列表","icon":"hi:folder","description":"递归查看设备目录文件与属性(默认 /sdcard/,最多四层)","presets":[],"usage":0},
+  {"id":"adb-list-packages","title":"应用列表","icon":"hi:package","description":"列出设备应用(user 第三方 / system 系统 / all 全部,合并 enabled/disabled 状态)","presets":[],"usage":1},
+  {"id":"adb-logcat-stream","title":"实时日志","icon":"hi:file","description":"实时流式 logcat(threadtime 结构化解析,按 Package/Level/Tag/关键字 过滤,手动停止)","presets":["指令下发","AI BOX","多轮对话","用车 Agent","手车互联","VTS / TopQuery","导航多轮"],"usage":22},
+  {"id":"adb-logcat","title":"抓取日志","icon":"hi:file","description":"adb logcat 抓取到本地文件(threadtime 结构化解析,按 Package/Level/Tag/关键字 过滤,手动停止)","presets":["全量日志","语音","指令下发","AI BOX","手车互联","多轮对话","用车 Agent"],"usage":30},
+  {"id":"adb-prop","title":"属性读写","icon":"hi:settings","description":"getprop / setprop 读写系统属性(泛化自原 adb-debug-log)","presets":["打开 Debug 日志","关闭 Debug 日志","aiBox"],"usage":2},
+  {"id":"adb-pull-apk","title":"拉取 APK","icon":"hi:download","description":"根据包名定位安装路径并 pull APK 到本地(pm path → adb pull)","presets":[],"usage":0},
+  {"id":"adb-pull","title":"拉取文件","icon":"hi:download","description":"从设备拉取文件到本地(进度推送、3 次重试、可取消)","presets":["抓取日志","抓取日志-ALL"],"usage":8},
+  {"id":"adb-push-apk-libs","title":"推送 APK 的 lib","icon":"hi:upload","description":"解压 APK 的 lib 目录(删 armeabi-v7a,arm64-v8a 重命名为 arm64)并 push 到设备目录(系统应用原生库场景)","presets":[],"usage":0},
+  {"id":"adb-push","title":"推送文件","icon":"hi:upload","description":"推送本地文件到设备(解析 [NN%] 进度,3 次重试,可取消)","presets":["语音内置文件目录","语音 APk"],"usage":10},
+  {"id":"adb-reboot","title":"重启设备","icon":"hi:flash","description":"⚠️ 破坏性操作:重启设备到指定模式,设备会断开 adb 连接","presets":["正常重启","重启到 Recovery","重启到 Bootloader"],"usage":6},
+  {"id":"adb-scrcpy","title":"投屏","icon":"hi:play","description":"使用 scrcpy 投屏 Android 设备(结构化选项,手动停止)","presets":[],"usage":2},
+  {"id":"adb-screenshot","title":"截屏","icon":"hi:camera","description":"截取设备屏幕并保存为本地 PNG(adb exec-out screencap -p)","presets":[],"usage":0},
+  {"id":"adb-uninstall","title":"卸载应用","icon":"hi:cancel","description":"卸载指定应用(支持批量,空格分隔多个包名)","presets":[],"usage":0},
+  {"id":"adb-wifi","title":"WiFi 开关","icon":"hi:radio","description":"开启 / 关闭设备 WiFi(svc wifi)","presets":[],"usage":0},
+  {"id":"demo-echo","title":"演示回显","icon":"hi:test","description":"纯 echo,无外部依赖;用于 workflow action step 引用形态的演示","presets":["默认问候"],"usage":2},
+  {"id":"demo-script-node","title":"验收: script .js 路由","icon":"hi:test","description":"script: ./scripts/test/hello.js——按 .js 扩展名路由到 node","presets":[],"usage":0},
+  {"id":"demo-script-python","title":"验收: script .py 路由","icon":"hi:test","description":"script: ./scripts/test/hello.py——按 .py 扩展名路由到 python(-u 无缓冲)","presets":[],"usage":0},
+  {"id":"demo-shell-bash","title":"验收: bash 默认形态","icon":"hi:test","description":"验证默认 bash:多行块 + ${VAR} 展开 + ##[output] 协议 + 退出码 0(预期成功)","presets":[],"usage":0},
+  {"id":"demo-shell-failfast","title":"验收: -eo pipefail 快速失败","icon":"hi:test","description":"预期失败:第 2 行 exit 3,-e 生效后续行不执行、exit_code=3(用于验证错误处理语义统一)","presets":[],"usage":0},
+  {"id":"demo-shell-pwsh","title":"验收: pwsh 退出码传播","icon":"hi:test","description":"显式 shell: pwsh;原生命令(cmd /c exit 5)非零退出码应经 WrapTail 传播为脚本退出码(预期 exit_code=5;无 pwsh 的环境会报错属预期)","presets":[],"usage":0},
+  {"id":"log-json-extract","title":"日志 JSON 提取转中文","icon":"hi:test","description":"粘贴一行日志,自动分离前置文本与 JSON 部分,JSON 递归展开内嵌转义字符串并还原中文(依赖 jq)","presets":[],"usage":1},
+  {"id":"log-spm-download","title":"SPM 下载 zip 内文件","icon":"hi:download","description":"从 SPM 数据平台的 zip 包中按路径片段匹配文件并保存到本地(命中多个则全部下载,无需认证)","presets":[],"usage":3},
+  {"id":"xdzs-build-app","title":"编译 vr-app","icon":"hi:package","description":"在 xdzs-speech 项目根执行 gradlew vr-app:assemble<Variant>","presets":[],"usage":5},
+  {"id":"xdzs-device-init","title":"语音权限赋予","icon":"hi:settings","description":"adb root/remount/setenforce + 授予 codriver & voicesetting 权限","presets":[],"usage":3},
+  {"id":"xdzs-sync-time","title":"同步电脑时间到安卓","icon":"hi:clock","description":"adb root + 设置设备系统时间为电脑当前时间并同步硬件时钟","presets":[],"usage":1}
+];
+
+/* hi:xxx → lucide 名映射(CDN 加载失败时回退为首字) */
+const ICONS = { file:"file-text", car:"car", radio:"radio", test:"flask-conical",
+  cancel:"circle-x", settings:"settings", text:"type", package:"package",
+  flash:"zap", folder:"folder", download:"download", upload:"upload",
+  play:"play", camera:"camera", ai:"sparkles", clock:"clock" };
+
+/* ── 分组 + 排序(沿用 lib/usage.ts 语义:前缀分组,组内热度降序,稳定) ── */
+const PREFIX_LABELS = { adb: "ADB", claude: "Claude", log: "LOG" };
+const MISC = "杂项";
+function groupOf(a) { const d = a.id.indexOf("-"); return d > 0 ? a.id.slice(0, d) : MISC; }
+function labelOf(k) { return PREFIX_LABELS[k] ?? (k === MISC ? MISC : k.charAt(0).toUpperCase() + k.slice(1)); }
+function sorted(items) { return items.map((it, i) => ({ it, i }))
+  .sort((a, b) => ((b.it.usage - a.it.usage) || (a.i - b.i))).map(x => x.it); }
+
+/* ── 渲染 ───────────────────────────────────────────────────────────── */
+const main = document.getElementById("main");
+const $q = document.getElementById("q");
+const $count = document.getElementById("count");
+
+function tipOf(a) {
+  return a.description + (a.presets.length ? `\n预设: ${a.presets.join(" / ")}` : "") + `\n热度: ${a.usage}`;
+}
+function render() {
+  const query = $q.value.trim().toLowerCase();
+  const match = (a) => !query || [a.title, a.id, a.description].join(" ").toLowerCase().includes(query);
+  const visible = ACTIONS.filter(match);
+  const groups = new Map();
+  for (const a of visible) { const k = groupOf(a); (groups.get(k) ?? groups.set(k, []).get(k)).push(a); }
+
+  main.innerHTML = "";
+  if (!visible.length) { main.innerHTML = `<div class="empty">没有匹配「${$q.value.trim()}」的动作</div>`; }
+  const ordered = [...groups.entries()].sort((x, y) => {
+    if (x[0] === MISC) return 1; if (y[0] === MISC) return -1; return x[0].localeCompare(y[0]);
+  });
+  for (const [key, items] of ordered) {
+    const list = sorted(items);
+    const lit = items.filter(a => a.usage > 0).length;
+    const sec = document.createElement("section");
+    sec.innerHTML = `
+      <div class="group-head">
+        <span class="eyebrow">${labelOf(key)}</span>
+        <div class="ruler">${items.map(a => `<i class="${a.usage > 0 ? "lit" : ""}"></i>`).join("")}</div>
+        <span class="group-count">${items.length} 项${lit ? ` · ${lit} 活跃` : ""}</span>
+      </div>
+      <div class="grid"></div>`;
+    const gridEl = sec.querySelector(".grid");
+    for (const a of list) gridEl.appendChild(cardEl(a));
+    main.appendChild(sec);
+  }
+  $count.textContent = `${visible.length} 项 · ${ordered.length} 组`;
+  if (window.lucide) { lucide.createIcons(); document.body.classList.add("lucide-ok"); }
+}
+
+function cardEl(a) {
+  const el = document.createElement("div");
+  el.className = "card"; el.tabIndex = 0;
+  el.setAttribute("role", "button");
+  el.setAttribute("aria-label", a.title);
+  el.dataset.id = a.id;
+  el.title = tipOf(a);
+  const luc = ICONS[a.icon.replace("hi:", "")] ?? "circle";
+  el.innerHTML = `
+    <div class="hub"><i data-lucide="${luc}"></i><span class="fb">${a.title.charAt(0)}</span></div>
+    <div class="meta">
+      <div class="title">${a.title}</div>
+      <div class="aid mono">${a.id}</div>
+    </div>
+    ${a.presets.length ? `<div class="dots" title="${a.presets.length} 个预设,长按展开">${a.presets.map(() => "<i></i>").join("")}</div>` : ""}
+    <button class="edit" title="编辑参数"><i data-lucide="pencil"></i></button>`;
+  el.querySelector(".edit").addEventListener("click", (e) => { e.stopPropagation(); toast(`编辑参数:${a.title}`); });
+  bindCard(el, a);
+  return el;
+}
+
+/* ── 交互:点按运行 / 长按开环(锚定 hub)/ 键盘 ──────────────────────── */
+const HOLD_MS = 450, MOVE_PX = 8, MIN_OUTER = 44;
+let hold = null;      // {card, action, hub, pointerId, x, y, phase, timer}
+let ring = null;      // {action, card, hubRectCenter, geom, selected, keyboard}
+
+function bindCard(el, a) {
+  el.addEventListener("pointerdown", (e) => {
+    if (e.button !== 0 || e.target.closest(".edit") || ring) return;
+    hold = { card: el, action: a, pointerId: e.pointerId, x: e.clientX, y: e.clientY, phase: "pressing", timer: null };
+    el.setPointerCapture?.(e.pointerId);
+    // 无预设的卡不开环,但快速点按仍可运行
+    if (a.presets.length) hold.timer = setTimeout(() => { if (hold?.phase === "pressing") { hold.phase = "open"; openRing(el, a, false); } }, HOLD_MS);
+  });
+  el.addEventListener("pointermove", (e) => {
+    if (!hold || hold.pointerId !== e.pointerId) return;
+    const moved = Math.hypot(e.clientX - hold.x, e.clientY - hold.y) > MOVE_PX;
+    if (hold.phase === "pressing" && moved) { clearTimeout(hold.timer); hold.phase = "dead"; }
+    if (hold.phase === "open" && ring) selectByHit(e.clientX, e.clientY);
+  });
+  el.addEventListener("pointerup", (e) => {
+    if (!hold || hold.pointerId !== e.pointerId) return;
+    clearTimeout(hold.timer);
+    const phase = hold.phase; // pressing=快速点按 / open=环选择 / dead=拖动取消
+    hold = null;
+    if (phase === "open" && ring) {
+      const idx = ringHit(e.clientX, e.clientY);
+      if (idx >= 0) choose(idx); else closeRing();
+      return;
+    }
+    if (phase === "pressing") simulateRun(el, a);
+  });
+  el.addEventListener("pointercancel", () => { if (hold) { clearTimeout(hold.timer); hold = null; } if (ring) closeRing(); });
+  el.addEventListener("keydown", (e) => {
+    if (e.shiftKey && e.key === "F10" && a.presets.length) { e.preventDefault(); openRing(el, a, true); return; }
+    if (ring?.keyboard) {
+      if (e.key === "Escape") { e.preventDefault(); closeRing(); return; }
+      if (e.key === "Tab") { closeRing(); return; }
+      const n = a.presets.length;
+      if (["ArrowRight","ArrowDown","ArrowLeft","ArrowUp"].includes(e.key)) {
+        e.preventDefault();
+        const dir = e.key === "ArrowRight" || e.key === "ArrowDown" ? 1 : -1;
+        select((ring.selected < 0 ? (dir > 0 ? 0 : n - 1) : (ring.selected + dir + n) % n));
+        return;
+      }
+      if (e.key === "Enter") { e.preventDefault(); if (ring.selected >= 0) choose(ring.selected); else closeRing(); return; }
+      if (e.key === " " && ring.selected < 0) { e.preventDefault(); closeRing(); return; }
+      return;
+    }
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); simulateRun(el, a); }
+  });
+}
+function simulateRun(el, a) {
+  el.classList.add("running");
+  toast(`运行:${a.title}(默认参数)`);
+  setTimeout(() => el.classList.remove("running"), 2400);
+}
+
+/* ── ring:几何(锚定 hub 中心)+ 扇形绘制 + 命中 ────────────────────── */
+const GAP_DEG = 1, SEL_OFFSET = 6;
+function polar(r, deg) { const rad = deg * Math.PI / 180; return { x: r * Math.cos(rad), y: r * Math.sin(rad) }; }
+
+/* 锚点 = hub 中心(与卡心同高)。外半径按【视口】钳制 —— 环允许压到左侧栏上(与生产 ringGeometry 语义一致),
+   所以 mock 了侧栏后第一列卡片也有充足空间,不再需要锚点滑动。
+   内半径 = 卡高一半:卡高与环内孔直径一致,开环时 hub 化为同直径正圆盘贴合内圆。 */
+function openRing(card, action, keyboard) {
+  const hub = card.querySelector(".hub");
+  const r = hub.getBoundingClientRect(), cr = card.getBoundingClientRect();
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  const inner = Math.max(28, Math.min(64, cr.height / 2)); // 内孔直径 == 卡高
+  const outer = Math.max(0, Math.min(178, inner + 78, cx - 10, innerWidth - cx - 10, cy - 10, innerHeight - cy - 10));
+  if (outer < inner + 30) { toast("窗口太小,环开不了"); return; }
+  ring = { action, card, cx, cy, geom: { inner, outer, count: action.presets.length }, selected: keyboard ? 0 : -1, keyboard };
+  card.classList.add("ring-active");
+  document.body.classList.add("ring-open");
+  drawRing();
+  if (keyboard) ring.card.focus();
+}
+function closeRing() {
+  if (!ring) return;
+  ring.card.classList.remove("ring-active");
+  document.body.classList.remove("ring-open");
+  ring = null;
+  document.getElementById("ringLayer").innerHTML = "";
+  hideLabel();
+}
+function sectorPath(inner, outer, start, end, c) {
+  const a = polar(outer, start), b = polar(outer, end), cc = polar(inner, end), d = polar(inner, start);
+  const large = end - start > 180 ? 1 : 0;
+  return `M ${c + a.x} ${c + a.y} A ${outer} ${outer} 0 ${large} 1 ${c + b.x} ${c + b.y} L ${c + cc.x} ${c + cc.y} A ${inner} ${inner} 0 ${large} 0 ${c + d.x} ${c + d.y} Z`;
+}
+function drawRing() {
+  const g = ring.geom, n = g.count, step = 360 / n;
+  const pad = SEL_OFFSET + 4, mid = g.outer + pad, size = mid * 2;
+  const el = document.getElementById("ringLayer");
+  const labels = ring.action.presets.map((p, i) => {
+    const angle = -90 + i * step;
+    const gap = n === 1 ? 0.2 : GAP_DEG;
+    const start = angle - step / 2 + gap, end = angle + step / 2 - gap;
+    const pos = polar(g.inner + (g.outer - g.inner) * 0.58, angle);
+    const shift = polar(ring.selected === i ? SEL_OFFSET : 0, angle);
+    const active = ring.selected === i;
+    const name = p.length > (g.outer < 110 ? 4 : 8) ? p.slice(0, g.outer < 110 ? 3 : 7) + "…" : p;
+    return `<g class="sector ${ring.keyboard ? "kbd" : ""}" data-i="${i}"
+        style="transform:translate(${shift.x}px,${shift.y}px)"
+        onpointerdown="event.stopPropagation()" onpointerup="event.stopPropagation()"
+        onpointerenter="if(ring?.keyboard)select(+this.dataset.i)"
+        onclick="event.stopPropagation();if(ring?.keyboard)choose(+this.dataset.i)">
+      <path d="${sectorPath(g.inner, g.outer, start, end, mid)}" fill="${active ? "var(--primary)" : "var(--card)"}"
+        stroke="${active ? "var(--primary)" : "var(--border)"}" stroke-width="1.5"/>
+      <text x="${mid + pos.x}" y="${mid + pos.y}" text-anchor="middle" dominant-baseline="central"
+        fill="${active ? "var(--primary-foreground)" : "var(--foreground)"}" pointer-events="none">${name}</text>
+    </g>`;
+  }).join("");
+  el.innerHTML = `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}"
+      style="position:fixed;left:${ring.cx - mid}px;top:${ring.cy - mid}px;overflow:visible;filter:drop-shadow(0 4px 10px rgb(0 0 0/.18))">
+    <g class="ring-pop">${labels}</g></svg>`;
+  updateLabel();
+}
+function ringHit(x, y) {
+  if (!ring) return -1;
+  const g = ring.geom, step = 360 / g.count;
+  const initial = (Math.atan2(y - ring.cy, x - ring.cx) * 180 / Math.PI + 90 + 360) % 360;
+  const index = Math.round(initial / step) % g.count;
+  const shift = polar(index === ring.selected ? SEL_OFFSET : 0, -90 + index * step);
+  const dx = x - ring.cx - shift.x, dy = y - ring.cy - shift.y;
+  const radius = Math.hypot(dx, dy);
+  if (radius < g.inner || radius > g.outer) return -1;
+  if (g.count === 1) return 0;
+  const angle = (Math.atan2(dy, dx) * 180 / Math.PI + 90 + 360) % 360;
+  const delta = Math.abs((angle - index * step + 540) % 360 - 180);
+  return delta < step / 2 - GAP_DEG ? index : -1;
+}
+function selectByHit(x, y) { const i = ringHit(x, y); if (i >= 0) select(i); else if (ring.selected >= 0 && !ring.keyboard) { ring.selected = -1; drawRing(); } else updateLabel(); }
+function select(i) { if (ring.selected === i) { updateLabel(); return; } ring.selected = i; drawRing(); }
+function choose(i) { const p = ring.action.presets[i]; const card = ring.card; closeRing(); toast(`运行:${p.name ?? p}(预设)· ${card.dataset.id}`); setTimeout(() => card.focus(), 0); }
+
+/* 选中名称标签(跟随光标/扇区,四象限翻转) */
+let labelEl = null;
+function updateLabel() {
+  const p = ring?.selected >= 0 ? ring.action.presets[ring.selected] : null;
+  if (!p) { hideLabel(); return; }
+  const g = ring.geom, step = 360 / g.count;
+  const pos = polar(g.inner + (g.outer - g.inner) * 0.58, -90 + ring.selected * step);
+  labelEl ??= Object.assign(document.createElement("div"), { id: "ringLabel" });
+  labelEl.textContent = p;
+  document.body.appendChild(labelEl);
+  const ax = ring.cx + pos.x, ay = ring.cy + pos.y;
+  const left = ax > innerWidth / 2 ? Math.max(8, ax - labelEl.offsetWidth - 14) : ax + 14;
+  const top = ay > innerHeight / 2 ? Math.max(8, ay - labelEl.offsetHeight - 14) : ay + 14;
+  labelEl.style.left = left + "px"; labelEl.style.top = top + "px";
+}
+function hideLabel() { labelEl?.remove(); labelEl = null; }
+
+/* 全局关闭:点击空白 / 滚动 / 缩放 */
+document.addEventListener("pointerdown", (e) => { if (ring && !e.target.closest(".card") && !e.target.closest("#ringLayer")) closeRing(); }, true);
+addEventListener("resize", () => ring && closeRing());
+addEventListener("scroll", () => ring && closeRing(), true);
+
+/* ── toast / 搜索 / 主题 ────────────────────────────────────────────── */
+let toastTimer = null;
+function toast(msg) {
+  const t = document.getElementById("toast");
+  t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove("show"), 1800);
+}
+$q.addEventListener("input", render);
+addEventListener("keydown", (e) => {
+  if (e.key === "/" && document.activeElement !== $q) { e.preventDefault(); $q.focus(); }
+  if (e.key === "Escape" && document.activeElement === $q) { $q.value = ""; render(); $q.blur(); }
+});
+const themeBtn = document.getElementById("themeBtn");
+function setTheme(dark) {
+  document.documentElement.classList.toggle("dark", dark);
+  themeBtn.innerHTML = `<i data-lucide="${dark ? "sun" : "moon"}"></i>`;
+  try { localStorage.setItem("proto-theme", dark ? "dark" : "light"); } catch {}
+  if (window.lucide) lucide.createIcons();
+}
+themeBtn.addEventListener("click", () => setTheme(!document.documentElement.classList.contains("dark")));
+try { if (localStorage.getItem("proto-theme") === "dark") setTheme(true); } catch {}
+
+render();
+if (window.lucide) { lucide.createIcons(); document.body.classList.add("lucide-ok"); }
+else addEventListener("load", () => { if (window.lucide) { lucide.createIcons(); document.body.classList.add("lucide-ok"); } });
+</script>
+</body>
+</html>

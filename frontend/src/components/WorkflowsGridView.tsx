@@ -17,6 +17,7 @@ import {
   StatusRail,
   RunningFlow,
   ambFor,
+  ambColorFor,
   NarrativeZone,
   GhostBtn,
   RunPill,
@@ -78,7 +79,7 @@ export function WorkflowsGridView() {
                     key={wf.id}
                     workflow={wf}
                     group={key === MISC_KEY ? "misc" : key}
-                    amb={ambFor(groupIndex)}
+                    amb={ambColorFor(wf.color) ?? ambFor(groupIndex)}
                     running={runningWorkflowId === wf.id}
                     level={footprintLevel(wf.id)}
                     score={getScore(wf.id)}
@@ -109,7 +110,7 @@ export function WorkflowsGridView() {
 interface WorkflowCardProps {
   workflow: WorkflowItemType;
   group: string;
-  /** 基础氛围色（按分组显示序循环）；运行时由卡内覆写为 primary */
+  /** 氛围色（按分组显示序循环）；恒为组色，运行不夺氛围（ADR-0003） */
   amb: string;
   running: boolean;
   level: number;
@@ -162,14 +163,11 @@ function WorkflowCard({
       }}
       data-running={running || undefined}
       data-expanded={expanded || undefined}
-      style={{ "--amb": running ? "var(--primary)" : amb } as CSSProperties}
-      className={`dual-card group relative flex cursor-pointer flex-col rounded-lg border p-3.5
+      style={{ "--amb": amb } as CSSProperties}
+      className={`dual-card group relative flex cursor-pointer flex-col rounded-lg border border-border p-3.5
         transition-[border-color,box-shadow,background-color] duration-150 ease-out
         ${expanded ? "col-span-2 gap-3.5 p-5" : "gap-2.5"}
-        hover:border-[color-mix(in_oklch,var(--amb)_55%,transparent)]
-        focus-visible:border-[color-mix(in_oklch,var(--amb)_55%,transparent)] focus-visible:outline-none
-        data-[expanded]:border-[color-mix(in_oklch,var(--amb)_40%,transparent)]
-        ${running ? "border-primary" : "border-border"}`}
+        focus-visible:outline-none`}
     >
       {running && <RunningFlow />}
 
@@ -194,7 +192,7 @@ function WorkflowCard({
             <span className="text-xs text-muted-foreground/50">&nbsp;</span>
           )}
           <div className="mt-auto flex items-center justify-end gap-3 border-t border-dashed
-            border-[color-mix(in_oklch,var(--amb)_30%,var(--border))] pt-2
+            border-[color-mix(in_oklab,var(--amb)_30%,var(--border))] pt-2
             font-mono text-[10px] tracking-[0.06em] uppercase">
             {running ? (
               <span className="flex items-center gap-1.5 text-primary normal-case tracking-normal">
@@ -231,7 +229,7 @@ function WorkflowCard({
             {workflow.description || t("workflow.empty")}
           </NarrativeZone>
           <div className="mt-auto flex flex-wrap items-center gap-2.5 border-t border-dashed
-            border-[color-mix(in_oklch,var(--amb)_30%,var(--border))] pt-3.5">
+            border-[color-mix(in_oklab,var(--amb)_30%,var(--border))] pt-3.5">
             {hasParams && (
               <GhostBtn
                 label={t("grid.editForm")}

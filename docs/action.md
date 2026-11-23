@@ -8,6 +8,7 @@
 id: my-action                  # 必填，^[a-z0-9-]+$ 全局唯一
 title: 我的动作                 # 必填，按钮/卡片显示文字
 icon: hi:play                  # 可选，hugeicons 图标 key 或 emoji
+color: blue                    # 可选，卡片氛围色：amber | green | blue | violet（不写按组序循环）
 description: 简要说明           # 可选，UI 悬停提示
 
 command:
@@ -115,6 +116,10 @@ hmi:                           # 可选，声明动作输出的交互视图
 - emoji 或任意文本：原样显示
 
 常用图标 key：`play` / `file` / `package` / `car` / `voice` / `ai` / `test` / `settings` / `workflow`
+
+### color
+
+可选的卡片氛围色（四色板白名单）：`amber` / `green` / `blue` / `violet`。写了则该卡图标底色、卡面光晕、边框染色梯度优先用此色；不写按分组显示序循环（同组同色）。非法值加载时报错。见 [ADR-0003](adr/0003-ambient-color.md)。
 
 ## 变量替换
 
