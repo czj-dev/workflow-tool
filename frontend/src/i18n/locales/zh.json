@@ -280,6 +280,7 @@
   "scheduler.sentence.sep": "、",
   "scheduler.sentence.everyMinute": "每分钟",
   "scheduler.sentence.hourly": "每小时 :{{list}}",
+  "scheduler.sentence.minuteOfHours": "{{list}} 点的每分钟",
   "scheduler.sentence.everyDay": "每天",
   "scheduler.sentence.workweek": "工作日",
   "scheduler.sentence.weekdayList": "每{{list}}",

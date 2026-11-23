@@ -20,6 +20,7 @@ import {
 } from "./GridCardParts";
 import { ScheduleFormSheet, type ScheduleFormTarget, type ScheduleFormValue } from "./ScheduleFormSheet";
 import { useActionRunner } from "../hooks/useActionRunner";
+import { fmtGoDuration } from "../lib/duration";
 import {
   describeScheduleCron,
   formatScheduleNextRun,
@@ -180,7 +181,7 @@ function ScheduleCard({
                     {t(`scheduler.status.${lastRun.status}`, lastRun.status)}
                   </span>
                   {lastRun.duration && (
-                    <span className="ml-1.5 text-[11.5px] text-muted-foreground">· {lastRun.duration}</span>
+                    <span className="ml-1.5 text-[11.5px] text-muted-foreground">· {fmtGoDuration(lastRun.duration)}</span>
                   )}
                   {startedAt !== null && !Number.isNaN(startedAt) && (
                     <span className="ml-1.5 text-[11.5px] text-muted-foreground">· {narrativeStamp(startedAt)}</span>
@@ -250,7 +251,7 @@ function ScheduleCard({
               {lastRun ? (
                 <>
                   <span className={`size-[5px] rounded-full ${lastRun.status === "failed" ? "bg-destructive" : "bg-success"}`} />
-                  {lastRun.duration || t(`scheduler.status.${lastRun.status}`, lastRun.status)}
+                  {lastRun.duration ? fmtGoDuration(lastRun.duration) : t(`scheduler.status.${lastRun.status}`, lastRun.status)}
                 </>
               ) : ("--")}
             </span>

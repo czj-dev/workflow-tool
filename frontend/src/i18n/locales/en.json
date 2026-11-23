@@ -280,6 +280,7 @@
   "scheduler.sentence.sep": ", ",
   "scheduler.sentence.everyMinute": "every minute",
   "scheduler.sentence.hourly": "hourly at :{{list}}",
+  "scheduler.sentence.minuteOfHours": "every minute during {{list}}:00",
   "scheduler.sentence.everyDay": "every day",
   "scheduler.sentence.workweek": "weekdays",
   "scheduler.sentence.weekdayList": "every {{list}}",

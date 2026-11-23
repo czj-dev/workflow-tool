@@ -118,13 +118,16 @@ describe("SchedulerView", () => {
     const user = userEvent.setup();
     mockRunner.schedules = [
       schedule,
-      { ...schedule, id: "deploy-nightly", name: "Deploy nightly", targetKind: "workflow", targetId: "deploy" },
+      { ...schedule, id: "deploy-nightly", name: "Deploy nightly", targetKind: "workflow", targetId: "deploy",
+        lastRun: { ...schedule.lastRun!, status: "failed", duration: "495.555291ms" } },
     ];
     renderView();
 
     expect(screen.getByText("动作调度")).toBeInTheDocument();
     expect(screen.getByText("工作流调度")).toBeInTheDocument();
     expect(screen.getAllByText("每天 02:00").length).toBe(2);
+    // 后端全精度时长串归一为统一读数（495.555291ms → 0.5s）
+    expect(screen.getByText("0.5s")).toBeInTheDocument();
     expect(screen.getAllByText("1 项 · 1 启用").length).toBe(2);
     await expandCard(user, "Nightly build");
     expect(screen.getByRole("button", { name: "Nightly build" })).toHaveAttribute("aria-expanded", "true");

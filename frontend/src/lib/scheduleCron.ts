@@ -105,7 +105,10 @@ export function describeScheduleCron(cron: ScheduleCron, t: ScheduleTranslate): 
     time = t("scheduler.sentence.everyMinute");
   } else if (cron.hour.mode === "any") {
     time = t("scheduler.sentence.hourly", { list: list(cron.minute.values.map(pad2)) });
-  } else if (cron.minute.mode !== "any" && cron.minute.values.length * cron.hour.values.length <= 4) {
+  } else if (cron.minute.mode === "any") {
+    // 分任意 × 时有值：「这些小时的每分钟」（hourly 的镜像形态）
+    time = t("scheduler.sentence.minuteOfHours", { list: list(cron.hour.values.map(pad2)) });
+  } else if (cron.minute.values.length * cron.hour.values.length <= 4) {
     const points: string[] = [];
     for (const hour of cron.hour.values) {
       for (const minute of cron.minute.values) points.push(`${pad2(hour)}:${pad2(minute)}`);

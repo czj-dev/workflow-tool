@@ -97,10 +97,13 @@ describe("describeScheduleCron", () => {
     expect(describeCron("0 9 * * 0-6")).toBe("每天 09:00");
   });
 
-  it("每小时/每分钟不前缀每天；分任意×时受限回落原始表达式", () => {
+  it("每小时/每分钟不前缀每天；分任意×时有值成句（hourly 镜像）", () => {
     expect(describeCron("15,45 * * * *")).toBe("每小时 :15、45");
     expect(describeCron("15,45 * 1 * *")).toBe("每月 1 号 每小时 :15、45");
-    expect(describeCron("* 9 * * *")).toBe("* 9 * * *");
+    expect(describeCron("* 9 * * *")).toBe("每天 09 点的每分钟");
+    expect(describeCron("* 10,14 * * 1-5")).toBe("工作日 10、14 点的每分钟");
+    // 用户实例：小时 6 项截断加省略号
+    expect(describeCron("* 10,14,17,18,19,20 * * 1,2,3,4,5")).toBe("工作日 10、14、17、18… 点的每分钟");
   });
 
   it("令牌列表超过 4 项截断加省略号", () => {
