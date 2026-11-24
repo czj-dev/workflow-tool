@@ -755,3 +755,202 @@
     box-shadow: inset 0 0 0 2px color-mix(in oklab, var(--primary) 60%, transparent);
   }
 }
+
+/* —— 侧边栏 Warp 式分组（原型 D 变体定档：染色 轻 / 当前组提亮 / 安静分组头 / 色块 浅）——
+   分组 = 顶沿细线 + 两行分组头（.side-head，AppSidebar 的 SectionEntry）+ 同色浅染条目卡；
+   折叠态 = 入口色块（.side-hub）领头 + 同色浅染方块簇。本段为无层 author 样式，
+   用来压过 utilities 的 hover / data-active 默认面（无层样式胜过 @layer，与 .dual-card 段同策略）。
+   板块固定色：工作流=蓝 / 动作=绿 / AI=紫（amber 留给 primary 的运行/激活语义）。
+   --amb 板块色（与主区 amb 同源）；--tintc 条目染色源——蓝组不直接用 --amb-blue：侧栏底色本身蓝灰，
+   同浓度下蓝卡色度差只有绿/紫的 2/3，读成「底色变亮」；改借 logcat 标记板 --mark-h-6（原型实测），
+   深色再提色度 ×1.22（0.14→0.17，预计算写实值，避免 oklch(from) 的兼容面）。
+   --ink 条目图标 / mini-hub / 入口块字形：浅色为预计算相对色（amb l-0.10 / c×1.15），
+   深色掺 15% foreground 提亮（原型实测对比度 3.9–7.5:1）。 */
+.side-sec[data-amb="blue"] {
+  --amb: var(--amb-blue);
+  --tintc: var(--mark-h-6);
+  --ink: oklch(0.5 0.115 250);
+}
+.side-sec[data-amb="green"] {
+  --amb: var(--amb-green);
+  --tintc: var(--amb-green);
+  --ink: oklch(0.42 0.15 165);
+}
+.side-sec[data-amb="violet"] {
+  --amb: var(--amb-violet);
+  --tintc: var(--amb-violet);
+  --ink: oklch(0.45 0.17 310);
+}
+.dark .side-sec {
+  --ink: color-mix(in oklab, var(--amb) 85%, var(--foreground));
+}
+.dark .side-sec[data-amb="blue"] {
+  --tintc: oklch(0.7 0.17 255);
+}
+
+/* 当前组提亮（gp=live）：foreground 5% 底 + 更亮顶线；折叠态轨道不留面 */
+.side-sec[data-lit] {
+  background: color-mix(in oklab, var(--foreground) 5%, transparent);
+  border-top-color: color-mix(in oklab, var(--foreground) 16%, transparent);
+}
+[data-collapsible="icon"] .side-sec[data-lit] {
+  background: transparent;
+}
+
+/* 条目 = 同色浅染卡片（tint 12%）；hover +10% 并拾 1px amb 内描边；图标吃板块色 --ink */
+.side-sec [data-sidebar="menu-button"] {
+  background: color-mix(in oklab, var(--tintc) 12%, transparent);
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, width 0.2s linear, height 0.2s linear,
+    padding 0.2s linear;
+}
+.side-sec [data-sidebar="menu-button"] > :first-child {
+  color: var(--ink);
+}
+.side-sec [data-sidebar="menu-button"]:hover,
+.side-sec [data-sidebar="menu-button"]:active {
+  background: color-mix(in oklab, var(--tintc) 22%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--amb) 42%, transparent);
+}
+
+/* 激活项（展开态）= 实心板块色行（原型选中标签卡）：深色板块色原色 + 暗墨，浅色板块色压深 + 亮墨；
+   左缘 primary 竖条（WorkflowItem/ActionItem 的 before 工具类）不再需要 */
+.side-sec [data-sidebar="menu-button"][data-active] {
+  background: color-mix(in oklab, var(--amb) 82%, black);
+  color: var(--background);
+}
+.dark .side-sec [data-sidebar="menu-button"][data-active] {
+  background: var(--amb);
+  color: color-mix(in oklab, var(--amb) 25%, oklch(0.16 0.01 245));
+}
+.side-sec [data-sidebar="menu-button"][data-active]::before {
+  display: none;
+  content: none;
+}
+.side-sec [data-sidebar="menu-button"][data-active]:hover,
+.side-sec [data-sidebar="menu-button"][data-active]:active {
+  box-shadow: none;
+  filter: brightness(1.06);
+}
+.dark .side-sec [data-sidebar="menu-button"][data-active]:hover,
+.dark .side-sec [data-sidebar="menu-button"][data-active]:active {
+  filter: none;
+}
+.side-sec [data-sidebar="menu-button"][data-active]:hover,
+.side-sec [data-sidebar="menu-button"][data-active]:active {
+  background: color-mix(in oklab, var(--amb) 82%, black);
+}
+.dark .side-sec [data-sidebar="menu-button"][data-active]:hover,
+.dark .side-sec [data-sidebar="menu-button"][data-active]:active {
+  background: var(--amb);
+}
+.side-sec [data-sidebar="menu-button"][data-active] > :first-child,
+.side-sec [data-sidebar="menu-button"][data-active] [data-slot="sidebar-menu-badge"] {
+  color: inherit;
+}
+.side-sec [data-sidebar="menu-button"][data-active] .live-pulse {
+  background-color: currentColor;
+}
+.side-sec [data-sidebar="menu-button"][data-active] .live-pulse::after {
+  border-color: currentColor;
+}
+
+/* 激活项（折叠态）：实心饱和色会盖过簇首入口 → 回到条目同料方块 + 左缘 2×16 板块色竖条 + 板块色图标 */
+[data-collapsible="icon"] .side-sec [data-sidebar="menu-button"][data-active] {
+  background: color-mix(in oklab, var(--tintc) 12%, transparent);
+  color: var(--sidebar-foreground);
+  filter: none;
+}
+[data-collapsible="icon"] .side-sec [data-sidebar="menu-button"][data-active]:hover,
+[data-collapsible="icon"] .side-sec [data-sidebar="menu-button"][data-active]:active {
+  background: color-mix(in oklab, var(--tintc) 22%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--amb) 42%, transparent);
+  filter: none;
+}
+[data-collapsible="icon"] .side-sec [data-sidebar="menu-button"][data-active]::before {
+  display: block;
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 2px;
+  border-radius: 9999px;
+  background: var(--amb);
+}
+[data-collapsible="icon"] .side-sec [data-sidebar="menu-button"][data-active] > :first-child {
+  color: var(--ink);
+}
+
+/* 两行分组头（安静档 hd=none）：静止无底色，hover 才变成一张与子项同料的卡片；
+   入口行提亮 + › 右移 2px；mini-hub 盘面与条目卡片同一支染色，字形同 --ink */
+.side-head:not(:disabled):hover {
+  background: color-mix(in oklab, var(--tintc) 12%, transparent);
+}
+.side-head:not(:disabled):active {
+  filter: brightness(1.08);
+}
+.side-head:not(:disabled):hover .side-sub,
+.side-head:not(:disabled):hover .side-chev {
+  color: var(--foreground);
+}
+.side-chev {
+  transition: transform 0.15s ease, color 0.15s ease;
+}
+.side-head:hover .side-chev {
+  transform: translateX(2px);
+}
+.side-hub-mini {
+  background: color-mix(in oklab, var(--tintc) 12%, transparent);
+  color: var(--ink);
+}
+.side-sub {
+  color: color-mix(in oklab, var(--muted-foreground) 80%, var(--foreground));
+  transition: color 0.15s ease;
+}
+.side-count {
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  color: var(--foreground);
+}
+
+/* 折叠态入口色块：盘面 = 条目染色 +14%（hb=same；原型实测 +4% 时入口与条目 dE 只有 .02，
+   认不出哪块是入口），加 1px amb 38% 内描边做第二线索；hover 再加浓 6% + 描边 72% */
+.side-hub {
+  position: relative;
+  background: color-mix(in oklab, var(--tintc) 26%, transparent);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--amb) 38%, transparent);
+}
+.side-hub:hover {
+  background: color-mix(in oklab, var(--tintc) 32%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--amb) 72%, transparent);
+}
+
+/* 运行指示：分组头 LED（紧跟板块名）与入口块角标，primary 呼吸 */
+.side-led {
+  background: var(--primary);
+  box-shadow: 0 0 6px color-mix(in oklab, var(--primary) 70%, transparent);
+  animation: side-breathe 2s ease-in-out infinite;
+}
+.side-run-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: var(--primary);
+  box-shadow: 0 0 0 1.5px var(--sidebar);
+  animation: side-breathe 2s ease-in-out infinite;
+}
+@keyframes side-breathe {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .side-led,
+  .side-run-dot {
+    animation: none;
+  }
+}

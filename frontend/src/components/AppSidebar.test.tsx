@@ -171,4 +171,20 @@ describe("AppSidebar", () => {
     expect(await screen.findByText(/无工作流/)).toBeInTheDocument();
     expect(screen.queryByText("全部工作流")).not.toBeInTheDocument();
   });
+
+  it("分组头整块可点：点「全部工作流」行打开 workflows-grid", async () => {
+    const user = userEvent.setup();
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    mockListWorkflows.mockResolvedValue({
+      workflows: [
+        { id: "w1", title: "W1", icon: "hi:workflow", description: "", params: [], steps: [{ action: "x" }] },
+      ],
+      errors: [],
+    });
+    render(wrap());
+    // 分组头两行里第二行是入口名（可访问名 = 全部工作流），等数据加载后点击整块生效
+    const entry = await screen.findByText("全部工作流");
+    await user.click(entry);
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("workflows-grid");
+  });
 });
