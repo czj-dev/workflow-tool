@@ -1,0 +1,727 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="icon" href="data:,">
+  <title>Schedules · 定稿原型</title>
+  <!--
+    PROTOTYPE v2 · 定稿（三变体评审后的合并版，抛弃型代码）：
+      列表 = A 卡阵（按目标分组的双态卡，停用项原位降透明）
+      编辑器 = 拨盘优先（五槽读数条 + 人读句子 + 4 个模式 chips + 5 个令牌拨盘）
+      并入结论：展开卡显示未来 3 次触发；时间组合 ≤4 个时句子展开，超过回落原始表达式；
+               下次时间用「今天/明天」措辞；展开卡常显原始 cron（叙事区 stamp）。
+    保存 / 运行均为模拟。token 抄自 index.css 深色板。
+  -->
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: "Noto Sans Variable", "PingFang SC", system-ui, sans-serif;
+      --background: oklch(0.165 0.008 245);
+      --foreground: oklch(0.95 0.003 240);
+      --card: oklch(0.205 0.01 245);
+      --sidebar: oklch(0.185 0.008 245);
+      --muted: oklch(0.245 0.012 245);
+      --muted-foreground: oklch(0.62 0.012 240);
+      --primary: oklch(0.8 0.155 70);
+      --primary-foreground: oklch(0.2 0.04 70);
+      --success: oklch(0.78 0.13 165);
+      --destructive: oklch(0.62 0.21 25);
+      --border: oklch(1 0 0 / 8%);
+      --input: oklch(1 0 0 / 12%);
+      --amb-amber: oklch(0.8 0.155 70);
+      --amb-green: oklch(0.78 0.13 165);
+      --amb-blue: oklch(0.7 0.1 250);
+      --amb-violet: oklch(0.7 0.15 310);
+      --font-mono: "JetBrains Mono Variable", "Cascadia Code", Consolas, monospace;
+    }
+    * { box-sizing: border-box }
+    body { margin: 0; background: var(--background); color: var(--foreground) }
+    button, input, textarea, select { font: inherit; color: inherit }
+    button { cursor: pointer }
+    button:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px }
+    .banner { display: flex; justify-content: space-between; gap: 8px 20px; flex-wrap: wrap; padding: 7px 16px; border-bottom: 1px solid var(--border); background: var(--sidebar); color: var(--muted-foreground); font: 11px var(--font-mono) }
+    .shell { display: grid; grid-template-columns: 232px minmax(0, 1fr); min-height: 100dvh }
+    aside { background: var(--sidebar); border-right: 1px solid var(--border); padding: 16px 12px }
+    .brand { display: flex; align-items: center; gap: 10px; padding: 0 4px 22px; font: 600 13px var(--font-mono); text-transform: uppercase }
+    .brand b { display: grid; place-items: center; width: 32px; height: 32px; border-radius: 8px; background: var(--primary); color: var(--primary-foreground); font-size: 18px }
+    .nav { display: block; width: 100%; padding: 9px 12px; text-align: left; border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground); font-size: 13px }
+    .nav.current { background: color-mix(in oklab, var(--primary) 12%, transparent); color: var(--primary) }
+    .page { min-width: 0; display: flex; flex-direction: column }
+    header.pagehead { height: 42px; display: flex; align-items: center; gap: 12px; padding: 0 16px; border-bottom: 1px solid var(--border) }
+    header.pagehead strong { font-size: 14px; font-weight: 600 }
+    header.pagehead .meta { margin-left: auto; color: var(--muted-foreground); font: 11px var(--font-mono); letter-spacing: .14em; text-transform: uppercase }
+    .addbtn { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 12px; border: 0; border-radius: 999px; background: var(--primary); color: var(--primary-foreground); font: 600 12px var(--font-mono); letter-spacing: .08em }
+    .addbtn:hover { filter: brightness(1.08) }
+    main { padding: 16px; overflow-y: auto; flex: 1 }
+    .eyebrow { color: color-mix(in oklab, var(--muted-foreground) 80%, transparent); font: 600 11px var(--font-mono); letter-spacing: .16em; text-transform: uppercase }
+    .grouphead { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; margin-bottom: 12px }
+    .grouphead .count { color: var(--muted-foreground); font: 11px var(--font-mono); letter-spacing: .14em; text-transform: uppercase }
+    .tick-ruler { display: flex; align-items: flex-end; gap: 5px; height: 12px; padding-bottom: 3px; border-bottom: 1px solid var(--border); overflow: hidden }
+    .tick-ruler i { width: 1px; height: 5px; flex: none; background: color-mix(in oklab, var(--foreground) 22%, transparent) }
+    .tick-ruler i[data-lit] { height: 9px; background: var(--primary) }
+    .live-pulse { position: relative; animation: live-breathe 2s ease-in-out infinite }
+    .live-pulse::after { content: ""; position: absolute; inset: -1px; border-radius: 999px; border: 1.5px solid var(--primary); animation: ring-spread 1.9s ease-out infinite }
+    @keyframes live-breathe { 0%,100% { opacity: 1 } 50% { opacity: .5 } }
+    @keyframes ring-spread { 0% { opacity: .6; transform: scale(1) } 100% { opacity: 0; transform: scale(2) } }
+    .spine-flow-h { position: absolute; inset: 0 0 auto 0; height: 2px; border-radius: 2px 2px 0 0; background: linear-gradient(90deg, transparent 0%, var(--primary) 50%, transparent 100%) 0 0/45% 100% no-repeat, color-mix(in oklab, var(--primary) 14%, transparent); animation: spine-flow-x 1.6s linear infinite }
+    @keyframes spine-flow-x { from { background-position: -40% 0, 0 0 } to { background-position: 140% 0, 0 0 } }
+    .dual-card { background: radial-gradient(130% 80% at 16% 0%, color-mix(in oklab, var(--amb) 10%, transparent), transparent 58%), color-mix(in oklab, var(--amb) 5%, var(--card)) }
+    .dual-card:hover { background: radial-gradient(130% 80% at 16% 0%, color-mix(in oklab, var(--amb) 14%, transparent), transparent 58%), color-mix(in oklab, var(--amb) 8%, var(--card)); border-color: color-mix(in oklab, var(--amb) 45%, transparent); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--amb) 26%, transparent) }
+    .dual-card[data-expanded] { background: radial-gradient(120% 90% at 12% 0%, color-mix(in oklab, var(--amb) 18%, transparent), transparent 55%), linear-gradient(115deg, color-mix(in oklab, var(--amb) 12%, transparent), transparent 55%), color-mix(in oklab, var(--amb) 6%, var(--card)); border-color: color-mix(in oklab, var(--amb) 40%, transparent) }
+    .dual-card[data-running] { border-color: var(--primary) }
+    .dual-hub { display: grid; place-items: center; background: color-mix(in oklab, var(--amb) 16%, transparent); color: var(--amb); border-radius: 27.5% }
+    .ghostbtn { display: inline-flex; align-items: center; gap: 6px; height: 30px; padding: 0 12px; border: 1px solid var(--border); border-radius: 6px; background: color-mix(in oklab, var(--card) 55%, transparent); color: var(--muted-foreground); font: 11.5px var(--font-mono); letter-spacing: .04em }
+    .ghostbtn:hover { border-color: color-mix(in oklab, var(--amb) 50%, transparent); color: var(--foreground) }
+    .runpill { display: inline-flex; align-items: center; gap: 8px; height: 34px; padding: 0 18px; border: 0; border-radius: 999px; background: var(--primary); color: var(--primary-foreground); font: 700 12px var(--font-mono); letter-spacing: .14em }
+    .runpill:hover { filter: brightness(1.08) }
+    .runpill.readout { background: color-mix(in oklab, var(--primary) 15%, transparent); color: var(--primary); font-weight: 700 }
+    .quickhint { color: var(--primary); font: 11px var(--font-mono); letter-spacing: .14em; opacity: 0; transition: opacity .15s }
+    .dual-card:hover .quickhint { opacity: 1 }
+    .switch { appearance: none; width: 32px; height: 18px; border-radius: 999px; background: var(--input); position: relative; transition: background .15s; margin: 0 }
+    .switch::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: var(--foreground); transition: transform .15s }
+    .switch:checked { background: var(--primary) }
+    .switch:checked::after { transform: translateX(14px); background: var(--primary-foreground) }
+    /* —— 左 Sheet 表单 —— */
+    .sheet { position: fixed; inset: 0; z-index: 40 }
+    .sheet[hidden] { display: none }
+    .scrim { position: absolute; inset: 0; border: 0; background: #0007 }
+    .panel { position: absolute; top: 0; bottom: 0; left: 0; width: min(600px, 94vw); display: flex; flex-direction: column; background: var(--sidebar); border-right: 1px solid var(--border); box-shadow: 24px 0 60px #0008; --amb: var(--primary) }
+    .panel-head { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px; border-bottom: 1px solid var(--border) }
+    .panel-head h2 { margin: 0; font-size: 13px; font-weight: 600 }
+    .panel-body { flex: 1; overflow-y: auto; padding: 18px 22px 30px }
+    .panel-foot { display: flex; justify-content: flex-end; gap: 10px; padding: 10px 22px; border-top: 1px solid var(--border) }
+    .btn-plain { height: 32px; padding: 0 16px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--muted-foreground) }
+    .btn-plain:hover { color: var(--foreground) }
+    .btn-save { height: 32px; padding: 0 18px; border: 0; border-radius: 6px; background: var(--primary); color: var(--primary-foreground); font-weight: 600 }
+    .f-section { display: grid; gap: 10px; margin-bottom: 22px }
+    .f-title { font-size: 13px; font-weight: 600 }
+    .f-hint { margin: -6px 0 0; font-size: 11.5px; color: var(--muted-foreground) }
+    .f-input, .f-textarea { width: 100%; padding: 8px 11px; border: 1px solid var(--input); border-radius: 6px; background: var(--background); font-size: 13px }
+    .f-textarea { min-height: 88px; font-family: var(--font-mono); font-size: 12px }
+    .id-caption { margin: -4px 0 0; color: var(--muted-foreground); font: 10.5px var(--font-mono); letter-spacing: .06em }
+    .rowline { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px }
+    .seg { display: grid; grid-template-columns: 1fr 1fr; gap: 4px; padding: 4px; border: 1px solid var(--border); border-radius: 8px; background: color-mix(in oklab, var(--muted) 55%, transparent) }
+    .seg button { height: 28px; border: 0; border-radius: 6px; background: transparent; color: var(--muted-foreground); font: 12px var(--font-mono); letter-spacing: .06em }
+    .seg button[aria-pressed="true"] { background: color-mix(in oklab, var(--primary) 18%, transparent); color: var(--foreground); box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--primary) 40%, transparent) }
+    .target-list { max-height: 208px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px }
+    .target-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 8px 12px; border: 0; border-bottom: 1px solid color-mix(in oklab, var(--border) 60%, transparent); background: transparent; text-align: left; font-size: 13px }
+    .target-item:last-child { border-bottom: 0 }
+    .target-item:hover { background: color-mix(in oklab, var(--muted) 50%, transparent) }
+    .target-item[aria-checked="true"] { background: color-mix(in oklab, var(--primary) 10%, transparent); box-shadow: inset 2px 0 0 var(--primary) }
+    .target-item .dual-hub { width: 28px; height: 28px; font-size: 14px }
+    .target-item .tid { margin-left: auto; color: var(--muted-foreground); font: 10.5px var(--font-mono) }
+    .empty-note { padding: 14px; text-align: center; font-size: 12px; color: var(--muted-foreground) }
+    /* —— Cron 仪器：五槽读数条 —— */
+    .readout { border: 1px solid var(--border); border-radius: 10px; background: color-mix(in oklab, var(--muted) 30%, transparent); overflow: hidden }
+    .readout-slots { display: grid; grid-template-columns: repeat(5, 1fr) }
+    .readout-slots > div { padding: 8px 6px 7px; text-align: center; border-right: 1px solid color-mix(in oklab, var(--border) 70%, transparent) }
+    .readout-slots > div:last-child { border-right: 0 }
+    .readout-slots .k { color: var(--muted-foreground); font: 600 10px var(--font-mono); letter-spacing: .18em }
+    .readout-slots .v { margin-top: 3px; font: 600 13px var(--font-mono); font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+    .readout-slots .v.bad { color: var(--destructive) }
+    .readout-sentence { display: flex; gap: 8px; align-items: baseline; padding: 9px 12px; border-top: 1px dashed color-mix(in oklab, var(--primary) 30%, var(--border)) }
+    .readout-sentence .arrow { color: var(--primary); font: 11px var(--font-mono) }
+    .readout-sentence p { margin: 0; font-size: 13px }
+    .readout-sentence p.bad { color: var(--destructive) }
+    .pattern-row { display: flex; flex-wrap: wrap; gap: 8px }
+    .pattern-chip { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 11px; border: 1px dashed color-mix(in oklab, var(--amb) 40%, var(--border)); border-radius: 7px; background: color-mix(in oklab, var(--muted) 55%, transparent); color: var(--muted-foreground); font: 11px var(--font-mono); letter-spacing: .02em }
+    .pattern-chip:hover { border-style: solid; border-color: color-mix(in oklab, var(--amb) 65%, transparent); background: color-mix(in oklab, var(--amb) 10%, transparent); color: var(--foreground) }
+    /* —— 拨盘 —— */
+    .dial { border: 1px solid color-mix(in oklab, var(--border) 70%, transparent); border-radius: 10px; padding: 11px 12px 12px }
+    .dial-head { display: flex; align-items: center; gap: 10px; margin-bottom: 9px }
+    .dial-head .eyebrow { letter-spacing: .16em }
+    .dial-head .summary { margin-left: auto; color: var(--muted-foreground); font: 11px var(--font-mono); font-variant-numeric: tabular-nums; max-width: 45%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+    .dial-head .summary.bad { color: var(--destructive) }
+    .anychip { height: 22px; padding: 0 10px; border: 1px dashed color-mix(in oklab, var(--amb) 40%, var(--border)); border-radius: 999px; background: transparent; color: var(--muted-foreground); font: 11px var(--font-mono) }
+    .anychip[aria-pressed="true"] { border-style: solid; border-color: color-mix(in oklab, var(--amb) 70%, transparent); background: color-mix(in oklab, var(--amb) 14%, transparent); color: var(--foreground) }
+    .tokens { display: flex; flex-wrap: wrap; gap: 4px }
+    .tokens.locked { opacity: .3; pointer-events: none }
+    .token { min-width: 28px; height: 28px; padding: 0 6px; border: 0; border-radius: 7px; background: transparent; color: var(--muted-foreground); font: 12px var(--font-mono); font-variant-numeric: tabular-nums; transition: background .1s, color .1s }
+    .token:hover { background: var(--muted); color: var(--foreground) }
+    .token[aria-pressed="true"] { background: var(--primary); color: var(--primary-foreground); font-weight: 600 }
+    /* —— 卡阵 —— */
+    .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); gap: 10px }
+    .scard { position: relative; display: flex; flex-direction: column; gap: 10px; padding: 13px; border: 1px solid var(--border); border-radius: 10px; cursor: pointer; transition: border-color .15s, box-shadow .15s, background-color .15s }
+    .scard[data-expanded] { grid-column: span 2; gap: 13px; padding: 19px }
+    .scard.dim { opacity: .72 }
+    .scard .rail { display: flex; align-items: center; gap: 8px; height: 12px }
+    .scard .rail .dot { width: 7px; height: 7px; border-radius: 50%; background: color-mix(in oklab, var(--foreground) 20%, transparent) }
+    .scard .rail .dot.on { background: color-mix(in oklab, var(--amb) 75%, transparent) }
+    .scard .rail .dot.run { background: var(--primary) }
+    .scard .rail .next { margin-left: auto; color: var(--muted-foreground); font: 10.5px var(--font-mono); letter-spacing: .06em; font-variant-numeric: tabular-nums }
+    .scard .ident { display: flex; align-items: flex-start; gap: 10px }
+    .scard .ident .dual-hub { width: 40px; height: 40px; font-size: 19px; flex: none }
+    .scard .ident .nm { font: 600 13.5px var(--font-mono); letter-spacing: -.01em; line-height: 1.25; overflow-wrap: anywhere }
+    .scard .ident .sub { margin-top: 3px; color: var(--muted-foreground); font: 11px var(--font-mono); letter-spacing: .015em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+    .scard .cadence { font-size: 12px; color: color-mix(in oklab, var(--foreground) 82%, transparent) }
+    .scard .foot { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-top: auto; border-top: 1px dashed color-mix(in oklab, var(--amb) 30%, var(--border)); padding-top: 8px; font: 10px var(--font-mono); letter-spacing: .06em; text-transform: uppercase }
+    .scard .foot .last { display: flex; align-items: center; gap: 6px; margin-right: auto; color: var(--muted-foreground); text-transform: none; letter-spacing: 0 }
+    .scard .foot .last .dot2 { width: 5px; height: 5px; border-radius: 50% }
+    .scard .foot .running { display: flex; align-items: center; gap: 7px; color: var(--primary); text-transform: none; letter-spacing: .02em }
+    .scard .foot .running .live-pulse { width: 6px; height: 6px; border-radius: 50%; background: var(--primary) }
+    .scard .foot .off { color: var(--muted-foreground); text-transform: none }
+    .dashed-foot { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; border-top: 1px dashed color-mix(in oklab, var(--amb) 30%, var(--border)); padding-top: 12px }
+    .narrative { display: flex; gap: 10px }
+    .narrative .q { flex: none; padding-top: 1px; font-family: Georgia, serif; font-size: 26px; line-height: 1; color: color-mix(in oklab, var(--amb) 55%, transparent) }
+    .narrative p { margin: 0; max-width: 62ch; font-size: 13px; line-height: 1.75; color: color-mix(in oklab, var(--foreground) 85%, transparent) }
+    .narrative .stamp { margin-right: 8px; font: 10.5px var(--font-mono); letter-spacing: .04em; color: color-mix(in oklab, var(--amb) 80%, var(--muted-foreground)) }
+    .inforows { display: grid; gap: 7px }
+    .inforow { display: flex; gap: 14px }
+    .inforow .k { flex: none; width: 64px; padding-top: 2px; color: var(--muted-foreground); font: 10.5px var(--font-mono); letter-spacing: .1em; text-transform: uppercase }
+    .inforow .v { font-size: 13px; min-width: 0 }
+    .inforow .v .muted { color: var(--muted-foreground); font-size: 11.5px }
+    .inforow .v .err { color: var(--destructive); overflow: hidden; text-overflow: ellipsis; white-space: nowrap }
+    .next3 { display: flex; flex-wrap: wrap; gap: 4px 14px; font: 11.5px var(--font-mono); font-variant-numeric: tabular-nums }
+    .next3 .muted { color: var(--muted-foreground) }
+    .statusword { font-weight: 600 }
+    .statusword.ok { color: var(--success) }
+    .statusword.bad { color: var(--destructive) }
+    .delbtn { height: 30px; padding: 0 10px; border: 1px solid var(--border); border-radius: 6px; background: transparent; color: var(--muted-foreground); font: 12px var(--font-mono) }
+    .delbtn.armed { border-color: color-mix(in oklab, var(--destructive) 60%, transparent); color: var(--destructive); background: color-mix(in oklab, var(--destructive) 12%, transparent) }
+    .switchwrap { display: inline-flex; align-items: center; gap: 8px; color: var(--muted-foreground); font: 11px var(--font-mono); letter-spacing: .06em }
+    .empty-state { display: flex; flex-direction: column; align-items: center; gap: 8px; padding: 72px 16px; text-align: center }
+    .empty-state p { margin: 0; max-width: 380px; font-size: 13px; line-height: 1.7; color: var(--muted-foreground) }
+    .toast { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 80; padding: 7px 16px; border: 1px solid color-mix(in oklab, var(--primary) 45%, var(--border)); border-radius: 999px; background: var(--card); color: var(--foreground); font: 11.5px var(--font-mono); box-shadow: 0 8px 22px #0008 }
+    @media (max-width: 720px) {
+      .shell { grid-template-columns: 1fr } aside { display: none }
+      .scard[data-expanded] { grid-column: span 1 }
+    }
+    @media (prefers-reduced-motion: reduce) { * { animation: none !important; transition-duration: 0s !important } }
+  </style>
+</head>
+<body>
+  <div class="banner"><span>定稿原型 · 评审结论合并版（卡阵 + 拨盘编辑器 + 未来 3 次 + ≤4 时刻成句）</span><span>保存 / 运行均为模拟</span></div>
+  <div class="shell">
+    <aside aria-label="模拟侧边栏">
+      <div class="brand"><b>▦</b> Workflow Tool</div>
+      <button class="nav" type="button" disabled>▦ 全部动作</button>
+      <button class="nav" type="button" disabled>⎘ 工作流</button>
+      <button class="nav current" type="button" disabled>⏱ 调度</button>
+    </aside>
+    <div class="page">
+      <header class="pagehead">
+        <strong>调度</strong>
+        <button class="addbtn" id="addbtn" type="button">＋ 新增</button>
+        <span class="meta" id="pagemeta"></span>
+      </header>
+      <main id="stage"></main>
+    </div>
+  </div>
+
+  <div class="sheet" id="sheet" hidden>
+    <button class="scrim" id="scrim" type="button" aria-label="关闭表单"></button>
+    <div class="panel" role="dialog" aria-label="调度表单">
+      <div class="panel-head"><h2 id="panel-title">新增调度</h2><button class="btn-plain" id="panel-close" type="button" style="height:26px;padding:0 9px">✕</button></div>
+      <div class="panel-body" id="panel-body"></div>
+      <div class="panel-foot"><button class="btn-plain" id="panel-cancel" type="button">取消</button><button class="btn-save" id="panel-save" type="button">保存</button></div>
+    </div>
+  </div>
+
+  <script>
+    "use strict";
+    /* —— mock 数据 —— */
+    const now = Date.now();
+    const ago = ms => new Date(now - ms).toISOString();
+    const TARGETS = {
+      action: [
+        { id: "build", title: "每日构建", icon: "⚡" },
+        { id: "logcat", title: "抓取日志", icon: "≣" },
+        { id: "screenshot", title: "设备截屏", icon: "▤" },
+      ],
+      workflow: [
+        { id: "report", title: "周报流水线", icon: "⎘" },
+        { id: "archive", title: "归档流水线", icon: "▼" },
+      ],
+    };
+    const schedules = [
+      { id: "nightly-build", name: "每日构建", enabled: true, cron: "0 9 * * 1-5", targetKind: "action", targetId: "build", params: { BRANCH: "main" },
+        lastRun: { status: "success", startedAt: ago(16 * 36e5), duration: "4s", error: "" }, running: false },
+      { id: "weekly-report", name: "周报快照", enabled: true, cron: "0 18 * * 5", targetKind: "workflow", targetId: "report", params: {},
+        lastRun: { status: "failed", startedAt: ago(3 * 864e5), duration: "12s", error: "adb: device not found" }, running: false },
+      { id: "logcat-patrol", name: "日志巡检", enabled: true, cron: "30 * * * *", targetKind: "action", targetId: "logcat", params: { DURATION: "300" },
+        lastRun: { status: "success", startedAt: ago(35e5), duration: "5m00s", error: "" }, running: true },
+      { id: "monthly-archive", name: "月度归档", enabled: false, cron: "0 3 1 * *", targetKind: "workflow", targetId: "archive", params: { KEEP: "90d" },
+        lastRun: { status: "success", startedAt: ago(20 * 864e5), duration: "46s", error: "" }, running: false },
+    ];
+
+    /* —— cron 引擎：解析 / 序列化 / 人读句子（≤4 时刻成句，超过回落） / 未来触发 —— */
+    const WEEKDAY_NAMES = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
+    const FIELD_ORDER = ["minute", "hour", "day", "month", "weekday"];
+    const FIELD_META = {
+      minute: { min: 0, max: 59, label: "分钟" }, hour: { min: 0, max: 23, label: "小时" },
+      day: { min: 1, max: 31, label: "每月几号" }, month: { min: 1, max: 12, label: "月份" },
+      weekday: { min: 0, max: 6, label: "星期几", name: v => WEEKDAY_NAMES[v] },
+    };
+    function parseField(text, min, max) {
+      if (text === "*") return { any: true, values: [] };
+      const values = new Set();
+      for (const part of text.split(",")) {
+        const m = /^(\d+)(?:-(\d+))?$/.exec(part);
+        if (!m) throw new Error("bad field: " + text);
+        const start = Number(m[1]); const end = m[2] === undefined ? start : Number(m[2]);
+        if (start < min || end > max || start > end) throw new Error("range: " + text);
+        for (let v = start; v <= end; v++) values.add(v);
+      }
+      if (!values.size) throw new Error("empty");
+      return { any: false, values: [...values].sort((a, b) => a - b) };
+    }
+    function parseCron(expr) {
+      const f = String(expr).trim().split(/\s+/);
+      if (f.length !== 5) throw new Error("need 5 fields");
+      return {
+        minute: parseField(f[0], 0, 59), hour: parseField(f[1], 0, 23),
+        day: parseField(f[2], 1, 31), month: parseField(f[3], 1, 12), weekday: parseField(f[4], 0, 6),
+      };
+    }
+    const serializeField = field => field.any ? "*" : field.values.join(",");
+    const serializeCron = cron => FIELD_ORDER.map(k => serializeField(cron[k])).join(" ");
+    const pad2 = n => String(n).padStart(2, "0");
+    const listZh = arr => arr.length > 4 ? arr.slice(0, 4).join("、") + "…" : arr.join("、");
+    function describeCron(cron) {
+      if (FIELD_ORDER.some(k => !cron[k].any && !cron[k].values.length)) return null; // 有字段被清空
+      let time = null;
+      if (cron.minute.any && cron.hour.any) time = "每分钟";
+      else if (cron.hour.any) time = "每小时 :" + listZh(cron.minute.values.map(pad2));
+      else if (!cron.minute.any && cron.minute.values.length * cron.hour.values.length <= 4) {
+        const pts = [];
+        for (const h of cron.hour.values) for (const m of cron.minute.values) pts.push(pad2(h) + ":" + pad2(m));
+        pts.sort();
+        time = pts.join("、");
+      }
+      if (time === null) return serializeCron(cron); // 组合过多 / 分任意×时受限：回落原始表达式
+      const parts = [];
+      if (!cron.weekday.any) {
+        const wd = cron.weekday.values;
+        const isWorkweek = wd.length === 5 && [1, 2, 3, 4, 5].every(v => wd.includes(v));
+        if (wd.length === 7) { /* 全周 = 每天 */ }
+        else if (isWorkweek) parts.push("工作日");
+        else parts.push("每" + listZh(wd.map(v => WEEKDAY_NAMES[v])));
+      }
+      if (!cron.day.any) parts.push("每月 " + listZh(cron.day.values) + " 号");
+      let day = parts.join("或"); // cron 语义：日与周同时受限取并集
+      if (!day) {
+        if (time === "每分钟" && cron.month.any) return "每分钟";
+        if (time.startsWith("每小时") && cron.month.any) return time; // 每小时已含每天
+        day = "每天";
+      }
+      const scope = cron.month.any ? "" : listZh(cron.month.values) + " 月 ";
+      return scope + day + " " + time;
+    }
+    function nextRuns(expr, count = 3, from = new Date()) {
+      const cron = parseCron(expr);
+      const out = [];
+      const t = new Date(from); t.setSeconds(0, 0); t.setMinutes(t.getMinutes() + 1);
+      const limit = new Date(from.getTime() + 400 * 864e5);
+      while (out.length < count && t < limit) {
+        if (!cron.minute.any && !cron.minute.values.includes(t.getMinutes())) { t.setMinutes(t.getMinutes() + 1); continue; }
+        if (!cron.hour.any && !cron.hour.values.includes(t.getHours())) { t.setHours(t.getHours() + 1, 0, 0, 0); continue; }
+        if (!cron.month.any && !cron.month.values.includes(t.getMonth() + 1)) { t.setMonth(t.getMonth() + 1, 1, 0, 0, 0); continue; }
+        const domOk = cron.day.any, dowOk = cron.weekday.any;
+        let dayOk;
+        if (domOk && dowOk) dayOk = true;
+        else if (domOk) dayOk = cron.weekday.values.includes(t.getDay());
+        else if (dowOk) dayOk = cron.day.values.includes(t.getDate());
+        else dayOk = cron.day.values.includes(t.getDate()) || cron.weekday.values.includes(t.getDay());
+        if (!dayOk) { t.setDate(t.getDate() + 1); t.setHours(0, 0, 0, 0); continue; }
+        out.push(new Date(t));
+        t.setMinutes(t.getMinutes() + 1);
+      }
+      return out;
+    }
+    const fmtHM = d => pad2(d.getHours()) + ":" + pad2(d.getMinutes());
+    function fmtShort(d) {
+      const today = new Date();
+      if (d.toDateString() === today.toDateString()) return "今天 " + fmtHM(d);
+      const tomorrow = new Date(today.getTime() + 864e5);
+      if (d.toDateString() === tomorrow.toDateString()) return "明天 " + fmtHM(d);
+      const md = pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+      return d.getFullYear() === today.getFullYear() ? md + " " + fmtHM(d) : d.getFullYear() + "-" + md;
+    }
+    function fmtStamp(d) { return pad2(d.getMonth() + 1) + "-" + pad2(d.getDate()) + " " + fmtHM(d); }
+    const safeSentence = s => { try { return describeCron(parseCron(s.cron)) || s.cron; } catch { return s.cron; } };
+    const nextOf = s => (s.enabled || s.running) ? nextRuns(s.cron, 1)[0] : null;
+    const next3Of = s => (s.enabled || s.running) ? nextRuns(s.cron, 3) : [];
+    const target = s => TARGETS[s.targetKind].find(t => t.id === s.targetId) || { id: s.targetId, title: s.targetId, icon: "⏱" };
+    const kindLabel = k => k === "workflow" ? "工作流" : "动作";
+
+    /* —— 小工具 —— */
+    const $ = sel => document.querySelector(sel);
+    const el = (tag, cls, text) => { const n = document.createElement(tag); if (cls) n.className = cls; if (text != null) n.textContent = text; return n; };
+    let toastTimer;
+    function toast(msg) {
+      document.querySelectorAll(".toast").forEach(n => n.remove());
+      const t = el("div", "toast", msg); document.body.append(t);
+      clearTimeout(toastTimer); toastTimer = setTimeout(() => t.remove(), 2200);
+    }
+
+    /* ================= 卡阵 ================= */
+    const AMB_CYCLE = ["var(--amb-amber)", "var(--amb-green)", "var(--amb-blue)", "var(--amb-violet)"];
+    const GROUPS = [
+      { kind: "action", label: "动作调度", amb: AMB_CYCLE[0] },
+      { kind: "workflow", label: "工作流调度", amb: AMB_CYCLE[1] },
+    ];
+    let expandedId = null;
+    let deleteArm = null;
+
+    function render() {
+      const stage = $("#stage"); stage.replaceChildren();
+      if (!schedules.length) { renderEmpty(); refreshMeta(); return; }
+      for (const group of GROUPS) {
+        const items = schedules.filter(s => s.targetKind === group.kind);
+        if (!items.length) continue;
+        const section = el("section"); section.style.marginBottom = "22px";
+        const head = el("div", "grouphead");
+        head.append(el("span", "eyebrow", group.label));
+        const ruler = el("div", "tick-ruler"); ruler.setAttribute("aria-hidden", "true");
+        items.forEach(s => { const i = el("i"); if (s.enabled) i.setAttribute("data-lit", ""); ruler.append(i); });
+        head.append(ruler, el("span", "count", items.length + " 项 · " + items.filter(s => s.enabled).length + " 启用"));
+        section.append(head);
+        const grid = el("div", "grid-cards");
+        items.forEach(s => grid.append(cardA(s, group.amb)));
+        section.append(grid);
+        stage.append(section);
+      }
+      refreshMeta();
+    }
+    function cardA(s, amb) {
+      const card = el("div", "scard dual-card");
+      card.style.setProperty("--amb", amb);
+      if (s.running) { card.dataset.running = ""; card.append(el("span", "spine-flow-h")); }
+      if (!s.enabled && !s.running) card.classList.add("dim");
+      card.setAttribute("role", "button"); card.tabIndex = 0;
+      card.setAttribute("aria-label", s.name);
+      card.addEventListener("click", () => { expandedId = expandedId === s.id ? null : s.id; render(); });
+      card.addEventListener("keydown", e => {
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); card.click(); }
+        if (e.key === "Escape" && expandedId === s.id) { expandedId = null; render(); }
+      });
+      if (expandedId === s.id) { card.dataset.expanded = ""; card.append(...expandedBodyA(s)); }
+      else card.append(...compactBodyA(s));
+      return card;
+    }
+    function railA(s) {
+      const rail = el("div", "rail");
+      const dot = el("span", "dot" + (s.running ? " run live-pulse" : s.enabled ? " on" : ""));
+      rail.append(dot);
+      const nx = nextOf(s);
+      rail.append(el("span", "next", s.running ? "运行中" : nx ? fmtShort(nx) : "已停用"));
+      return rail;
+    }
+    function compactBodyA(s) {
+      const rail = railA(s);
+      const ident = el("div", "ident");
+      const hub = el("span", "dual-hub", target(s).icon);
+      const box = el("div"); box.style.minWidth = "0"; box.style.flex = "1";
+      box.append(el("div", "nm", s.name));
+      box.append(el("div", "sub", kindLabel(s.targetKind) + " · " + target(s).title + " · " + s.id));
+      ident.append(hub, box);
+      const cadence = el("div", "cadence", safeSentence(s));
+      const foot = el("div", "foot");
+      const last = el("span", "last");
+      if (s.lastRun) {
+        const dot = el("span", "dot2");
+        dot.style.background = s.lastRun.status === "failed" ? "var(--destructive)" : "var(--success)";
+        last.append(dot, s.lastRun.duration || (s.lastRun.status === "failed" ? "失败" : "成功"));
+      } else last.append(el("span", null, "--"));
+      foot.append(last);
+      if (s.running) {
+        const run = el("span", "running");
+        run.append(el("span", "live-pulse"), "运行中 ▸");
+        foot.append(run);
+      } else if (s.enabled) {
+        const hint = el("button", "quickhint", "▸ 立即运行");
+        hint.type = "button"; hint.style.background = "none"; hint.style.border = "0";
+        hint.addEventListener("click", e => { e.stopPropagation(); toast("已触发（模拟）：" + s.name); });
+        foot.append(hint);
+      } else foot.append(el("span", "off", "已停用"));
+      return [rail, ident, cadence, foot];
+    }
+    function expandedBodyA(s) {
+      const rail = railA(s);
+      const ident = el("div", "ident");
+      const hub = el("span", "dual-hub", target(s).icon);
+      const box = el("div"); box.style.minWidth = "0";
+      box.append(el("div", "nm", s.name));
+      box.append(el("div", "sub", s.id));
+      ident.append(hub, box);
+      const narrative = el("div", "narrative");
+      narrative.append(el("span", "q", "❝"));
+      const p = el("p");
+      p.append(el("span", "stamp", s.cron), safeSentence(s));
+      narrative.append(p);
+      const rows = el("div", "inforows");
+      const nx3 = next3Of(s);
+      if (nx3.length) {
+        const cell = el("div", "next3");
+        nx3.forEach((d, i) => {
+          const stamp = el("span", i === 0 ? null : "muted", fmtShort(d) + (i === 0 ? " · " + WEEKDAY_NAMES[d.getDay()] : ""));
+          cell.append(stamp);
+        });
+        rows.append(infoRow("下次触发", cell));
+      } else rows.append(infoRow("下次触发", "--"));
+      const lastCell = el("div");
+      if (s.lastRun) {
+        const w = el("span", "statusword " + (s.lastRun.status === "failed" ? "bad" : "ok"),
+          s.lastRun.status === "failed" ? "失败" : "成功");
+        lastCell.append(w, " ");
+        if (s.lastRun.duration) lastCell.append(el("span", "muted", "· " + s.lastRun.duration + " · "), el("span", "muted", fmtStamp(new Date(s.lastRun.startedAt))));
+        if (s.lastRun.error) lastCell.append(el("div", "err", s.lastRun.error));
+      } else lastCell.textContent = "--";
+      rows.append(infoRow("最近结果", lastCell));
+      rows.append(infoRow("目标", kindLabel(s.targetKind) + " · " + target(s).title));
+      rows.append(infoRow("参数", JSON.stringify(s.params)));
+      const foot = el("div", "dashed-foot");
+      const edit = el("button", "ghostbtn", "✎ 编辑"); edit.type = "button";
+      edit.addEventListener("click", e => { e.stopPropagation(); openForm(s); });
+      const del = el("button", "delbtn" + (deleteArm === s.id ? " armed" : ""), deleteArm === s.id ? "再点一次确认删除" : "⌫");
+      del.type = "button"; del.title = "删除";
+      del.addEventListener("click", e => {
+        e.stopPropagation();
+        if (deleteArm !== s.id) { deleteArm = s.id; render(); setTimeout(() => { if (deleteArm === s.id) { deleteArm = null; render(); } }, 3000); }
+        else { deleteArm = null; toast("已删除（模拟）：" + s.name); schedules.splice(schedules.indexOf(s), 1); render(); }
+      });
+      const sw = el("label", "switchwrap");
+      const cb = el("input", "switch"); cb.type = "checkbox"; cb.checked = s.enabled;
+      cb.setAttribute("aria-label", (s.enabled ? "停用 " : "启用 ") + s.name);
+      cb.addEventListener("click", e => e.stopPropagation());
+      cb.addEventListener("change", () => { s.enabled = cb.checked; toast((s.enabled ? "已启用（模拟）：" : "已停用（模拟）：") + s.name); render(); });
+      sw.append(cb, s.enabled ? "已启用" : "已停用");
+      const run = el("button", "runpill" + (s.running ? " readout" : ""), s.running ? "运行中" : "▶ 立即运行");
+      run.type = "button";
+      run.addEventListener("click", e => { e.stopPropagation(); toast("已触发（模拟）：" + s.name); });
+      foot.append(edit, del, sw, run);
+      return [rail, ident, narrative, rows, foot];
+    }
+    function infoRow(key, value) {
+      const row = el("div", "inforow");
+      row.append(el("span", "k", key));
+      const v = el("div", "v");
+      if (value instanceof Node) v.append(value); else v.textContent = value;
+      row.append(v);
+      return row;
+    }
+    function renderEmpty() {
+      const box = el("div", "empty-state");
+      box.append(el("span", "eyebrow", "暂无调度"));
+      box.append(el("p", null, "还没有调度任务。点右上「新增」，选一个动作或工作流，拨一个节律即可。"));
+      $("#stage").replaceChildren(box);
+    }
+    function refreshMeta() {
+      const enabled = schedules.filter(s => s.enabled).length;
+      $("#pagemeta").textContent = schedules.length + " 项 · " + enabled + " 启用";
+    }
+
+    /* ================= 表单（拨盘编辑器） ================= */
+    const PATTERNS = [
+      { glyph: "☀", cron: "0 9 * * 1-5", name: "工作日早晨", desc: "周一至周五 09:00" },
+      { glyph: "⏰", cron: "0 9 * * *", name: "每天", desc: "每天 09:00" },
+      { glyph: "↻", cron: "30 * * * *", name: "每小时", desc: "每小时第 30 分" },
+      { glyph: "W", cron: "0 18 * * 5", name: "每周五", desc: "周五 18:00" },
+    ];
+    let formState = null;
+    function openForm(schedule) {
+      const isNew = !schedule;
+      $("#panel-title").textContent = isNew ? "新增调度" : "编辑调度 · " + schedule.name;
+      formState = {
+        cron: parseCron(isNew ? "0 9 * * 1-5" : schedule.cron),
+        targetKind: isNew ? "action" : schedule.targetKind,
+        targetId: isNew ? TARGETS.action[0].id : schedule.targetId,
+        name: isNew ? "" : schedule.name,
+        params: isNew ? {} : schedule.params,
+        source: schedule,
+      };
+      const body = $("#panel-body"); body.replaceChildren();
+      body.append(sectionBasics(), sectionTarget(), sectionCadenceDial(), sectionParams());
+      refreshCadence();
+      $("#sheet").hidden = false;
+      const first = body.querySelector("input[name=name]"); if (first) first.focus();
+    }
+    function closeForm() { $("#sheet").hidden = true; }
+    function fsection(title, hint) {
+      const s = el("div", "f-section");
+      if (title) s.append(el("div", "f-title", title));
+      if (hint) s.append(el("p", "f-hint", hint));
+      return s;
+    }
+    function sectionBasics() {
+      const s = fsection("基本信息");
+      const nameLine = el("label", "rowline"); nameLine.htmlFor = "f-name";
+      nameLine.append(el("span", null, "名称"));
+      const name = el("input", "f-input"); name.id = "f-name"; name.name = "name";
+      name.value = formState.name; name.placeholder = "例：每日构建";
+      name.addEventListener("input", () => { formState.name = name.value; });
+      const wrap = el("div"); wrap.append(name);
+      wrap.append(el("p", "id-caption", "id · " + (formState.source ? formState.source.id : "schedule-（自动生成）")));
+      nameLine.append(wrap);
+      const swLine = el("label", "rowline");
+      swLine.append(el("span", null, "保存后立即启用"));
+      const cb = el("input", "switch"); cb.type = "checkbox"; cb.checked = formState.source ? formState.source.enabled : true;
+      swLine.append(cb);
+      s.append(nameLine, swLine);
+      return s;
+    }
+    function sectionTarget() {
+      const s = fsection("目标", "选择要定时运行的动作或工作流");
+      const seg = el("div", "seg"); seg.setAttribute("role", "group"); seg.setAttribute("aria-label", "目标类型");
+      const renderSeg = () => {
+        seg.replaceChildren();
+        for (const kind of ["action", "workflow"]) {
+          const b = el("button", null, kindLabel(kind)); b.type = "button";
+          b.setAttribute("aria-pressed", formState.targetKind === kind ? "true" : "false");
+          b.addEventListener("click", () => {
+            formState.targetKind = kind;
+            formState.targetId = TARGETS[kind][0]?.id ?? "";
+            renderTarget(); renderSeg();
+          });
+          seg.append(b);
+        }
+      };
+      renderSeg();
+      const list = el("div", "target-list"); list.setAttribute("role", "radiogroup"); list.setAttribute("aria-label", "目标");
+      const renderTarget = () => {
+        list.replaceChildren();
+        const items = TARGETS[formState.targetKind];
+        if (!items.length) { list.append(el("p", "empty-note", "该类型暂无可选项")); return; }
+        for (const t of items) {
+          const item = el("button", "target-item"); item.type = "button";
+          item.setAttribute("role", "radio");
+          item.setAttribute("aria-checked", formState.targetId === t.id ? "true" : "false");
+          const hub = el("span", "dual-hub", t.icon);
+          item.append(hub, el("span", null, t.title), el("span", "tid", t.id));
+          item.addEventListener("click", () => { formState.targetId = t.id; renderTarget(); });
+          list.append(item);
+        }
+      };
+      renderTarget();
+      s.append(seg, list);
+      return s;
+    }
+    function sectionCadenceDial() {
+      const s = fsection("节律", "点选触发时刻；下方读数即生成的 Cron 表达式");
+      s.append(buildReadout());
+      const patterns = el("div", "pattern-row");
+      for (const p of PATTERNS) {
+        const chip = el("button", "pattern-chip", "▸ " + p.name + " " + p.desc); chip.type = "button"; chip.title = p.cron;
+        chip.addEventListener("click", () => { formState.cron = parseCron(p.cron); refreshCadence(); });
+        patterns.append(chip);
+      }
+      s.append(patterns);
+      for (const key of ["hour", "minute", "weekday", "day", "month"]) s.append(buildDial(key));
+      const orHint = el("p", "f-hint", "每月几号与星期几同时设置时，满足任一即触发（cron 并集语义）");
+      orHint.dataset.orHint = "";
+      s.append(orHint);
+      return s;
+    }
+    function buildReadout() {
+      const box = el("div", "readout");
+      const slots = el("div", "readout-slots");
+      const short = { minute: "分", hour: "时", day: "日", month: "月", weekday: "周" };
+      for (const key of FIELD_ORDER) {
+        const cell = el("div");
+        cell.append(el("div", "k", short[key]));
+        const v = el("div", "v"); v.dataset.slot = key;
+        cell.append(v);
+        slots.append(cell);
+      }
+      const sentence = el("div", "readout-sentence");
+      sentence.append(el("span", "arrow", "▸"));
+      const p = el("p"); p.dataset.sentence = ""; p.setAttribute("aria-live", "polite");
+      sentence.append(p);
+      box.append(slots, sentence);
+      return box;
+    }
+    function buildDial(key) {
+      const meta = FIELD_META[key];
+      const dial = el("div", "dial"); dial.dataset.dial = key;
+      const head = el("div", "dial-head");
+      const summary = el("span", "summary"); summary.dataset.summary = "";
+      const any = el("button", "anychip", "任意"); any.type = "button";
+      any.addEventListener("click", () => {
+        const f = formState.cron[key];
+        formState.cron[key] = f.any ? { any: false, values: [meta.min] } : { any: true, values: [] };
+        refreshCadence();
+      });
+      head.append(el("span", "eyebrow", meta.label), summary, any);
+      const tokens = el("div", "tokens");
+      for (let v = meta.min; v <= meta.max; v++) {
+        const t = el("button", "token", meta.name ? meta.name(v) : String(v));
+        t.type = "button";
+        t.setAttribute("aria-label", meta.label + " " + (meta.name ? meta.name(v) : v));
+        t.addEventListener("click", () => {
+          const f = formState.cron[key];
+          const set = new Set(f.values);
+          if (set.has(v)) set.delete(v); else set.add(v);
+          formState.cron[key] = { any: false, values: [...set].sort((a, b) => a - b) };
+          refreshCadence();
+        });
+        tokens.append(t);
+      }
+      dial.append(head, tokens);
+      return dial;
+    }
+    function refreshCadence() {
+      const cron = formState.cron;
+      const root = $("#panel-body");
+      root.querySelectorAll("[data-slot]").forEach(node => {
+        const f = cron[node.dataset.slot];
+        const text = f.any ? "*" : f.values.join(",");
+        node.textContent = text || "?";
+        node.classList.toggle("bad", !f.any && !f.values.length);
+        node.title = text;
+      });
+      root.querySelectorAll("[data-sentence]").forEach(node => {
+        const sentence = describeCron(cron);
+        node.textContent = sentence || "至少为每个字段选择一个值";
+        node.classList.toggle("bad", !sentence);
+      });
+      root.querySelectorAll("[data-dial]").forEach(dial => {
+        const key = dial.dataset.dial;
+        const f = cron[key];
+        const summary = dial.querySelector("[data-summary]");
+        const text = f.any ? "*" : f.values.join(",");
+        summary.textContent = text || "?（至少选一个）";
+        summary.classList.toggle("bad", !f.any && !f.values.length);
+        summary.title = text;
+        dial.querySelector(".anychip").setAttribute("aria-pressed", f.any ? "true" : "false");
+        const tokens = dial.querySelector(".tokens");
+        tokens.classList.toggle("locked", f.any);
+        tokens.querySelectorAll(".token").forEach(t => {
+          let value;
+          if (key === "weekday") value = WEEKDAY_NAMES.indexOf(t.getAttribute("aria-label").split(" ").slice(1).join(" "));
+          else value = Number(t.getAttribute("aria-label").split(" ").pop());
+          t.setAttribute("aria-pressed", !f.any && f.values.includes(value) ? "true" : "false");
+        });
+      });
+      const orHint = root.querySelector("[data-or-hint]");
+      if (orHint) orHint.hidden = !(cron.day.any === false && cron.weekday.any === false);
+    }
+    function sectionParams() {
+      const s = fsection("参数 JSON", "传给目标的参数对象");
+      const ta = el("textarea", "f-textarea");
+      ta.value = JSON.stringify(formState.params, null, 2);
+      const hint = el("p", "f-hint");
+      const check = () => {
+        try { const v = JSON.parse(ta.value || "{}"); if (v && typeof v === "object" && !Array.isArray(v)) { hint.textContent = "✓ JSON 对象"; hint.style.color = "var(--success)"; } else throw 0; }
+        catch { hint.textContent = "需为合法 JSON 对象"; hint.style.color = "var(--destructive)"; }
+      };
+      ta.addEventListener("input", check);
+      check();
+      s.append(ta, hint);
+      return s;
+    }
+
+    /* ================= 接线 ================= */
+    $("#addbtn").addEventListener("click", () => openForm(null));
+    $("#panel-close").addEventListener("click", closeForm);
+    $("#panel-cancel").addEventListener("click", closeForm);
+    $("#scrim").addEventListener("click", closeForm);
+    window.addEventListener("keydown", e => { if (e.key === "Escape" && !$("#sheet").hidden) closeForm(); });
+    $("#panel-save").addEventListener("click", () => {
+      toast("已保存（模拟）：" + (formState.name || "未命名") + " · " + serializeCron(formState.cron));
+      closeForm();
+    });
+    render();
+  </script>
+</body>
+</html>
