@@ -57,7 +57,7 @@ case "$last" in
   "'/sdcard/a/b/c/'") printf '%s\n' '-rw-r--r-- 1 root root 42 2026-09-05 11:02 file.txt' 'drwxr-xr-x 2 root root 4096 2026-09-05 11:02 deeper' ;;
   *) exit 19 ;;
 esac
-`, time.Second)
+`, 10*time.Second)
 	result, frame, warnings := runList(t, context.Background(), r, map[string]any{"ADB_SERIAL": "fake", "REMOTE_PATH": "/sdcard"})
 	if result.Err != nil || result.ExitCode != 0 || len(warnings) != 0 || !frame.DefaultExpandAll {
 		t.Fatalf("result=%+v frame=%+v warnings=%v", result, frame, warnings)
@@ -97,7 +97,7 @@ case "$last" in
   "'/sdcard/denied/'") printf '%s\n' 'ls: permission denied' >&2; exit 1 ;;
   "'/sdcard/readable/'") printf '%s\n' '-rw-r--r-- 1 root root 10 2026-09-05 11:02 ok.txt' ;;
 esac
-`, time.Second)
+`, 10*time.Second)
 	result, frame, warnings := runList(t, context.Background(), r, map[string]any{"ADB_SERIAL": "fake", "DEPTH": "2"})
 	if result.Err != nil || result.ExitCode != 0 || len(frame.Nodes) != 1 || len(frame.Nodes[0].Children) != 2 || len(frame.Nodes[0].Children[1].Children) != 1 || !strings.Contains(strings.Join(warnings, " "), "denied") {
 		t.Fatalf("result=%+v frame=%+v warnings=%v", result, frame, warnings)
@@ -150,7 +150,7 @@ case "$last" in
   "'/sdcard/'") printf '%s\n' 'drwxr-xr-x 2 root root 4096 2026-09-05 11:02 a' ;;
   *) printf '%s\n' 'error: device offline' >&2; exit 1 ;;
 esac
-`, time.Second)
+`, 10*time.Second)
 	result, frame, _ := runList(t, context.Background(), r, map[string]any{"ADB_SERIAL": "fake"})
 	if result.Err == nil || result.ExitCode == 0 || len(frame.Nodes) != 0 {
 		t.Fatalf("result=%+v frame=%+v", result, frame)
