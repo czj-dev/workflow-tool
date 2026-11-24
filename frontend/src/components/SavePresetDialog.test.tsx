@@ -38,7 +38,7 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   CancelWorkflow: vi.fn(),
 }));
 
-vi.mock("@wailsio/runtime", () => ({ Events: { On: vi.fn() } }));
+vi.mock("@wailsio/runtime", () => ({ Events: { On: vi.fn(() => () => {}) } }));
 
 import { ActionRunnerProvider } from "../context/ActionRunnerProvider";
 import { useActionRunner } from "../hooks/useActionRunner";

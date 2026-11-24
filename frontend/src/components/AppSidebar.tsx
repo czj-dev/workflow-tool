@@ -20,6 +20,7 @@ import {
   Alert02Icon,
   ArrowRight01Icon,
   Calendar03Icon,
+  Clock01Icon,
   FlashIcon,
   FlowIcon,
   NoteIcon,
@@ -130,7 +131,7 @@ function SectionEntry({
 // 底部「片段 / 全局配置 / 设置」
 export function AppSidebar() {
   const { t } = useTranslation();
-  const { actions, errors, workflows, workflowErrors, aiTasks, aiErrors, setView, openActionsDir, focusAi, isAiRunning, isRunning, toggleFragments, fragmentsOpen, view, currentId, runningWorkflowId, formSheetOpen } =
+  const { actions, errors, workflows, workflowErrors, aiTasks, aiErrors, setView, openRuns, openActionsDir, focusAi, isAiRunning, isRunning, toggleFragments, fragmentsOpen, view, currentId, runningWorkflowId, formSheetOpen } =
     useActionRunner();
   const { topActions } = useActionUsage();
   const { topActions: topWorkflows } = useActionUsage("workflow-usage");
@@ -338,6 +339,20 @@ export function AppSidebar() {
                 className="size-4 shrink-0"
               />
               <span>{t("scheduler.title")}</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          {/* 运行记录：全部目标的运行列表（详情里回放运行过程） */}
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              onClick={() => openRuns()}
+              tooltip={t("runs.title")}
+            >
+              <HugeiconsIcon
+                icon={Clock01Icon}
+                strokeWidth={1.75}
+                className="size-4 shrink-0"
+              />
+              <span>{t("runs.title")}</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>

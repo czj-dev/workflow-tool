@@ -1,12 +1,21 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { act, render, screen, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
-const { mockListAiTasks, mockRunAi, mockOn } = vi.hoisted(() => ({
-  mockListAiTasks: vi.fn(),
-  mockRunAi: vi.fn(),
-  mockOn: vi.fn(() => () => {}),
-}));
+const { mockListAiTasks, mockRunAi, mockOn, mockListSchedules, listeners } = vi.hoisted(() => {
+  // 与 Provider 测试同一套：Events.On 记下回调，用例经 listeners 触发应用级事件
+  const listeners: Record<string, (e: unknown) => void> = {};
+  return {
+    mockListAiTasks: vi.fn(),
+    mockRunAi: vi.fn(),
+    mockListSchedules: vi.fn(),
+    mockOn: vi.fn((name: string, cb: (e: unknown) => void) => {
+      listeners[name] = cb;
+      return () => { delete listeners[name]; };
+    }),
+    listeners,
+  };
+});
 
 vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   ListActions: vi.fn().mockResolvedValue({ actions: [], errors: [] }),
@@ -23,23 +32,27 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   GetVarReferenceCounts: vi.fn().mockResolvedValue({}),
   SetFragments: vi.fn(),
   ListWorkflows: vi.fn().mockResolvedValue({ workflows: [], errors: [] }),
-  ListSchedules: vi.fn().mockResolvedValue({ schedules: [], errors: [] }),
+  ListSchedules: mockListSchedules,
+  ListRuns: vi.fn().mockResolvedValue({ runs: [] }),
+  GetRun: vi.fn(),
+  GetRunEvents: vi.fn(),
 }));
 vi.mock("@wailsio/runtime", () => ({ Events: { On: mockOn } }));
 
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { ActionRunnerProvider, _emitForTest } from "../context/ActionRunnerProvider";
 import { useActionRunner } from "../hooks/useActionRunner";
-import { appendAiHistory, clearAiHistory } from "../hooks/useAiHistory";
 import { AiGridView } from "./AiGridView";
 
-// 暴露 provider 内部 view / 当前任务草稿：断言卡面动作的路由与预填。
+// 暴露 provider 内部 view / 当前任务草稿 / 调度编辑器状态：断言卡面动作的路由与预填。
 function ViewProbe() {
-  const { view, aiDraft } = useActionRunner();
+  const { view, aiDraft, scheduleEditor, currentRunId } = useActionRunner();
   return (
     <>
       <div data-testid="view-probe">{view}</div>
       <div data-testid="draft-probe">{JSON.stringify(aiDraft)}</div>
+      <div data-testid="editor-probe">{JSON.stringify(scheduleEditor)}</div>
+      <div data-testid="run-probe">{currentRunId ?? ""}</div>
     </>
   );
 }
@@ -66,22 +79,27 @@ const mkAiTask = (extra: Record<string, unknown> = {}) => ({
   prompt: "把以下内容翻成中文：${TEXT}",
   system: "你是翻译",
   timeout: "",
+  lastRun: null,
   ...extra,
 });
 
-const TASK_IDS = ["ai-x", "ai-green", "ai-blank"];
+// ❝区摘要源：该任务最近一次运行（后端运行记录，随任务列表下发）。
+const lastRunOf = (prompt: string, params: Record<string, unknown> = {}, extra: Record<string, unknown> = {}) => ({
+  id: "r20261125-021500-a1b2c3",
+  targetKind: "ai",
+  targetId: "ai-x",
+  origin: "manual",
+  scheduleId: "",
+  status: "succeeded",
+  reason: "",
+  startedAt: "2026-11-25T02:15:00+08:00",
+  finishedAt: "2026-11-25T02:15:04+08:00",
+  exitCode: 0,
+  params: { prompt, ...params },
+  outputs: { session_id: "sess-1" },
+  ...extra,
+});
 
-// ❝区摘要源：该任务的运行历史（最新在前）。历史仓是模块级单例（localStorage 只在首次
-// 访问时读入），所以这里经 appendAiHistory 写入、并在用例间显式清空。
-const seedHistory = () =>
-  appendAiHistory("ai-x", {
-    prompt: "总结 ${TOPIC}",
-    params: { TOPIC: "季度报告" },
-    response: "好的",
-    thinking: "",
-    exitCode: 0,
-    duration: "1s",
-  });
 
 const draft = () => JSON.parse(screen.getByTestId("draft-probe").textContent ?? "null");
 const FULL_DRAFT = {
@@ -96,8 +114,8 @@ beforeEach(() => {
   mockListAiTasks.mockReset().mockResolvedValue({ tasks: [mkAiTask()], errors: [] });
   mockRunAi.mockReset().mockResolvedValue(undefined);
   mockOn.mockClear();
+  mockListSchedules.mockReset().mockResolvedValue({ schedules: [], errors: [] });
   localStorage.clear();
-  for (const id of TASK_IDS) clearAiHistory(id);
 });
 
 function wrap() {
@@ -112,9 +130,12 @@ function wrap() {
 }
 
 describe("AiGridView", () => {
-  it("单击卡片就地展开，❝区显示最近会话摘要(变量展开)", async () => {
+  it("单击卡片就地展开，❝区显示最近一次运行的摘要(按当次输入展开变量)", async () => {
     const user = userEvent.setup();
-    seedHistory();
+    mockListAiTasks.mockResolvedValue({
+      tasks: [mkAiTask({ lastRun: lastRunOf("总结 ${TOPIC}", { TOPIC: "季度报告" }) })],
+      errors: [],
+    });
     render(wrap());
     const card = await screen.findByRole("button", { name: "翻译助手" });
     expect(card).toHaveAttribute("aria-expanded", "false");
@@ -187,7 +208,10 @@ describe("AiGridView", () => {
 
   it("展开态主控「运行」：后台运行，不切视图，主钮转读数态、❝区切实时摘要", async () => {
     const user = userEvent.setup();
-    seedHistory();
+    mockListAiTasks.mockResolvedValue({
+      tasks: [mkAiTask({ lastRun: lastRunOf("总结 ${TOPIC}", { TOPIC: "季度报告" }) })],
+      errors: [],
+    });
     render(wrap());
     const card = await screen.findByRole("button", { name: "翻译助手" });
     await user.click(card);
@@ -195,7 +219,7 @@ describe("AiGridView", () => {
     expect(mockRunAi).toHaveBeenCalledWith("ai-x", SENT_PARAMS);
     expect(card).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByTestId("view-probe")).toHaveTextContent("output");
-    // 主钮不再是按钮（不可再点），转为运行读数；❝区从历史摘要切到实时文案
+    // 主钮不再是按钮（不可再点），转为运行读数；❝区从运行记录摘要切到实时文案
     expect(within(card).queryByRole("button", { name: /运行/ })).not.toBeInTheDocument();
     expect(within(card).getByText("运行中")).toBeInTheDocument();
     expect(screen.getByText(/正在生成回复/)).toBeInTheDocument();
@@ -226,8 +250,10 @@ describe("AiGridView", () => {
     expect(screen.getByTestId("view-probe")).toHaveTextContent("ai-chat");
   });
 
-  it("后台运行结束落历史后，卡面摘要读到这一轮（会话页与网格卡共用同一份历史）", async () => {
+  it("后台运行结束后，后端的 runs:changed 让卡面摘要读到这一轮的运行记录", async () => {
     const user = userEvent.setup();
+    // 挂载时还没有运行记录；运行结束后后端落盘并广播，任务列表随之带上最近一次运行
+    mockListAiTasks.mockResolvedValue({ tasks: [mkAiTask()], errors: [] });
     render(wrap());
     const card = await screen.findByRole("button", { name: "翻译助手" });
     await user.click(within(card).getByRole("button", { name: /运行/ }));
@@ -235,8 +261,120 @@ describe("AiGridView", () => {
       _emitForTest("ai:ai-x:done", { data: { exitCode: 0, err: "", duration: "2s", seq: 1 } });
     });
     expect(card).not.toHaveAttribute("data-running");
+
+    mockListAiTasks.mockResolvedValue({
+      tasks: [mkAiTask({ lastRun: lastRunOf("把以下内容翻成中文：${TEXT}", { TEXT: "hello" }) })],
+      errors: [],
+    });
+    await act(async () => {
+      listeners["runs:changed"]?.({ data: { run_id: "r20261125-021500-a1b2c3", status: "succeeded" } });
+      await new Promise((resolve) => setTimeout(resolve, 220));
+    });
     await user.click(card);
     expect(screen.getByText(/把以下内容翻成中文：hello/)).toBeInTheDocument();
+  });
+
+  // —— 调度投影（M2）：AI 卡显示其所属调度的 cron、启停、最近结果，并提供「定时」入口 ———
+
+  const aiSchedule = (extra: Record<string, unknown> = {}) => ({
+    id: "nightly-review",
+    name: "夜间审查",
+    enabled: true,
+    cron: "0 2 * * *",
+    targetKind: "ai",
+    targetId: "ai-x",
+    params: {},
+    nextRun: "2026-11-26T02:00:00+08:00",
+    running: false,
+    lastRun: null,
+    ...extra,
+  });
+
+  it("卡面显示所属调度的投影：紧凑态一行 cron，展开态每条调度一行（启停 + 最近结果）", async () => {
+    const user = userEvent.setup();
+    mockListSchedules.mockResolvedValue({
+      schedules: [
+        aiSchedule(),
+        aiSchedule({ id: "weekly-review", name: "每周审查", cron: "0 9 * * 1", enabled: false,
+          lastRun: { status: "succeeded", startedAt: "", finishedAt: "", duration: "4s", error: "", runId: "r-weekly" } }),
+      ],
+      errors: [],
+    });
+    render(wrap());
+    const card = await screen.findByRole("button", { name: "翻译助手" });
+    // 紧凑态：第一条调度的句子 + 其余条数
+    expect(within(card).getByText("每天 02:00")).toBeInTheDocument();
+    expect(within(card).getByText("+1")).toBeInTheDocument();
+
+    await user.click(card);
+    expect(within(card).getByText("每周一 09:00")).toBeInTheDocument();
+    expect(within(card).getByText("已启用")).toBeInTheDocument();
+    expect(within(card).getByText("已停用")).toBeInTheDocument();
+    // 最近结果（时长）进运行详情——按钮的文本是读数，title 不参与可访问名
+    await user.click(within(card).getByRole("button", { name: "4s" }));
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("run-detail");
+    expect(screen.getByTestId("run-probe")).toHaveTextContent("r-weekly");
+  });
+
+  it("同一任务的多条调度互不混淆：只显示指向它的，别的任务的调度不出现", async () => {
+    const user = userEvent.setup();
+    mockListSchedules.mockResolvedValue({
+      schedules: [aiSchedule(), aiSchedule({ id: "other", name: "别人的", targetId: "ai-other", cron: "30 * * * *" })],
+      errors: [],
+    });
+    render(wrap());
+    const card = await screen.findByRole("button", { name: "翻译助手" });
+    await user.click(card);
+    expect(within(card).getByText("每天 02:00")).toBeInTheDocument();
+    expect(within(card).queryByText("每小时 :30")).not.toBeInTheDocument();
+    expect(within(card).queryByText("+1")).not.toBeInTheDocument();
+  });
+
+  it("「定时」：打开调度编辑器，目标锁定为该任务", async () => {
+    const user = userEvent.setup();
+    render(wrap());
+    const card = await screen.findByRole("button", { name: "翻译助手" });
+    await user.click(card);
+    await user.click(within(card).getByRole("button", { name: "定时" }));
+
+    const editor = JSON.parse(screen.getByTestId("editor-probe").textContent ?? "null");
+    expect(editor).toMatchObject({ creating: true, lock: { kind: "ai", id: "ai-x" } });
+    expect(editor.value).toMatchObject({ name: "翻译助手", enabled: true, cron: "0 9 * * 1-5", targetKind: "ai", targetId: "ai-x", params: {} });
+    expect(editor.value.id).toMatch(/^schedule-[a-z0-9-]+$/);
+  });
+
+  it("点一条调度投影即编辑该调度（现值原样进编辑器）", async () => {
+    const user = userEvent.setup();
+    mockListSchedules.mockResolvedValue({ schedules: [aiSchedule({ params: { TEXT: "report" } })], errors: [] });
+    render(wrap());
+    const card = await screen.findByRole("button", { name: "翻译助手" });
+    await user.click(card);
+    // 行身可点 = 编辑这条调度（按钮文本是 cron 句子 + 启停）
+    await user.click(within(card).getByRole("button", { name: /每天 02:00/ }));
+
+    const editor = JSON.parse(screen.getByTestId("editor-probe").textContent ?? "null");
+    expect(editor.creating).toBe(false);
+    // 从调度投影进来是编辑既有调度：目标不锁定
+    expect(editor.lock).toBeUndefined();
+    expect(editor.value).toMatchObject({ id: "nightly-review", name: "夜间审查", cron: "0 2 * * *", targetKind: "ai", targetId: "ai-x", params: { TEXT: "report" } });
+  });
+
+  it("调度发起的运行同样让卡片进入运行态；点卡身去那条运行的详情实时跟踪", async () => {
+    const user = userEvent.setup();
+    // 调度发起的运行：后端在最近结果里带着运行中的那条记录 id
+    mockListSchedules.mockResolvedValue({
+      schedules: [aiSchedule({ running: true, lastRun: { status: "running", startedAt: "", finishedAt: "", duration: "", error: "", runId: "r-live" } })],
+      errors: [],
+    });
+    render(wrap());
+    const card = await screen.findByRole("button", { name: "翻译助手" });
+    await waitFor(() => expect(card).toHaveAttribute("data-running", "true"));
+    expect(screen.getByText("运行中 ▸")).toBeInTheDocument();
+    // 前端没有这一轮的输出捕获：不展开、也不开空会话页，而是进运行详情
+    await user.click(card);
+    expect(card).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("run-detail");
+    expect(screen.getByTestId("run-probe")).toHaveTextContent("r-live");
   });
 
   it("无 AI 任务时显示空态；加载错误以 Alert 逐条展示", async () => {

@@ -22,9 +22,12 @@ type File struct {
 	Schedules []Definition `yaml:"schedules"`
 }
 
+// TargetCatalog 是当前已加载的目标集合，用于校验调度指向的目标存在。
+// 三张表各自独立：同一 id 可以同时是动作、工作流与 AI 任务，按目标键各查各的表。
 type TargetCatalog struct {
 	Actions   map[string]struct{}
 	Workflows map[string]struct{}
+	AITasks   map[string]struct{}
 }
 
 // ValidateDefinitions validates a complete configuration, rejecting duplicate IDs.
@@ -66,6 +69,8 @@ func validateDefinition(def Definition, catalog *TargetCatalog) (Definition, err
 			_, known = catalog.Actions[target]
 		case TargetWorkflow:
 			_, known = catalog.Workflows[target]
+		case TargetAI:
+			_, known = catalog.AITasks[target]
 		}
 		if !known {
 			return Definition{}, fmt.Errorf("schedule %q: unknown %s %q", def.ID, kind, target)
@@ -79,7 +84,7 @@ func validateDefinition(def Definition, catalog *TargetCatalog) (Definition, err
 		return Definition{}, fmt.Errorf("schedule %q: params are not JSON encodable: %w", def.ID, err)
 	}
 	return Definition{ID: def.ID, Name: strings.TrimSpace(def.Name), Enabled: def.Enabled, Cron: def.Cron,
-		Action: def.Action, Workflow: def.Workflow, Params: params}, nil
+		Action: def.Action, Workflow: def.Workflow, AI: def.AI, Params: params}, nil
 }
 
 func cloneParams(params map[string]any) (map[string]any, error) {
@@ -189,6 +194,7 @@ type yamlDefinition struct {
 	Cron     string         `yaml:"cron"`
 	Action   string         `yaml:"action"`
 	Workflow string         `yaml:"workflow"`
+	AI       string         `yaml:"ai"`
 	Params   map[string]any `yaml:"params"`
 }
 
@@ -295,6 +301,8 @@ func decodeScheduleEntry(entry *yaml.Node) (Definition, error) {
 			target = &raw.Action
 		case "workflow":
 			target = &raw.Workflow
+		case "ai":
+			target = &raw.AI
 		case "params":
 			target = &raw.Params
 		default:
@@ -312,7 +320,7 @@ func decodeScheduleEntry(entry *yaml.Node) (Definition, error) {
 		enabled = *raw.Enabled
 	}
 	return Definition{ID: raw.ID, Name: raw.Name, Enabled: enabled, Cron: raw.Cron,
-		Action: raw.Action, Workflow: raw.Workflow, Params: raw.Params}, nil
+		Action: raw.Action, Workflow: raw.Workflow, AI: raw.AI, Params: raw.Params}, nil
 }
 
 func entryID(entry *yaml.Node) string {

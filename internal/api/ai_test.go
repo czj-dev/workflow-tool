@@ -462,7 +462,7 @@ func TestRunAiOnceReportsTimeoutWithResumeHint(t *testing.T) {
 	if !ok {
 		t.Fatal("z-slow 未加载")
 	}
-	res := runAiOnce(context.Background(), lt, svc.aiDeps,
+	res, _ := runAiOnce(context.Background(), lt, svc.aiDeps,
 		airun.Options{Global: svc.GetGlobalConfig()}, func(string, string) {})
 	// 对外文案给出续接办法；底层原因仍是 DeadlineExceeded（簿记据此判超时）
 	if !errors.Is(res.Err, context.DeadlineExceeded) {

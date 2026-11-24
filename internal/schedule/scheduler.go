@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+// TriggerFunc 是到点发起运行的回调。收到的 Definition 是调度定义的克隆（Params 可改）。
 type TriggerFunc func(context.Context, Definition) error
 
 type Scheduler struct {
@@ -16,12 +17,23 @@ type Scheduler struct {
 	triggered   map[string]map[int64]struct{}
 	generation  uint64
 	trigger     TriggerFunc
+	// nowTrigger 是「立即运行」专用的回调（nil 时回落到 trigger）。调度到点与立即运行
+	// 指向同一目标，但撞上运行中的目标时处置不同：前者记为跳过，后者返回错误——
+	// 调用方据此区分发起来源。
+	nowTrigger TriggerFunc
 }
 
 func NewScheduler(defs []Definition, trigger TriggerFunc) *Scheduler {
 	s := &Scheduler{trigger: trigger, triggered: make(map[string]map[int64]struct{})}
 	s.Replace(defs)
 	return s
+}
+
+// SetTriggerNow 指定「立即运行」（TriggerNow）使用的回调；传 nil 恢复为与到点共用 trigger。
+func (s *Scheduler) SetTriggerNow(trigger TriggerFunc) {
+	s.mu.Lock()
+	s.nowTrigger = trigger
+	s.mu.Unlock()
 }
 
 func snapshotDefinitions(defs []Definition) ([]Definition, error) {
@@ -102,8 +114,10 @@ func (s *Scheduler) Run(ctx context.Context, now func() time.Time, tick <-chan t
 					log.Printf("schedule %q: invalid params: %v", def.ID, err)
 					continue
 				}
-				due = append(due, Definition{ID: def.ID, Name: def.Name, Enabled: def.Enabled, Cron: def.Cron,
-					Action: def.Action, Workflow: def.Workflow, Params: params})
+				// 整份克隆：新增目标键（如 ai）时这里不会漏拷。
+				dueDef := def
+				dueDef.Params = params
+				due = append(due, dueDef)
 			}
 		}
 		s.mu.Unlock()
@@ -166,7 +180,13 @@ func (s *Scheduler) TriggerNow(ctx context.Context, id string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if err := s.trigger(ctx, found); err != nil {
+	s.mu.Lock()
+	trigger := s.nowTrigger
+	if trigger == nil {
+		trigger = s.trigger
+	}
+	s.mu.Unlock()
+	if err := trigger(ctx, found); err != nil {
 		return fmt.Errorf("schedule %q: trigger failed: %w", id, err)
 	}
 	return nil

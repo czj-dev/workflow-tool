@@ -4,7 +4,7 @@ import { ReloadIcon, FastForwardIcon, Sun03Icon, Moon02Icon } from "@hugeicons/c
 import { useTranslation } from "react-i18next"
 import { AiOutputPanel } from "./AiOutputPanel"
 import { MOCK_PROMPT, MOCK_STREAM_EVENTS } from "./mockStreamEvents"
-import { applyEvent, EMPTY_PANEL_STATE, parseStreamLine } from "./reduceStream"
+import { applyEvent, EMPTY_PANEL_STATE, parseStreamLine } from "../../lib/reduceStream"
 
 /**
  * AI 输出面板 mockup 壳（dev 专用，经 ?mockup=ai 进入，不进主 bundle）。

@@ -5,6 +5,7 @@ import { AppSidebar } from "./components/AppSidebar";
 import { OutputPanel } from "./components/OutputPanel";
 import { FragmentsSheet } from "./components/FragmentsSheet";
 import { ParamSheet } from "./components/ParamSheet";
+import { ScheduleFormSheet } from "./components/ScheduleFormSheet";
 
 // 双栏骨架：ActionRunnerProvider 提供运行状态，TooltipProvider 供侧边栏折叠态 tooltip，
 // SidebarProvider 管理侧边栏布局，AppSidebar 左栏，SidebarInset 右栏主区
@@ -20,6 +21,8 @@ export default function App() {
           {/* 非模态片段抽屉（右）与参数表单抽屉（左）：portaled 到 body，与任意视图同屏共存 */}
           <FragmentsSheet />
           <ParamSheet />
+          {/* 调度编辑器（左）：调度页与 AI 卡的「定时」入口共用，开关状态在 Provider */}
+          <ScheduleFormSheet />
         </SidebarProvider>
       </TooltipProvider>
     </ActionRunnerProvider>

@@ -27,6 +27,7 @@ const {
   mockDeleteSchedule,
   mockSetScheduleEnabled,
   mockRunScheduleNow,
+  mockListRuns,
   mockOn,
   listeners,
 } = vi.hoisted(() => {
@@ -42,6 +43,7 @@ const {
       mockListAiTasks: vi.fn(),
       mockRunAction: vi.fn(() => Promise.resolve()),
       mockRunAi: vi.fn(() => Promise.resolve()),
+      mockListRuns: vi.fn<() => Promise<unknown>>(() => Promise.resolve({ runs: [] })),
       mockCancelAction: vi.fn(),
       mockCancelAi: vi.fn(),
       mockGetAiYaml: vi.fn(),
@@ -71,6 +73,9 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   ListAiTasks: mockListAiTasks,
   RunAction: mockRunAction,
   RunAi: mockRunAi,
+  ListRuns: mockListRuns,
+  GetRun: vi.fn(),
+  GetRunEvents: vi.fn(),
   CancelAction: mockCancelAction,
   CancelAi: mockCancelAi,
   GetAiYaml: mockGetAiYaml,
@@ -101,7 +106,6 @@ vi.mock("@wailsio/runtime", () => ({
 
 import { ActionRunnerProvider, _emitForTest } from "./ActionRunnerProvider";
 import { useActionRunner } from "../hooks/useActionRunner";
-import { clearAiHistory } from "../hooks/useAiHistory";
 import type { LogcatEntry } from "../types/events";
 
 const wrapper = ({ children }: { children: ReactNode }) => (
@@ -1254,7 +1258,6 @@ describe("使用频次分桶", () => {
 
   beforeEach(() => {
     localStorage.clear();
-    clearAiHistory("ai-chat");
     mockListActions.mockResolvedValue({
       actions: [{ id: "adb-devices", title: "Devices", icon: "", description: "" }],
       errors: [],
@@ -1354,8 +1357,6 @@ describe("AI 任务运行", () => {
 
   beforeEach(() => {
     localStorage.clear();
-    // 历史桶是模块级单例，不随 localStorage 清空：显式清掉，用例间不串
-    clearAiHistory("t1");
     mockListActions.mockResolvedValue({ actions: [], errors: [] });
     mockListAiTasks.mockResolvedValue({ tasks: [aiTask()], errors: [] });
   });
@@ -1399,7 +1400,7 @@ describe("AI 任务运行", () => {
     expect(result.current.sentAt).not.toBeNull();
   });
 
-  it("done 后置 done 态、落一条历史、清运行标记；此后迟到的事件不再改可见态", async () => {
+  it("done 后置 done 态、清运行标记；此后迟到的事件不再改可见态", async () => {
     const { result } = await startT1();
     act(() => {
       emitOut(1, "ai", "回答");
@@ -1412,29 +1413,14 @@ describe("AI 任务运行", () => {
     expect(result.current.isRunning("t1")).toBe(false);
     expect(result.current.aiPanel.streaming).toBe(false);
     expect(result.current.aiPanel.readout).toMatchObject({ durationMs: 1200, isError: false });
-    expect(result.current.aiHistory).toHaveLength(1);
-    expect(result.current.aiHistory[0]).toMatchObject({
-      prompt: "解释 ${TOPIC}",
-      response: "回答",
-      thinking: "想了想",
-      sessionId: "sess-1",
-      exitCode: 0,
-      duration: "1.2s",
-    });
-    // 历史存运行时的完整草稿快照（不是实际发送的子集）
-    expect(result.current.aiHistory[0].params).toEqual({
-      prompt: "解释 ${TOPIC}",
-      system: "你是助手",
-      resume: "",
-      TOPIC: "季度报告",
-    });
+    // 前端不另存运行记录：由后端落盘（见 runs:changed 的用例）
     act(() => {
       emitOut(4, "ai", "迟到");
     });
     expect(result.current.aiText).toBe("回答");
   });
 
-  it("done 非 0 退出码：置 error 态，历史照记（带退出码）", async () => {
+  it("done 非 0 退出码：置 error 态", async () => {
     const { result } = await startT1();
     act(() => {
       _emitForTest("ai:t1:done", {
@@ -1443,8 +1429,6 @@ describe("AI 任务运行", () => {
     });
     expect(result.current.status).toBe("error");
     expect(result.current.exitInfo).toMatchObject({ exitCode: 1, err: "CLI 未安装" });
-    expect(result.current.aiHistory).toHaveLength(1);
-    expect(result.current.aiHistory[0].exitCode).toBe(1);
   });
 
   it("乱序到达的增量按 seq 落位（2 号先到时挂起，1 号补到后按序应用）", async () => {
@@ -1467,20 +1451,17 @@ describe("AI 任务运行", () => {
     act(() => {
       emitDone(3);
     });
-    // 2 号空洞未补：仍是运行态，不落历史
+    // 2 号空洞未补：仍是运行态，没收尾
     expect(result.current.status).toBe("running");
     expect(result.current.isAiRunning("t1")).toBe(true);
-    expect(result.current.aiHistory).toHaveLength(0);
     act(() => {
       emitOut(2, "ai", "世界");
     });
     expect(result.current.status).toBe("done");
     expect(result.current.aiText).toBe("你好世界");
-    expect(result.current.aiHistory).toHaveLength(1);
-    expect(result.current.aiHistory[0].response).toBe("你好世界");
   });
 
-  it("空洞在宽限内没补齐：到期按已有内容收尾并落历史（丢包时不会永久挂起）", async () => {
+  it("空洞在宽限内没补齐：到期按已有内容收尾（丢包时不会永久挂起）", async () => {
     vi.useFakeTimers();
     const { result } = await startT1();
     act(() => {
@@ -1493,16 +1474,14 @@ describe("AI 任务运行", () => {
     // 宽限 400ms 内继续等迟到的 2 号
     await act(() => vi.advanceTimersByTimeAsync(399));
     expect(result.current.status).toBe("running");
-    expect(result.current.aiHistory).toHaveLength(0);
     // 过了宽限：下一次复查（每 50ms）收尾
     await act(() => vi.advanceTimersByTimeAsync(100));
     expect(result.current.status).toBe("done");
     expect(result.current.aiText).toBe("你好");
-    expect(result.current.aiHistory).toHaveLength(1);
     expect(result.current.isAiRunning("t1")).toBe(false);
   });
 
-  it("RunAi 被后端拒绝：前台运行把原因显示在会话页，不记历史、不留运行标记", async () => {
+  it("RunAi 被后端拒绝：前台运行把原因显示在会话页，不算一次运行、不留运行标记", async () => {
     mockRunAi.mockRejectedValueOnce('AI 任务 "t1" 正在运行');
     const { result } = await mountAi();
     await act(async () => {
@@ -1512,7 +1491,6 @@ describe("AI 任务运行", () => {
     expect(result.current.status).toBe("error");
     expect(result.current.exitInfo).toMatchObject({ exitCode: 1, err: 'AI 任务 "t1" 正在运行' });
     expect(result.current.isAiRunning("t1")).toBe(false);
-    expect(result.current.aiHistory).toHaveLength(0);
   });
 
   it("后台运行点火失败：不打断当前视图", async () => {
@@ -1526,10 +1504,9 @@ describe("AI 任务运行", () => {
     expect(result.current.status).toBe("idle");
     expect(result.current.exitInfo).toBeNull();
     expect(result.current.isAiRunning("t1")).toBe(false);
-    expect(result.current.aiHistory).toHaveLength(0);
   });
 
-  it("后台运行不切视图、不碰可见态；结束后同样落历史", async () => {
+  it("后台运行不切视图、不碰可见态；结束后同样收尾", async () => {
     const { result } = await mountAi();
     act(() => result.current.setView("actions-grid"));
     await act(async () => {
@@ -1547,13 +1524,11 @@ describe("AI 任务运行", () => {
       emitDone(2);
     });
     expect(result.current.isAiRunning("t1")).toBe(false);
-    // 那一轮已收尾（捕获随之释放）：回到会话页是空态，历史里有它
+    // 那一轮已收尾（捕获随之释放）：回到会话页是空态，那一轮只能在运行详情里看
     act(() => result.current.focusAi("t1"));
     expect(result.current.view).toBe("ai-chat");
     expect(result.current.status).toBe("idle");
     expect(result.current.aiText).toBe("");
-    expect(result.current.aiHistory).toHaveLength(1);
-    expect(result.current.aiHistory[0].response).toBe("后台回答");
   });
 
   it("后台运行中点回任务：回放到那一轮的输出（网格卡后台跑，点卡片本体看进度）", async () => {
@@ -1613,16 +1588,14 @@ describe("AI 任务运行", () => {
     expect(mockRunAi).toHaveBeenCalledTimes(1);
   });
 
-  it("上一轮 done 已到还在等迟到增量时再发：先收尾上一轮（落历史）再起新一轮", async () => {
+  it("上一轮 done 已到还在等迟到增量时再发：先收尾上一轮再起新一轮", async () => {
     const { result } = await startT1();
     act(() => {
       emitDone(2);
     });
-    expect(result.current.aiHistory).toHaveLength(0);
     await act(async () => {
       await result.current.runAi("t1");
     });
-    expect(result.current.aiHistory).toHaveLength(1);
     expect(mockRunAi).toHaveBeenCalledTimes(2);
     expect(result.current.status).toBe("running");
     // 新一轮序号从 1 重来
@@ -1815,7 +1788,7 @@ describe("AI 任务运行", () => {
     expect(result.current.runningWorkflowId).toBeNull();
   });
 
-  it("workflow 里 AI 步骤的回复按行合并进步骤桶；思考/工具事件暂不入桶", async () => {
+  it("workflow 里 AI 步骤的回复/思考/工具调用归约成工序段，不进文本行；步骤收尾时面板结算", async () => {
     mockListWorkflows.mockResolvedValue({
       workflows: [{ id: "w1", title: "W1", params: [], steps: [{ kind: "ai", label: "t1", name: "" }] }],
       errors: [],
@@ -1834,26 +1807,154 @@ describe("AI 任务运行", () => {
       emit("ai", " world\n");
       emit("ai", "Tail");
     });
-    expect(result.current.workflowSteps[0].lines).toEqual([{ kind: "text", text: "Hello world" }]);
-    expect(result.current.workflowSteps[0].aiPartial).toBe("Tail");
+    expect(result.current.workflowSteps[0].lines).toEqual([]);
+    expect(result.current.workflowSteps[0].aiPanel?.segments).toMatchObject([{ kind: "answer", text: "Hello world\nTail" }]);
+    expect(result.current.workflowSteps[0].aiPanel?.streaming).toBe(true);
     act(() => {
       emit("ai-thinking", "想");
-      emit("ai-tool", "{}");
+      emit("ai-tool", "{}"); // 解析不了的 tool 行被忽略
+      emit("stderr", "warn");
     });
+    // 诊断行照旧落文本桶；思考另开一段
     expect(result.current.workflowSteps[0].lines).toHaveLength(1);
+    expect(result.current.workflowSteps[0].lines[0]).toMatchObject({ kind: "text", text: expect.stringContaining("warn") });
+    expect(result.current.workflowSteps[0].aiPanel?.segments.map((segment) => segment.kind)).toEqual(["answer", "thinking"]);
     act(() => {
       emit("step-done", "0:0");
     });
     expect(result.current.workflowSteps[0].status).toBe("done");
-    expect(result.current.workflowSteps[0].lines).toEqual([
-      { kind: "text", text: "Hello world" },
-      { kind: "text", text: "Tail" },
-    ]);
-    expect(result.current.workflowSteps[0].aiPartial).toBeUndefined();
-    // 步骤收尾后才到的增量直接落行
+    expect(result.current.workflowSteps[0].aiPanel?.streaming).toBe(false);
+    expect(result.current.workflowSteps[0].aiPanel?.readout).toMatchObject({ isError: false });
+    // 步骤收尾后迟到的增量并入面板，不再落文本行
     act(() => {
       emit("ai", "late");
     });
-    expect(result.current.workflowSteps[0].lines).toHaveLength(3);
+    expect(result.current.workflowSteps[0].lines).toHaveLength(1);
+    expect(result.current.workflowSteps[0].aiPanel?.segments.at(-1)).toMatchObject({ kind: "answer", text: "late" });
+  });
+
+  // ——— 运行记录（M3）：前端不另存运行记录，后端是唯一的真相 ———
+
+  it("runs:changed 让 runsRevision 递增；运行结束的那条触发 AI 任务列表重拉（刷新卡片摘要）", async () => {
+    const { result } = await mountAi();
+    // 挂载时已拉过一次列表：从这里开始只数 runs:changed 触发的重拉
+    mockListAiTasks.mockClear();
+    const before = result.current.runsRevision;
+    act(() => {
+      listeners["runs:changed"]?.({ data: { run_id: "r1", status: "running" } });
+    });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 120)); });
+    expect(result.current.runsRevision).toBe(before + 1);
+    // 开始的那条不算新的「最近一次运行」
+    expect(mockListAiTasks).not.toHaveBeenCalled();
+    act(() => {
+      listeners["runs:changed"]?.({ data: { run_id: "r1", status: "succeeded" } });
+    });
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 200)); });
+    expect(result.current.runsRevision).toBe(before + 2);
+    expect(mockListAiTasks).toHaveBeenCalledTimes(1);
+  });
+
+  it("一次运行「开始 + 结束」连发两条 runs:changed：合并成一次失效通知", async () => {
+    const { result } = await mountAi();
+    const before = result.current.runsRevision;
+    act(() => {
+      listeners["runs:changed"]?.({ data: { status: "running" } });
+      listeners["runs:changed"]?.({ data: { status: "succeeded" } });
+    });
+    expect(result.current.runsRevision).toBe(before);
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 120)); });
+    expect(result.current.runsRevision).toBe(before + 1);
+  });
+
+  it("被拒的运行不产生运行记录：runsRevision 不变", async () => {
+    mockRunAi.mockRejectedValueOnce('AI 任务 "t1" 正在运行');
+    const { result } = await mountAi();
+    const before = result.current.runsRevision;
+    await act(async () => { await result.current.runAi("t1"); });
+    expect(result.current.status).toBe("error");
+    expect(result.current.runsRevision).toBe(before);
+  });
+
+  it("openRun 记住来处：从会话页进运行详情，closeRun 回到会话页", async () => {
+    const { result } = await mountAi();
+    act(() => result.current.openAiChat("t1"));
+    expect(result.current.view).toBe("ai-chat");
+    act(() => result.current.openRun("r20261125-021500-a1b2c3"));
+    expect(result.current.view).toBe("run-detail");
+    expect(result.current.currentRunId).toBe("r20261125-021500-a1b2c3");
+    act(() => result.current.closeRun());
+    expect(result.current.view).toBe("ai-chat");
+    expect(result.current.currentRunId).toBeNull();
+  });
+
+  it("openRuns 带筛选进入运行记录列表；从列表进详情再退出回到列表", async () => {
+    const { result } = await mountAi();
+    act(() => result.current.openRuns({ targetKind: "ai", targetId: "t1" }));
+    expect(result.current.view).toBe("runs");
+    expect(result.current.runsFilter).toEqual({ targetKind: "ai", targetId: "t1" });
+    act(() => result.current.openRun("r1"));
+    act(() => result.current.closeRun());
+    expect(result.current.view).toBe("runs");
+  });
+
+  it("调度编辑器由 Provider 持有：打开后换 key 重置，切换视图即关闭", async () => {
+    const { result } = await mountAi();
+    expect(result.current.scheduleEditor).toBeNull();
+    act(() => result.current.openScheduleForm(
+      { id: "s1", name: "夜间", enabled: true, cron: "0 2 * * *", targetKind: "ai", targetId: "t1", params: {} }, true, { kind: "ai", id: "t1" }));
+    const first = result.current.scheduleEditor!;
+    expect(first).toMatchObject({ creating: true, lock: { kind: "ai", id: "t1" } });
+    expect(first.value.id).toBe("s1");
+    act(() => result.current.closeScheduleForm());
+    expect(result.current.scheduleEditor).toBeNull();
+    act(() => result.current.openScheduleForm(
+      { id: "s1", name: "夜间", enabled: true, cron: "0 2 * * *", targetKind: "ai", targetId: "t1", params: {} }, true));
+    // 同一份值再次打开：key 也不同，草稿照样重置
+    expect(result.current.scheduleEditor!.key).not.toBe(first.key);
+    act(() => result.current.setView("runs"));
+    expect(result.current.scheduleEditor).toBeNull();
+  });
+
+  it("后台起跑撞上运行中的目标：去正在占用它的那条运行的详情，而不是点了没反应", async () => {
+    mockRunAi.mockRejectedValueOnce('AI 任务 "t1" 正在运行');
+    mockListRuns.mockResolvedValueOnce({ runs: [
+      { id: "r20261125-021500-a1b2c3", targetKind: "ai", targetId: "t1", status: "running", origin: "schedule" },
+    ] });
+    const { result } = await mountAi();
+    act(() => result.current.setView("actions-grid"));
+    await act(async () => {
+      await result.current.runAi("t1", undefined, true);
+    });
+    expect(mockListRuns).toHaveBeenCalledWith({ targetKind: "ai", targetId: "t1", status: "running", origin: "", limit: 0 });
+    expect(result.current.view).toBe("run-detail");
+    expect(result.current.currentRunId).toBe("r20261125-021500-a1b2c3");
+    expect(result.current.isAiRunning("t1")).toBe(false);
+    // 已被带到别处：这一轮的失败不再把可见态打成 error
+    expect(result.current.status).toBe("idle");
+  });
+
+  it("后台起跑被拒但查不到在跑的运行：维持原样，视图不动", async () => {
+    mockRunAi.mockRejectedValueOnce('AI 任务 "t1" 正在运行');
+    const { result } = await mountAi();
+    act(() => result.current.setView("actions-grid"));
+    await act(async () => {
+      await result.current.runAi("t1", undefined, true);
+    });
+    expect(result.current.view).toBe("actions-grid");
+    expect(result.current.currentRunId).toBeNull();
+    expect(result.current.isAiRunning("t1")).toBe(false);
+  });
+
+  it("前台起跑被拒：原因留在会话页，不跳去运行详情", async () => {
+    mockRunAi.mockRejectedValueOnce('AI 任务 "t1" 正在运行');
+    mockListRuns.mockClear();
+    const { result } = await mountAi();
+    await act(async () => {
+      await result.current.runAi("t1");
+    });
+    expect(mockListRuns).not.toHaveBeenCalled();
+    expect(result.current.view).toBe("ai-chat");
+    expect(result.current.exitInfo).toMatchObject({ exitCode: 1, err: 'AI 任务 "t1" 正在运行' });
   });
 });

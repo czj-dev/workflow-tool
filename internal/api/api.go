@@ -2,11 +2,13 @@
 // 按域拆文件：actions.go（动作 CRUD/列表）、run.go（直跑执行）、workflows.go
 // （workflow CRUD/执行）、ai.go（AI 任务 CRUD/列表）、events.go（事件发射器与顺序
 // 协议）、devices.go（设备选择）、
-// config.go（全局配置/片段）、dialog.go（原生对话框）、runregistry.go（运行簿记）。
+// config.go（全局配置/片段）、dialog.go（原生对话框）、runregistry.go（运行簿记）、
+// schedules.go（调度 CRUD 与到点发起）、runs.go（运行记录查询与接入点）。
 package api
 
 import (
 	"context"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -19,8 +21,10 @@ import (
 	"workflow-tool/internal/adb/device"
 	"workflow-tool/internal/ai"
 	"workflow-tool/internal/airun"
+	"workflow-tool/internal/applog"
 	"workflow-tool/internal/builtinvars"
 	"workflow-tool/internal/registry"
+	"workflow-tool/internal/runstore"
 	"workflow-tool/internal/schedule"
 	"workflow-tool/internal/workflow"
 )
@@ -55,7 +59,13 @@ type Service struct {
 	scheduler       *schedule.Scheduler
 	schedulerMu     sync.Mutex
 	schedulerCancel context.CancelFunc
-	scheduleEmit    func(string, any)
+	// emitEvent 向前端推应用级事件（schedules:changed / runs:changed）；app 未注入时为 nil。
+	emitEvent func(string, any)
+
+	// runs 是运行记录存储（runs/<run-id>/）；打不开时为 nil，运行照常进行只是不留档。
+	runs *runstore.Store
+	// appLog 是应用日志（logs/app.log），记调度与运行器自身的行迹；nil 时静默。
+	appLog *applog.Logger
 
 	bin      *binary.Service       // adb/fastboot/scrcpy 路径探测
 	dev      *device.Service       // 设备列表 + 激活 serial
@@ -97,8 +107,22 @@ func New(reg *registry.Registry, wfReg *workflow.WorkflowRegistry, baseDir, cfgP
 		scheduleRuns: make(map[string]*scheduleRunState),
 	}
 	svc.scheduleDefs, svc.scheduleErrors = schedule.LoadFile(svc.schedulePath, svc.scheduleCatalog())
-	svc.scheduleDefs, svc.scheduleErrors = validateLoadedScheduleDefinitions(svc.scheduleDefs, svc.scheduleErrors)
+	svc.scheduleDefs, svc.scheduleErrors = svc.validateLoadedScheduleDefinitions(svc.scheduleDefs, svc.scheduleErrors)
 	svc.scheduler = schedule.NewScheduler(svc.scheduleDefs, svc.launchSchedule)
+	// 「立即运行」与到点指向同一目标、用同一份参数，但撞上运行中的目标时处置不同：
+	// 前者把错误返回给发起人，后者留档为跳过。
+	svc.scheduler.SetTriggerNow(svc.launchScheduleNow)
+	// 应用日志与运行记录都在可执行文件同级；打不开只是失去留档，不该挡住应用启动。
+	if logger, err := applog.Open(baseDir); err != nil {
+		log.Printf("app log unavailable: %v", err)
+	} else {
+		svc.appLog = logger
+	}
+	if runs, err := runstore.Open(baseDir, svc.appLog); err != nil {
+		log.Printf("run records unavailable: %v", err)
+	} else {
+		svc.runs = runs
+	}
 	svc.bin = binary.NewService()
 	svc.dev = device.NewService(svc.binPaths)
 	svc.builtins = builtinvars.New(svc.dev)
@@ -135,11 +159,18 @@ func (s *Service) aiRegistry() *ai.Registry {
 func (s *Service) SetApp(app *application.App) {
 	s.app = app
 	if app == nil || app.Event == nil {
-		s.scheduleEmit = nil
+		s.emitEvent = nil
 		return
 	}
-	s.scheduleEmit = func(name string, data any) {
+	s.emitEvent = func(name string, data any) {
 		app.Event.Emit(name, data)
+	}
+}
+
+// notify 推一个应用级事件；没有前端（headless / 测试）时空操作。
+func (s *Service) notify(name string, data any) {
+	if s.emitEvent != nil {
+		s.emitEvent(name, data)
 	}
 }
 

@@ -10,8 +10,9 @@
 - **卡片网格**：动作、工作流、AI 任务三类双态卡（紧凑态 / 展开态），悬停看描述，长按卡头图标展开预设环快选，带使用留痕与卡片氛围色
 - **表单装配台**：声明 `params`（text / bool / select / path）自动渲染装配式表单；presets 一键填入或直跑
 - **多步骤工作流**：`workflows/` 定义串行 step（引用 action / 内联 shell / sleep / AI 任务），支持 retry、continue_on_error、`if` 条件跳过与步骤 outputs（`${{ }}`）引用
-- **定时调度**：`schedules.yaml` 用 5 段 cron（分钟粒度）定时运行动作或工作流，调度面板可增删、启停、立即运行；调度器跑在应用进程内，应用运行期间到点自动触发
-- **AI 任务**：`ai/` 下的 YAML 把「意图 + 输入」交给本机 Agent CLI（`config.yaml` 的 `AI_CLI` 指定）执行；聊天式会话页 + 工序轨道面板透出思考与工具调用，历史会话本地留存，支持 `resume` 续接会话，也可作为工作流的一步
+- **定时调度**：`schedules.yaml` 用 5 段 cron（分钟粒度）定时运行动作、工作流或 AI 任务，调度面板可增删、启停、立即运行；目标正忙时到点记为跳过而不是失败；调度器跑在应用进程内，应用运行期间到点自动触发
+- **运行记录**：每次运行（手动、调度、立即运行）都在 `runs/` 留下结论与可回放的输出日志，运行记录列表可按目标、状态、来源筛选，运行详情回放过程（AI 运行还原成工序段）
+- **AI 任务**：`ai/` 下的 YAML 把「意图 + 输入」交给本机 Agent CLI（`config.yaml` 的 `AI_CLI` 指定）执行；聊天式会话页 + 工序轨道面板透出思考与工具调用，历次运行留档可查，支持 `resume` 续接会话，也可作为工作流的一步或被调度定时运行
 - **设备选择器**：adb 设备下拉选择，展开即刷新列表
 - **内置 YAML 编辑器**：CodeMirror 6，Action / Workflow / AI 任务卡片标题直达编辑
 - **adb 域 operation**：install / push 走 PTY 实时进度，input-text 支持中文（ADBKeyboard 输入法广播），foreground-info 前台信息三段展示
@@ -173,7 +174,9 @@ workflow-tool/
 ├── ai/                 AI 任务定义 YAML
 ├── fragments.yaml      指令片段
 ├── config.yaml         全局变量配置
-├── schedules.yaml      调度定义（cron → action / workflow）
+├── schedules.yaml      调度定义（cron → action / workflow / ai）
+├── runs/               运行记录（运行时生成，不入仓库）
+├── logs/               应用日志（运行时生成，不入仓库）
 ├── scripts/            脚本文件（.sh / .ps1）
 ├── internal/
 │   ├── actionrun/      动作 → Runner 构造 + workflow step 回调
@@ -185,7 +188,9 @@ workflow-tool/
 │   ├── builtinvars/    内置变量（CURRENT_DATE / CURRENT_TIME / ADB_SERIAL）
 │   ├── registry/       actions + config + fragments 加载校验
 │   ├── workflow/       workflow 加载、校验、串行执行 + 表达式
-│   ├── schedule/        调度：schedules.yaml 加载、cron 解析、进程内 Scheduler
+│   ├── schedule/        调度：schedules.yaml 加载、cron 解析、进程内 Scheduler（目标三选一）
+│   ├── runstore/        运行记录：runs/<run-id>/ 的写入、查询与保留策略
+│   ├── applog/          应用日志：logs/app.log（NDJSON，轮转）
 │   ├── cli/            headless 子命令 list / describe / run
 │   ├── apphome/         exe 目录约定与 baseDir 解析（main 与 cli 共用）
 │   └── api/            Wails Service 绑定 + 事件推送（按域拆文件）
@@ -194,7 +199,7 @@ workflow-tool/
 │   ├── bindings/       wails3 generate bindings 产物
 │   └── dist/           vite 构建产物（embed 目标）
 ├── deploy/             构建脚本（build.sh / frontend.sh / backend.sh）
-├── docs/               文档（action.md / workflow.md / ai.md / 截图 / 设计文档）
+├── docs/               文档（action.md / workflow.md / ai.md / runs.md / 截图 / 设计文档）
 ├── main.go             应用入口
 └── go.mod
 ```

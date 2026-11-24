@@ -1,5 +1,14 @@
 import type { TreeFrame } from "../lib/treeFrame";
+import type { AiPanelState } from "../lib/reduceStream";
+import type { Event as GeneratedRunEvent } from "../../bindings/workflow-tool/internal/runstore/models.js";
 import type { ScheduleItem } from "../../bindings/workflow-tool/internal/api/models.js";
+
+// 调度卡的「上次到点已跳过」：跳过不是失败，不进 lastRun，单独留档并注明原因。
+export interface ScheduleLastSkip {
+  at: string;
+  reason: string;
+  runId?: string;
+}
 
 // schedules:changed 下发完整的 ScheduleItem；Provider 收到后刷新列表以保持后端投影为唯一真相。
 export type ScheduleStateEventData = ScheduleItem;
@@ -105,7 +114,7 @@ export interface AiReadoutData {
   costUsd?: number;
   inputTokens?: number;
   outputTokens?: number;
-  // claude 会话 id（stream-json 的 session_id）：历史查看态顶部展示，可用于 --resume
+  // claude 会话 id（stream-json 的 session_id）：终点读数行展示，可用于 --resume
   sessionId?: string;
 }
 
@@ -134,10 +143,69 @@ export interface WorkflowStepState {
   lastWasProgress?: boolean;
   // 树帧 id 计数（同 action 桶的 FoldState.treeSeq；跨事件持续，防同桶两帧撞 id）
   treeSeq?: number;
-  // 帧到达时间戳（前端打点，非后端下发）：running 起 / 终态止，供耗时读数
+  // 时刻（相对运行起点的毫秒）：实时由前端打点，回放取运行日志里的偏移；供耗时读数
   startedAt?: number;
   endedAt?: number;
-  // AI 步骤专有：回复流式增量里尚未凑满一行的尾巴（见 lib/ai.ts 的 mergeAiReply）。
-  // 凑满一行才落一条 text 行；step-done 时 flushAiReply 把它落成最后一行并摘掉本字段。
-  aiPartial?: string;
+  // AI 步骤专有：回复/思考/工具调用归约成的工序段（见 lib/workflowStream.ts）。
+  // Pipeline Spine 里 AI 步骤以工序段面板渲染；非 AI 步骤没有这个字段。
+  aiPanel?: AiPanelState;
+}
+
+/** 运行记录的状态词汇（与后端 internal/runstore 对齐）。 */
+export const RUN_STATUSES = ["running", "succeeded", "failed", "cancelled", "interrupted", "skipped"] as const;
+export type RunStatus = (typeof RUN_STATUSES)[number];
+
+/** 运行记录的发起来源：调度到点 / 立即运行 / 手动运行。 */
+export const RUN_ORIGINS = ["schedule", "run-now", "manual"] as const;
+export type RunOrigin = (typeof RUN_ORIGINS)[number];
+
+/** 目标种类：动作 / 工作流 / AI 任务。 */
+export const RUN_TARGET_KINDS = ["action", "workflow", "ai"] as const;
+export type RunTargetKind = (typeof RUN_TARGET_KINDS)[number];
+
+// 运行记录的类型直接复用 Wails 生成的绑定（与 ActionItem / WorkflowItem 同理），不手写
+// 第二份：改了后端的 api.Run* 之后重新生成 bindings，用到的地方编译期就会报出来。
+//   - RunItem：一条运行记录的摘要。outputs 只含读数类的产出（session_id / cost_usd /
+//     tokens / exit_code / success），正文类产出在 RunDetail 里。
+//   - RunDetail：完整记录，另带正文类产出、守则全文与进程信息。
+//   - RunFilter：列表的筛选条件（后端要求每个字段都在；空串 / 0 表示不限）。
+export type { RunDetail, RunFilter, RunItem } from "../../bindings/workflow-tool/internal/api/models.js";
+import type { RunFilter } from "../../bindings/workflow-tool/internal/api/models.js";
+
+/** 列表筛选的输入形状：只写关心的条件，其余由 Provider 补成「不限」。 */
+export type RunListFilter = Partial<RunFilter>;
+
+// 运行日志的一行（后端 runstore.Event）。output / done 行的其余字段与前端实时收到的
+// 事件同构（stream / line / step / seq / exitCode / err / duration / readout）。
+// 字段集合来自生成的绑定（Partial：生成的类型把可选字段也标成必填的「T | undefined」）；
+// stream 与 readout 在这里收窄——生成的类型只知道它们是「字符串」与「任意对象」，而
+// 归约器要按输出流的种类分派、按终点读数结算。
+export type RunEvent = Partial<Omit<GeneratedRunEvent, "t" | "event" | "stream" | "readout">> & {
+  /** 相对启动时刻的毫秒偏移 */
+  t: number;
+  event: string;
+  stream?: OutputEventData["stream"];
+  readout?: AiReadoutData;
+};
+
+/** 调度编辑器的一份草稿值（与后端 ScheduleInput 同形）。 */
+export interface ScheduleFormValue {
+  id: string;
+  name: string;
+  enabled: boolean;
+  cron: string;
+  targetKind: RunTargetKind;
+  targetId: string;
+  params: Record<string, unknown>;
+}
+
+/**
+ * 调度编辑器的开合状态。key 变化即把草稿重置为 value（同一 key 期间隐藏 / 重显草稿不丢）；
+ * lock 把目标锁定为某个目标（从 AI 卡的「定时」入口进来时类型与目标都不可改）。
+ */
+export interface ScheduleEditorState {
+  key: string;
+  value: ScheduleFormValue;
+  creating: boolean;
+  lock?: { kind: ScheduleFormValue["targetKind"]; id: string };
 }

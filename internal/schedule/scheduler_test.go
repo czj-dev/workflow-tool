@@ -234,6 +234,59 @@ func TestSchedulerReplaceRemovesDeletedDefinition(t *testing.T) {
 	}
 }
 
+func TestSchedulerDueDefinitionCarriesAITargetAndParams(t *testing.T) {
+	var got Definition
+	s := NewScheduler([]Definition{{ID: "a", Name: "A", Enabled: true, Cron: "7,8 10 * * *", AI: "review-bot",
+		Params: map[string]any{"prompt": "只看崩溃线程", "TOPIC": "crash"}}}, func(_ context.Context, def Definition) error {
+		got = def
+		return nil
+	})
+	runSchedulerTicks(s, schedulerTime(7, 1))
+	if got.AI != "review-bot" || got.Action != "" || got.Workflow != "" || got.Params["prompt"] != "只看崩溃线程" || got.Params["TOPIC"] != "crash" {
+		t.Fatalf("due definition lost its AI target or params: %+v", got)
+	}
+	// 传给回调的是克隆：回调改动不得污染调度定义
+	got.Params["TOPIC"] = "mutated"
+	runSchedulerTicks(s, schedulerTime(8, 1))
+	if got.Params["TOPIC"] != "crash" {
+		t.Fatalf("definition params mutated through trigger: %+v", got.Params)
+	}
+}
+
+func TestSchedulerTriggerNowUsesDedicatedCallback(t *testing.T) {
+	def := []Definition{{ID: "a", Name: "A", Enabled: true, Cron: "7 10 * * *", AI: "review-bot"}}
+	var scheduled, now []Definition
+	s := NewScheduler(def, func(_ context.Context, d Definition) error {
+		scheduled = append(scheduled, d)
+		return nil
+	})
+	s.SetTriggerNow(func(_ context.Context, d Definition) error {
+		now = append(now, d)
+		return nil
+	})
+	runSchedulerTicks(s, schedulerTime(7, 1))
+	if err := s.TriggerNow(context.Background(), "a"); err != nil {
+		t.Fatal(err)
+	}
+	if len(scheduled) != 1 || len(now) != 1 || scheduled[0].AI != "review-bot" || now[0].AI != "review-bot" {
+		t.Fatalf("scheduled=%v now=%v", scheduled, now)
+	}
+}
+
+func TestSchedulerTriggerNowFallsBackToSharedTrigger(t *testing.T) {
+	calls := 0
+	s := NewScheduler([]Definition{{ID: "a", Name: "A", Enabled: true, Cron: "7 10 * * *", Action: "run"}}, func(context.Context, Definition) error {
+		calls++
+		return nil
+	})
+	if err := s.TriggerNow(context.Background(), "a"); err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 {
+		t.Fatalf("calls = %d, want shared trigger", calls)
+	}
+}
+
 func TestSchedulerTriggerNowBypassesScheduleAndReturnsErrors(t *testing.T) {
 	wantErr := errors.New("trigger failed")
 	var triggered []string

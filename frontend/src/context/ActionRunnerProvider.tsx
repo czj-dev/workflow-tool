@@ -44,6 +44,9 @@ import {
   CancelAi,
   GetAiYaml,
   SetAiYaml,
+  ListRuns,
+  GetRun,
+  GetRunEvents,
 } from "../../bindings/workflow-tool/internal/api/service.js";
 import type {
   ActionItem,
@@ -53,32 +56,13 @@ import type {
   WorkflowItem,
 } from "../../bindings/workflow-tool/internal/api/models.js";
 import type { Fragment } from "../../bindings/workflow-tool/internal/registry/models.js";
-import {
-  appendAiHistory,
-  useAiHistory,
-  type AiHistoryEntry,
-  type AiHistoryTool,
-} from "../hooks/useAiHistory";
-import {
-  applyEvent,
-  finalizePanel,
-  parseToolEvent,
-  EMPTY_PANEL_STATE,
-  type AiPanelState,
-} from "../components/ai/reduceStream";
+import { finalizePanel, type AiPanelState } from "../lib/reduceStream";
+import { EMPTY_AI_VIEW, reduceAiOutput, type AiViewState } from "../lib/aiStream";
+import { reduceWorkflowOutput } from "../lib/workflowStream";
 import { foldOutputLine } from "../lib/outputFold";
 import { treeFrameToText } from "../lib/treeFrame";
 import { expandVars } from "../lib/vars";
-import {
-  AI_RESUME,
-  aiCanRun,
-  aiDraftFor,
-  aiRunParams,
-  flushAiReply,
-  mergeAiReply,
-  type AiDraft,
-  type AiPatch,
-} from "../lib/ai";
+import { AI_RESUME, aiCanRun, aiDraftFor, aiRunParams, type AiDraft, type AiPatch } from "../lib/ai";
 import { missingRequired, resolveActionParams } from "../lib/params";
 import { invalidArrayParams, normalizeArrayParams } from "../lib/arrayParams";
 import {
@@ -99,6 +83,12 @@ import type {
   LogcatReplaceFrame,
   LogcatRule,
   AiDiagLine,
+  RunDetail,
+  RunEvent,
+  RunItem,
+  RunListFilter,
+  ScheduleEditorState,
+  ScheduleFormValue,
 } from "../types/events";
 import { EMPTY_LOGCAT_RULE } from "../types/events";
 
@@ -139,27 +129,8 @@ interface ExitInfo {
 
 // ——— AI 任务的运行态（AI 是与 action 并列的独立对象，见 docs/ai.md） ———
 
-// 单个 AI 任务的会话视图态（聊天页回放用）。由 Provider 持有：聊天页切走再切回
-// （组件卸载重挂载）不丢。
-interface AiViewState {
-  text: string;
-  thinking: string;
-  panel: AiPanelState;
-  // 本轮发送的 prompt 快照（已展开 ${VAR}）与发送时刻：聊天页气泡回显用
-  sentPrompt: string;
-  sentAt: number | null;
-  // 运行期间 runner 的 stdout/stderr 行（诊断用：失败时在聊天页展示）
-  diag: AiDiagLine[];
-}
-
-const EMPTY_AI_VIEW: AiViewState = {
-  text: "",
-  thinking: "",
-  panel: EMPTY_PANEL_STATE,
-  sentPrompt: "",
-  sentAt: null,
-  diag: [],
-};
+// 单个 AI 任务的会话视图态见 lib/aiStream.ts 的 AiViewState（实时与运行详情回放共用的
+// 归约结果）。这里由 Provider 持有：聊天页切走再切回（组件卸载重挂载）不丢。
 
 // 一次 AI 运行的捕获（按任务 id 一份，前台/后台运行都建）。回放与收尾都读它，不依赖
 // currentId——后台运行时 currentId 是别的项。
@@ -169,8 +140,7 @@ interface AiCapture {
   // 本次运行的 seq 帧门（结构同 action 的 seqGate，号段独立：每次运行后端从 1 重新取号）
   gate: { nextSeq: number; pending: Map<number, OutputEventData>; consumed: Set<number> };
   view: AiViewState;
-  // 运行时的完整草稿（写历史用）与实际发送的参数（再跑用）
-  draft: AiDraft;
+  // 实际发送的参数（再跑用）
   sent: AiDraft;
   // done 事件与到达时刻
   done: DoneEventData | null;
@@ -179,29 +149,9 @@ interface AiCapture {
 }
 
 // done 已到但帧门里还有空洞（output 与 done 各起 goroutine 投递，done 可能抢跑）时，
-// 给迟到增量一段有界宽限再收尾：不给会随机丢回复尾巴，不设上限则丢包时永远不落历史。
+// 给迟到增量一段有界宽限再收尾：不给会随机丢回复尾巴，不设上限则丢包时永远收不了尾。
 const AI_SETTLE_GRACE_MS = 400;
 const AI_SETTLE_RETRY_MS = 50;
-// 诊断行缓冲上限（只留尾部，够失败时回看）与单行长度上限
-const MAX_AI_DIAG = 200;
-const MAX_AI_DIAG_LINE = 2000;
-
-// 收尾后的面板里的工具段 → 历史快照
-function toolSegments(panel: AiPanelState): AiHistoryTool[] {
-  const tools: AiHistoryTool[] = [];
-  for (const s of panel.segments) {
-    if (s.kind !== "tool") continue;
-    tools.push({
-      id: s.id,
-      name: s.name,
-      summary: s.summary,
-      result: s.result,
-      isError: s.isError,
-      durationMs: s.durationMs ?? undefined,
-    });
-  }
-  return tools;
-}
 
 // 右栏视图枚举：OutputPanel 按此分派。原先在接口/useState/setView 三处重复，抽成单一来源。
 // 表单不再是视图：action / workflow 参数表单走左侧非模态抽屉 ParamSheet（formSheetOpen）。
@@ -219,7 +169,10 @@ export type RunnerView =
   | "schedules"
   | "ai-grid"
   | "ai-chat"
-  | "ai-edit";
+  | "ai-edit"
+  // 运行记录：全部目标的运行列表与单条运行详情（全应用只有这一处回放运行过程）
+  | "runs"
+  | "run-detail";
 
 export interface RunnerContextValue {
   actions: ActionItem[];
@@ -244,13 +197,29 @@ export interface RunnerContextValue {
   // 本轮发送的 prompt 快照（已展开 ${VAR}）与发送时刻：聊天页气泡回显用。
   sentPrompt: string;
   sentAt: number | null;
-  // AI 输出面板归约态（思考/工具/回答工序段 + 终点读数）；aiText/thinkingText 保留供历史与轻量判断
+  // AI 输出面板归约态（思考/工具/回答工序段 + 终点读数）；aiText/thinkingText 保留供轻量判断
   aiPanel: AiPanelState;
   // 本轮运行期间 runner 的 stdout/stderr 行（聊天页失败时展示）
   aiDiag: AiDiagLine[];
-  // AI 运行历史（按 currentId 分桶，最新在前）+ 清空
-  aiHistory: AiHistoryEntry[];
-  clearAiHistory: () => void;
+  // 运行记录（M3）。runsRevision 在任何一条运行记录被创建或写终态时递增（后端
+  // runs:changed），列表 / 详情 / 运行记录抽屉据它重新拉取——运行记录是后端的唯一真相，
+  // 前端不在本地另存一份。
+  runsRevision: number;
+  listRuns: (filter: RunListFilter) => Promise<RunItem[]>;
+  getRun: (id: string) => Promise<RunDetail>;
+  getRunEvents: (id: string) => Promise<RunEvent[]>;
+  // 进入运行记录列表（可带初始筛选）与单条运行详情；closeRun 回到进入详情前的视图
+  openRuns: (filter?: RunListFilter) => void;
+  openRun: (id: string) => void;
+  closeRun: () => void;
+  currentRunId: string | null;
+  runsFilter: RunListFilter;
+  setRunsFilter: (filter: RunListFilter) => void;
+  // 调度编辑器（拨盘抽屉）。调度页与 AI 卡的「定时」入口共用：lock 把目标锁定为
+  // 某个目标（从 AI 卡进来时类型与任务都不可改）。state 为 null = 关闭。
+  openScheduleForm: (value: ScheduleFormValue, creating: boolean, lock?: ScheduleEditorState["lock"]) => void;
+  closeScheduleForm: () => void;
+  scheduleEditor: ScheduleEditorState | null;
   // logcat 视图：结构化条目缓冲（环形 ~10000，对齐后端 raw ring）
   logcatEntries: LogcatEntry[];
   // 统一过滤规则（后端唯一求值器，前端只编辑+下发；启动/切回时由 params 重建）
@@ -396,7 +365,13 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [globalConfig, setGlobalConfig] = useState<Record<string, string>>({});
   const [varRefCounts, setVarRefCounts] = useState<Record<string, number | undefined>>({});
   const [formValues, setFormValues] = useState<Record<string, string>>({});
-  const [view, setView] = useState<RunnerView>("output");
+  const [view, setViewState] = useState<RunnerView>("output");
+  // 调度编辑器是附着在当前页上的抽屉：切换视图即关闭（它的状态提升在 Provider 里，
+  // 不再随页面组件卸载而消失）。
+  const setView = (next: RunnerView) => {
+    setScheduleEditor(null);
+    setViewState(next);
+  };
   // AI 会话视图态：聊天页当前展示的那一轮（见 AiViewState）。真身在每次运行的捕获里
   // （AiCapture.view），这里是它面向渲染的投影，由 syncAiView / showAi 写入。
   const [aiView, setAiView] = useState<AiViewState>(EMPTY_AI_VIEW);
@@ -424,7 +399,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   };
   // 聊天页当前展示的 AI 任务 id（ref：事件回调据此判断是否要同步可见态）
   const displayedAiRef = useRef<string | null>(null);
-  // 每个任务的运行捕获 / 订阅清理（见 AiCapture；后台运行也占位，收尾时落历史）
+  // 每个任务的运行捕获 / 订阅清理（见 AiCapture；后台运行也占位，收尾时拆除）
   const aiCapturesRef = useRef<Record<string, AiCapture>>({});
   const aiUnsubsRef = useRef<Record<string, () => void>>({});
   // 正在运行的 AI 任务 id 集合（驱动侧栏/网格卡徽标）
@@ -442,13 +417,21 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   // 后端对 AI 任务按 id 加锁，被占着时直接 runAi 会被拒，故占用也算「运行中」。
   const [aiHolders, setAiHolders] = useState<Record<string, string>>({});
   const aiHoldersRef = useRef<Record<string, string>>({});
-  // 当前任务是 AI 任务时的完整草稿（聊天页读写它）与历史；不是 AI 任务时为空对象 / 空
+  // 当前任务是 AI 任务时的完整草稿（聊天页读写它）；不是 AI 任务时为空对象
   const currentAiTask =
     currentId !== null ? aiTasks.find((task) => task.id === currentId) : undefined;
   const aiDraft = currentAiTask
     ? aiDraftFor(currentAiTask, aiDrafts[currentAiTask.id], globalConfig)
     : {};
-  const { entries: aiHistory, clear: clearAiHistory } = useAiHistory(currentAiTask?.id ?? null);
+  // 运行记录的失效信号与当前查看的运行（见 RunnerContextValue 的 runsRevision）
+  const [runsRevision, setRunsRevision] = useState(0);
+  const runsBumpRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [currentRunId, setCurrentRunId] = useState<string | null>(null);
+  // 进入运行详情前的视图：closeRun 回到那里（从调度页进来的回调度页，从会话页进来的回会话页）
+  const runReturnViewRef = useRef<RunnerView | null>(null);
+  const [runsFilter, setRunsFilter] = useState<RunListFilter>({});
+  // 调度编辑器：调度页与 AI 卡共用一份（见 openScheduleForm）
+  const [scheduleEditor, setScheduleEditor] = useState<ScheduleEditorState | null>(null);
   // done 闭包由 currentId useEffect 捕获，读 actions/formValues 时闭包可能陈旧，用 ref
   const actionsRef = useRef<ActionItem[]>([]);
   actionsRef.current = actions;
@@ -736,6 +719,44 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // 重新拉取 AI 任务列表：每个任务带着它的最近一次运行（AI 卡摘要的来源）。
+  const refreshAiTasks = async (): Promise<void> => {
+    const res = await ListAiTasks();
+    setAiTasks((res && res.tasks) || []);
+    setAiErrors((res && res.errors) || []);
+  };
+  // 运行记录变化后延迟刷新 AI 任务：一次运行「开始 + 结束」连发两条通知，合并成一次重拉。
+  const aiRefreshRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleAiRefresh = () => {
+    if (aiRefreshRef.current) return;
+    aiRefreshRef.current = setTimeout(() => {
+      aiRefreshRef.current = null;
+      refreshAiTasks().catch(() => undefined);
+    }, 150);
+  };
+
+  // 运行记录失效通知。后端在任何一条运行记录被创建或写终态时发 runs:changed（含调度
+  // 发起的、前端没有订阅其输出事件的运行）；这里只递增 runsRevision，由列表 / 详情 /
+  // 运行记录抽屉各自重拉，不在 Provider 里另存一份运行记录。
+  useEffect(() => {
+    const unsubscribe = Events.On("runs:changed", (e: unknown) => {
+      const d = (((e as { data?: unknown })?.data) || {}) as { status?: string };
+      if (runsBumpRef.current) clearTimeout(runsBumpRef.current);
+      runsBumpRef.current = setTimeout(() => {
+        runsBumpRef.current = null;
+        setRunsRevision((n) => n + 1);
+      }, 80);
+      // 运行结束才有新的「最近一次运行」
+      if (d.status && d.status !== "running") scheduleAiRefresh();
+    });
+    return () => {
+      unsubscribe();
+      if (runsBumpRef.current) clearTimeout(runsBumpRef.current);
+      if (aiRefreshRef.current) clearTimeout(aiRefreshRef.current);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   // 挂载时拉取全局配置
   useEffect(() => {
     GetGlobalConfig()
@@ -793,97 +814,15 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
 
     const onOutput = (e: unknown) => {
       const d = (((e as { data?: unknown })?.data) || {}) as OutputEventData;
-      if (d.stream === "step-start") {
-        const idx = parseInt(d.line, 10);
-        const now = Date.now();
-        setWorkflowSteps((prev) => {
-          const exists = prev.find((s) => s.index === idx);
-          if (exists) {
-            return prev.map((s) =>
-              s.index === idx ? { ...s, status: "running" as const, startedAt: now } : s,
-            );
-          }
-          return [...prev, { index: idx, status: "running" as const, lines: [], startedAt: now }];
-        });
-        return;
-      }
-      if (d.stream === "step-done") {
-        const parts = (d.line || "").split(":");
-        const idx = parseInt(parts[0], 10);
-        const code = parseInt(parts[1], 10);
-        const now = Date.now();
-        setWorkflowSteps((prev) =>
-          prev.map((s) =>
-            s.index === idx
-              ? flushAiReply({
-                  ...s,
-                  status: code === 0 ? ("done" as const) : ("error" as const),
-                  exitCode: code,
-                  endedAt: now,
-                })
-              : s,
-          ),
-        );
-        return;
-      }
-      if (d.stream === "step-skip") {
-        const idx = parseInt(d.line, 10);
-        setWorkflowSteps((prev) => {
-          const exists = prev.find((s) => s.index === idx);
-          if (exists) {
-            return prev.map((s) =>
-              s.index === idx ? { ...s, status: "skipped" as const } : s,
-            );
-          }
-          return [...prev, { index: idx, status: "skipped" as const, lines: [] }];
-        });
-        return;
-      }
-      // stdout/stderr/progress/ai：优先按后端下发的 step 索引落桶（规避 Wails 事件乱序，
-      // 见 events.ts 的 step 字段注释）；无 step 字段时退回「最后一个 running」。
-      // AI 步骤的思考/工具事件步骤桶暂不收（运行记录 M3 再接），只收回复正文与 stdout/stderr。
-      if (d.stream === "ai-thinking" || d.stream === "ai-tool") return;
-      setWorkflowSteps((prev) => {
-        const idx = d.step ? parseInt(d.step, 10) : NaN;
-        let list = prev;
-        let target = Number.isNaN(idx)
-          ? [...prev].reverse().find((s) => s.status === "running")
-          : prev.find((s) => s.index === idx);
-        // 输出先于 step-start 到达时补建桶（step-start 后续会把 status 覆写为 running）
-        if (!target && !Number.isNaN(idx)) {
-          target = { index: idx, status: "running" as const, lines: [] };
-          list = [...prev, target];
-        }
-        if (!target) return prev;
-        const targetIndex = target.index;
-        // AI 回复是流式增量：按行合并后再落桶，不让每个增量各占一行
-        if (d.stream === "ai") {
-          const merged = mergeAiReply(target, d.line || "");
-          return list.map((s) => (s.index === targetIndex ? merged : s));
-        }
-        const folded = foldOutputLine(
-          {
-            lines: target.lines,
-            lastWasProgress: target.lastWasProgress ?? false,
-            treeSeq: target.treeSeq,
-          },
-          d,
-          {
-            stderrPrefix: t("output.stderrPrefix"), treeErrLabel: t("tree.parseError"),
-            isTreeEnabled: (actionId) => !!actionsRef.current.find((a) => a.id === actionId)?.hmi?.tree,
-          },
-        );
-        return list.map((s) =>
-          s.index === targetIndex
-            ? {
-                ...s,
-                lines: folded.lines,
-                lastWasProgress: folded.lastWasProgress,
-                treeSeq: folded.treeSeq,
-              }
-            : s,
-        );
-      });
+      // 归约抽在 lib/workflowStream：与运行详情回放共用同一份（回放只是把时刻换成日志偏移）。
+      // stdout/stderr/progress 按后端下发的 step 索引落桶；AI 步骤的回复 / 思考 / 工具调用
+      // 归约成工序段（aiPanel），spine 里以工序段面板渲染。
+      setWorkflowSteps((prev) =>
+        reduceWorkflowOutput(prev, d, Date.now(), {
+          stderrPrefix: t("output.stderrPrefix"), treeErrLabel: t("tree.parseError"),
+          isTreeEnabled: (actionId) => !!actionsRef.current.find((a) => a.id === actionId)?.hmi?.tree,
+        }),
+      );
     };
 
     const onDone = (e: unknown) => {
@@ -907,7 +846,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     };
   };
 
-  // 卸载：拆掉全部 workflow / AI 订阅并清结算定时器（不落历史：窗口正在销毁）
+  // 卸载：拆掉全部 workflow / AI 订阅并清结算定时器（不再收尾：窗口正在销毁）
   useEffect(() => {
     return () => {
       wfUnsubRef.current?.();
@@ -1256,31 +1195,10 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     if (c && isDisplayedAi(id)) setAiView(c.view);
   };
 
-  // 把一条已过帧门的 AI output 事件并入捕获。ai/ai-thinking/ai-tool 三通道共用归约器
-  // 维护面板工序段（atMs 用到达时刻相对运行起点）；stdout/stderr 进诊断缓冲。
+  // 把一条已过帧门的 AI output 事件并入捕获。归约抽在 lib/aiStream：与运行详情回放
+  // 共用同一份；工序段的时间轴用到达时刻相对运行起点。
   const applyAiEvent = (c: AiCapture, d: OutputEventData) => {
-    const v = c.view;
-    if (d.stream === "ai" || d.stream === "ai-thinking") {
-      const delta = d.line || "";
-      const isText = d.stream === "ai";
-      c.view = {
-        ...v,
-        text: isText ? v.text + delta : v.text,
-        thinking: isText ? v.thinking : v.thinking + delta,
-        panel: applyEvent(
-          v.panel,
-          { kind: isText ? "text" : "thinking", delta },
-          Math.max(0, Date.now() - c.startAt),
-        ),
-      };
-    } else if (d.stream === "ai-tool") {
-      const ev = parseToolEvent(d.line || "");
-      if (ev)
-        c.view = { ...v, panel: applyEvent(v.panel, ev, Math.max(0, Date.now() - c.startAt)) };
-    } else if (d.stream === "stdout" || d.stream === "stderr") {
-      const text = (d.line || "").slice(0, MAX_AI_DIAG_LINE);
-      c.view = { ...v, diag: [...v.diag.slice(1 - MAX_AI_DIAG), { stream: d.stream, text }] };
-    }
+    c.view = reduceAiOutput(c.view, d, Math.max(0, Date.now() - c.startAt));
   };
 
   // 帧门 drain：从 nextSeq 起逐号出队应用；consumed 里的号（done 独占号）直接跨过。
@@ -1348,9 +1266,10 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     };
   };
 
-  // 收尾：结算面板、落历史（recordHistory=false 为点火失败，不算一次运行）、刷可见态、
-  // 拆订阅、清运行标记。
-  const finalizeAi = (id: string, c: AiCapture, recordHistory: boolean) => {
+  // 收尾：结算面板、刷可见态、拆订阅、清运行标记。运行记录由后端落盘（写完会发
+  // runs:changed），前端不在本地另存运行记录。
+  // quiet：调用方已经把用户带到别处（正在占用该目标的运行详情），只收尾、不动可见态。
+  const finalizeAi = (id: string, c: AiCapture, quiet = false) => {
     if (c.settleTimer) {
       clearTimeout(c.settleTimer);
       c.settleTimer = null;
@@ -1371,21 +1290,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       }),
     };
     c.view = view;
-    if (recordHistory) {
-      // 用运行时的草稿快照而非当前草稿：防止流式期间用户编辑输入框导致历史漂移
-      appendAiHistory(id, {
-        prompt: c.sent.prompt,
-        params: { ...c.draft },
-        response: view.text,
-        thinking: view.thinking,
-        tools: toolSegments(view.panel),
-        // 会话 id 随历史持久化（历史查看态顶部展示，续接会话用）
-        sessionId: d.readout?.sessionId,
-        exitCode: d.exitCode,
-        duration: d.duration,
-      });
-    }
-    if (isDisplayedAi(id)) {
+    if (isDisplayedAi(id) && !quiet) {
       setAiView(view);
       setStatus(d.exitCode === 0 ? "done" : "error");
       setExitInfo(d);
@@ -1402,7 +1307,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       c.gate.nextSeq >= doneSeq ||
       Date.now() - (c.doneAt ?? 0) >= AI_SETTLE_GRACE_MS
     ) {
-      finalizeAi(id, c, true); // 同时清掉待触发的复查定时器
+      finalizeAi(id, c); // 同时清掉待触发的复查定时器
       return;
     }
     if (c.settleTimer) return;
@@ -1414,11 +1319,26 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
 
   // 点火失败（RPC 被拒：后端判「正在运行」而前端没有这次运行的跟踪、参数不合法等）。
   // 前台运行时失败原因显示在会话页；后台运行不打断用户当前所在视图，静默收场。
-  const failAi = (id: string, message: string) => {
+  // goneToLive：调用方已把用户带到正在占用该目标的运行详情，这一轮只需收尾。
+  const failAi = (id: string, message: string, goneToLive = false) => {
     const c = aiCapturesRef.current[id];
     if (!c) return;
     c.done = { exitCode: 1, err: message, duration: "" };
-    finalizeAi(id, c, false);
+    finalizeAi(id, c, goneToLive);
+  };
+
+  // 该 AI 任务此刻若有正在进行的运行，去它的运行详情实时跟踪。
+  // 目标被调度发起的运行占着时，前端没有那一轮的输出捕获（它不经前端发起）——
+  // 从卡面点「运行」会被拒，若只是静默收场，用户看到的就是「点了没反应」。
+  const goToLiveRun = async (id: string): Promise<boolean> => {
+    try {
+      const live = await listRuns({ targetKind: "ai", targetId: id, status: "running" });
+      if (!live[0]) return false;
+      openRun(live[0].id);
+      return true;
+    } catch {
+      return false; // 查不到就按原来的方式收场
+    }
   };
 
   // startAi：用一份草稿补丁起一轮运行（不写回草稿；rerun 用，免得一次性的 resume 留在
@@ -1439,7 +1359,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         return;
       }
       // 上一轮 done 已到、还在等迟到增量：立即收尾再起新一轮
-      finalizeAi(id, existing, true);
+      finalizeAi(id, existing);
     }
     const draft = aiDraftFor(task, overlay, globalConfig);
     if (!aiCanRun(task, draft)) {
@@ -1461,7 +1381,6 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         sentPrompt: expandVars(draft.prompt, { ...globalConfig, ...draft }),
         sentAt: now,
       },
-      draft,
       sent,
       done: null,
       doneAt: null,
@@ -1494,7 +1413,10 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     try {
       await RunAi(id, sent);
     } catch (e) {
-      failAi(id, e instanceof Error ? e.message : String(e));
+      const message = e instanceof Error ? e.message : String(e);
+      // 后台起撞上运行中的目标：去那条运行的详情，而不是让这一下点击毫无反应
+      const goneToLive = background && message.includes("正在运行") ? await goToLiveRun(id) : false;
+      failAi(id, message, goneToLive);
     }
   };
 
@@ -1743,6 +1665,52 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  // ——— 运行记录：列表与运行详情 ———
+  // 运行记录只在被看到时才向后端取（列表 / 详情 / 会话页的运行记录抽屉），不在 Provider
+  // 里常驻一份：它是后端的唯一真相，runsRevision 变了由订阅方重拉。
+
+  const listRuns = async (filter: RunListFilter): Promise<RunItem[]> => {
+    // 生成的 RunFilter 要求每个字段都在：没写的补成「不限」
+    const res = await ListRuns({
+      targetKind: filter.targetKind ?? "", targetId: filter.targetId ?? "",
+      status: filter.status ?? "", origin: filter.origin ?? "", limit: filter.limit ?? 0,
+    });
+    return (res && res.runs) || [];
+  };
+  const getRun = async (id: string): Promise<RunDetail> => GetRun(id);
+  // 运行日志行：后端的 stream / readout 在生成的类型里只是 string / 任意对象，
+  // 收窄成归约器要的形状（见 types/events.ts 的 RunEvent）
+  const getRunEvents = async (id: string): Promise<RunEvent[]> => ((await GetRunEvents(id)) || []) as unknown as RunEvent[];
+
+  const openRuns = (filter: RunListFilter = {}) => {
+    setFormSheetOpen(false);
+    setRunsFilter(filter);
+    setView("runs");
+  };
+  // 打开一条运行详情。记住来处：运行详情是全应用唯一查看运行过程的地方，调度页、
+  // 会话页的运行记录抽屉、运行记录列表都进得来，退出时各回各处。
+  const openRun = (id: string) => {
+    if (viewRef.current !== "run-detail") runReturnViewRef.current = viewRef.current;
+    setFormSheetOpen(false);
+    setCurrentRunId(id);
+    setView("run-detail");
+  };
+  const closeRun = () => {
+    setCurrentRunId(null);
+    setView(runReturnViewRef.current ?? "runs");
+    runReturnViewRef.current = null;
+  };
+
+  // ——— 调度编辑器 ———
+  // 每次打开换一个 key：抽屉据它把草稿重置为本次的值。
+  const scheduleEditorSeqRef = useRef(0);
+  const openScheduleForm = (value: ScheduleFormValue, creating: boolean, lock?: ScheduleEditorState["lock"]) => {
+    setFormSheetOpen(false);
+    scheduleEditorSeqRef.current += 1;
+    setScheduleEditor({ key: `${value.id}:${scheduleEditorSeqRef.current}`, value, creating, lock });
+  };
+  const closeScheduleForm = () => setScheduleEditor(null);
+
   const saveGlobalConfig = async (kv: Record<string, string>) => {
     await SetGlobalConfig(kv);
     setGlobalConfig(kv);
@@ -1826,7 +1794,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const setWorkflowFormValue = (id: string, value: string) =>
     setWorkflowFormValues((prev) => ({ ...prev, [id]: value }));
 
-  // 改当前 AI 任务草稿的一个键（聊天页 composer / chips / 历史回填共用）
+  // 改当前 AI 任务草稿的一个键（聊天页 composer / chips / 运行记录回填共用）
   const setAiDraftValue = (key: string, value: string | undefined) => {
     if (currentId) patchAiDraft(currentId, { [key]: value });
   };
@@ -1953,8 +1921,19 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     sentAt,
     aiPanel,
     aiDiag,
-    aiHistory,
-    clearAiHistory,
+    runsRevision,
+    listRuns,
+    getRun,
+    getRunEvents,
+    openRuns,
+    openRun,
+    closeRun,
+    currentRunId,
+    runsFilter,
+    setRunsFilter,
+    openScheduleForm,
+    closeScheduleForm,
+    scheduleEditor,
     logcatEntries,
     logcatRule,
     setLogcatRule,

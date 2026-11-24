@@ -47,6 +47,10 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   CancelWorkflow: vi.fn(),
   ListDevices: vi.fn().mockResolvedValue({ devices: [], active: "" }),
   SetActiveDevice: vi.fn().mockResolvedValue(undefined),
+  // 运行记录列表进入视图时才拉取
+  ListRuns: vi.fn().mockResolvedValue({ runs: [] }),
+  GetRun: vi.fn(),
+  GetRunEvents: vi.fn(),
 }));
 vi.mock("@wailsio/runtime", () => ({ Events: { On: mockOn } }));
 
@@ -116,6 +120,15 @@ describe("AppSidebar", () => {
     mockListActions.mockResolvedValue({ actions: [], errors: [] });
     render(wrap());
     expect(await screen.findByText("全局配置")).toBeInTheDocument();
+  });
+
+  it("渲染运行记录入口并打开运行记录列表", async () => {
+    const user = userEvent.setup();
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    render(wrap());
+    const entry = await screen.findByRole("button", { name: "运行记录" });
+    await user.click(entry);
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("runs");
   });
 
   it("渲染调度入口并打开调度面板", async () => {

@@ -2,11 +2,10 @@ import { describe, expect, it } from "vitest"
 import {
   applyEvent,
   EMPTY_PANEL_STATE,
-  panelFromHistory,
   parseGoDurationMs,
   parseStreamLine,
 } from "./reduceStream"
-import { MOCK_STREAM_EVENTS } from "./mockStreamEvents"
+import { MOCK_STREAM_EVENTS } from "../components/ai/mockStreamEvents"
 
 // 用真实抓取的事件序列全流程跑归约器——这个序列同时是未来 Provider 接入的目标形态契约。
 describe("reduceStream（真实 stream-json 序列）", () => {
@@ -80,34 +79,5 @@ describe("parseGoDurationMs", () => {
     expect(parseGoDurationMs("abc")).toBeUndefined()
     // 脏数据不得拾到部分匹配（"1x2s" ≠ 2s）
     expect(parseGoDurationMs("1x2s")).toBeUndefined()
-  })
-})
-
-describe("panelFromHistory（三态契约）", () => {
-  const panel = panelFromHistory({
-    thinking: "先想一想",
-    response: "答完了",
-    tools: [{ id: "t1", name: "Read", summary: "package.json" }],
-    exitCode: 0,
-    duration: "1m23.5s",
-  })
-
-  it("thinking/answer 段无计时是 undefined 而非 null（否则面板误判 live）", () => {
-    const kinds = panel.segments.map((s) => s.kind)
-    expect(kinds).toEqual(["thinking", "tool", "answer"])
-    for (const s of panel.segments) {
-      if (s.kind === "thinking" || s.kind === "answer") expect(s.durationMs).toBeUndefined()
-    }
-  })
-
-  it("无计时工具段也是 undefined（不显示 0.0s）", () => {
-    const tool = panel.segments[1]
-    expect(tool.kind).toBe("tool")
-    expect(tool.durationMs).toBeUndefined()
-  })
-
-  it("读数总时长按 Go duration 完整解析", () => {
-    expect(panel.readout).toEqual({ durationMs: 83_500, isError: false })
-    expect(panel.streaming).toBe(false)
   })
 })

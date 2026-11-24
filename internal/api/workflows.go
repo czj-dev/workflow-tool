@@ -5,9 +5,12 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"workflow-tool/internal/actionrun"
 	"workflow-tool/internal/registry"
+	"workflow-tool/internal/runstore"
+	"workflow-tool/internal/target"
 	"workflow-tool/internal/workflow"
 )
 
@@ -148,17 +151,12 @@ func (s *Service) runWorkflow(id string, params map[string]any, source *runSourc
 	}
 	ctx, ok := s.wfRunning.begin(id)
 	if !ok {
-		err := fmt.Errorf("workflow %q 正在运行", id)
-		if source != nil {
-			s.failScheduleStart(source.scheduleID, err)
-		}
-		return err
+		return s.onTargetBusy(target.Workflow, id, params, source)
 	}
-	if source != nil {
-		started := s.startScheduleRun(source.scheduleID)
-		source.token = started.token
-	}
-	go s.executeWorkflow(ctx, id, lw, params, source)
+	// 运行记录在占锁之后才建：锁都占不到，就没有这次运行。
+	sess := s.beginRun(target.Workflow, id, params, source)
+	s.beginScheduledRun(source)
+	go s.executeWorkflow(ctx, id, lw, params, source, sess)
 	return nil
 }
 
@@ -168,9 +166,16 @@ func (s *Service) CancelWorkflow(id string) {
 }
 
 // executeWorkflow 在独立 goroutine 里执行 workflow（事件协议见 events.go 的 workflowEvents）。
-func (s *Service) executeWorkflow(ctx context.Context, id string, lw workflow.LoadedWorkflow, params map[string]any, source *runSource) {
-	defer s.wfRunning.end(id)
+// 每一步的输出（含 AI 步骤的回复/思考/工具调用）带步骤归属落进本次运行的运行日志；
+// 步骤本身不单独留运行记录。
+func (s *Service) executeWorkflow(ctx context.Context, id string, lw workflow.LoadedWorkflow, params map[string]any, source *runSource, sess *runstore.Session) {
+	started := time.Now()
+	finished := false
+	// 兜底同 execute。
+	defer s.settleRun(ctx, sess, source, started, &finished, func() { s.wfRunning.end(id) })()
+
 	ev := newWorkflowEvents(s.app, id)
+	ev.sink = sess
 
 	merged := s.mergeGlobalAndParams(params)
 	// 直跑与 cli 路径共用的 workflow step 回调构造（见 actionrun.WorkflowCallbacks）。
@@ -179,6 +184,8 @@ func (s *Service) executeWorkflow(ctx context.Context, id string, lw workflow.Lo
 	aiRun := s.aiStepRun(ctx, merged)
 	res := (&workflow.Executor{}).Execute(ctx, lw, actionRun, shellRun, aiRun, merged, ev.EmitFunc())
 	ev.Done(res.ExitCode, errStr(res.Err), res.Duration)
+	finished = true
+	s.endRun(sess, res.ExitCode, res.Err, res.Outputs)
 	if source != nil {
 		s.finishScheduleRun(source, source.token, res.ExitCode, res.Err, res.Duration)
 	}

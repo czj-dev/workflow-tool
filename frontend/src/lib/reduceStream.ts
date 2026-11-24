@@ -90,9 +90,9 @@ export function parseStreamLine(line: string): ParsedEvent | null {
 
 /** 面板渲染段：thinking 与 tool 交替出现时各自新开一段（工序序列，不续接旧段）。 */
 export interface SegmentBase {
-  /** 本段开始时刻（ms，事件时间轴）；历史重建段为 0 */
+  /** 本段开始时刻（ms，相对运行起点的偏移） */
   startedAt: number
-  /** 结算后的段耗时；null = 进行中，undefined = 无计时（历史重建段，段头只显示字数） */
+  /** 结算后的段耗时；null = 进行中，undefined = 无计时信息（段头只显示字数，按已结算处理） */
   durationMs: number | null | undefined
 }
 
@@ -124,6 +124,8 @@ export interface SessionReadout {
   inputTokens?: number
   outputTokens?: number
   costUsd?: number
+  /** 会话 id（运行详情回放时带到面板；实时会话页从 done 事件的 readout 取） */
+  sessionId?: string
   isError: boolean
 }
 
@@ -264,7 +266,7 @@ export function finalizePanel(state: AiPanelState, readout: SessionReadout): AiP
 }
 
 /**
- * 解析 Go time.Duration.String()（后端 api.emitDone 下发 "duration": d.String()）为毫秒。
+ * 解析 Go time.Duration.String()（后端 done 事件 / 调度最近结果下发的 "duration"）为毫秒。
  * 支持 "1h2m3.5s" / "1m23.5s" / "1.5s" / "988ms" / "0s" 等组合；
  * parseFloat 只能吃 "1.5s"，遇到分钟/毫秒形式（"1m23.5s"→1ms×1000、"988ms"→988000）会错。
  */
@@ -292,35 +294,4 @@ export function parseGoDurationMs(s: string): number | undefined {
     total += n * (GO_DUR_UNIT_MS[unit] ?? 0)
   }
   return total
-}
-
-/** 历史条目 → 面板状态重建：段无计时（durationMs undefined，段头只显示字数），读数取总时长 */
-export interface HistoryPanelSource {
-  thinking: string
-  response: string
-  tools?: Array<{
-    id: string
-    name: string
-    summary: string
-    result?: string
-    isError?: boolean
-    durationMs?: number
-  }>
-  exitCode: number
-  duration?: string // "1.2s" 形式（后端 time.Duration.String()）
-}
-
-export function panelFromHistory(e: HistoryPanelSource): AiPanelState {
-  const segments: AiSegment[] = []
-  if (e.thinking)
-    segments.push({ kind: "thinking", startedAt: 0, durationMs: undefined, text: e.thinking })
-  for (const t of e.tools ?? [])
-    segments.push({ kind: "tool", startedAt: 0, durationMs: t.durationMs, ...t })
-  if (e.response)
-    segments.push({ kind: "answer", startedAt: 0, durationMs: undefined, text: e.response })
-  return {
-    segments,
-    readout: { durationMs: parseGoDurationMs(e.duration ?? ""), isError: e.exitCode !== 0 },
-    streaming: false,
-  }
 }

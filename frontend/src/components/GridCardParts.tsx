@@ -240,3 +240,30 @@ export function narrativeStamp(ts: number): string {
   const md = `${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
   return d.getFullYear() === now.getFullYear() ? `${md} ${hm}` : `${d.getFullYear()}-${md} ${hm}`;
 }
+
+// —— 运行状态（运行记录的状态词汇，与后端 internal/runstore 对齐）——
+// 成功绿、失败红、运行中 primary；取消 / 中断 / 跳过是真实但非失败的结束，用中性色。
+
+export function runTone(status: string): string {
+  if (status === "succeeded") return "text-success";
+  if (status === "failed") return "text-destructive";
+  if (status === "running") return "text-primary";
+  return "text-muted-foreground";
+}
+
+export function runDot(status: string): string {
+  if (status === "succeeded") return "bg-success";
+  if (status === "failed") return "bg-destructive";
+  if (status === "running") return "bg-primary live-pulse";
+  return "bg-muted-foreground/50";
+}
+
+/** 状态点 + 文案（文案由调用方翻译）：运行记录列表、会话页运行记录抽屉、调度投影共用。 */
+export function RunStatusBadge({ status, label }: { status: string; label: string }) {
+  return (
+    <span className={`inline-flex items-center gap-1.5 font-mono text-[11px] tracking-[0.04em] ${runTone(status)}`}>
+      <span className={`size-1.5 shrink-0 rounded-full ${runDot(status)}`} />
+      {label}
+    </span>
+  );
+}

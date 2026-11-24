@@ -2,16 +2,7 @@
 import { describe, expect, it } from "vitest";
 import type { AiTaskItem } from "../../bindings/workflow-tool/internal/api/models.js";
 import type { ParamSpec } from "../../bindings/workflow-tool/internal/registry/models.js";
-import type { WorkflowStepState } from "../types/events";
-import {
-  aiCanRun,
-  aiDraftFor,
-  aiRunParams,
-  flushAiReply,
-  initialAiDraft,
-  mergeAiReply,
-  missingAiInputs,
-} from "./ai";
+import { aiCanRun, aiDraftFor, aiRunParams, initialAiDraft, missingAiInputs } from "./ai";
 
 const spec = (id: string, extra: Partial<ParamSpec> = {}): ParamSpec => ({
   id,
@@ -33,14 +24,6 @@ const task = (
 // 绑定把 prompt/system 标成必有 string；这里测的正是运行时字段缺失时的兜底，故绕过类型
 const sparse = (raw: Record<string, unknown>): Pick<AiTaskItem, "params" | "prompt" | "system"> =>
   raw as unknown as Pick<AiTaskItem, "params" | "prompt" | "system">;
-
-const step = (extra: Partial<WorkflowStepState> = {}): WorkflowStepState => ({
-  index: 0,
-  status: "running",
-  lines: [],
-  ...extra,
-});
-const text = (s: string) => ({ kind: "text" as const, text: s });
 
 describe("initialAiDraft", () => {
   it("prompt/system 取定义模板原文，resume 从空开始", () => {
@@ -163,77 +146,5 @@ describe("aiRunParams", () => {
   it("未声明的键不会出现在发送参数里（后端对未声明参数报错）", () => {
     const overlay = { GHOST: "x", TOPIC: "y" };
     expect(aiRunParams(t, overlay, aiDraftFor(t, overlay, {}))).not.toHaveProperty("GHOST");
-  });
-});
-
-describe("mergeAiReply", () => {
-  it("增量先攒在 aiPartial，凑满一行才落 text 行", () => {
-    let s = step();
-    s = mergeAiReply(s, "Hel");
-    expect(s.aiPartial).toBe("Hel");
-    s = mergeAiReply(s, "lo");
-    expect(s.aiPartial).toBe("Hello");
-    expect(s.lines).toEqual([]);
-    s = mergeAiReply(s, " w\n");
-    expect(s.lines).toEqual([text("Hello w")]);
-    expect(s.aiPartial).toBe("");
-    // 普通文本行之后 lastWasProgress 复位（下一条 progress 不会覆盖它）
-    expect(s.lastWasProgress).toBe(false);
-  });
-
-  it("一个增量里的多行逐行落桶；空行不落桶", () => {
-    expect(mergeAiReply(step(), "a\n\nb\n").lines).toEqual([text("a"), text("b")]);
-    expect(mergeAiReply(step(), "a\n\nb\n").aiPartial).toBe("");
-  });
-
-  it("CRLF：行尾的 \\r 不进文本；\\r 与 \\n 分两次到达也拼成换行", () => {
-    let s = mergeAiReply(step(), "a\r\n");
-    expect(s.lines).toEqual([text("a")]);
-    s = mergeAiReply(s, "b\r");
-    expect(s.aiPartial).toBe("b");
-    s = mergeAiReply(s, "\nc");
-    expect(s.lines).toEqual([text("a"), text("b")]);
-    expect(s.aiPartial).toBe("c");
-  });
-
-  it("空增量原样返回（同一个对象）", () => {
-    const s = step({ aiPartial: "x" });
-    expect(mergeAiReply(s, "")).toBe(s);
-  });
-
-  it("不修改传入的步骤对象", () => {
-    const s = step({ aiPartial: "x" });
-    const next = mergeAiReply(s, "y\nz");
-    expect(s.lines).toEqual([]);
-    expect(s.aiPartial).toBe("x");
-    expect(next.lines).toEqual([text("xy")]);
-    expect(next.aiPartial).toBe("z");
-  });
-
-  it("步骤已收尾（done / error）才到的增量：先把半行尾巴落行，再把这段整体当作后续行", () => {
-    let s = step({ status: "done", lines: [text("前")], aiPartial: "半行" });
-    s = mergeAiReply(s, "迟到\n尾巴");
-    expect(s.lines).toEqual([text("前"), text("半行"), text("迟到"), text("尾巴")]);
-    expect(s.aiPartial).toBeUndefined();
-    const e = mergeAiReply(step({ status: "error" }), "迟到的最后一段");
-    expect(e.lines).toEqual([text("迟到的最后一段")]);
-    expect(e.aiPartial).toBeUndefined();
-  });
-});
-
-describe("flushAiReply", () => {
-  it("把未凑满行的尾巴落成最后一行并摘掉 aiPartial", () => {
-    const s = flushAiReply(step({ lines: [text("a")], aiPartial: "尾\r" }));
-    expect(s.lines).toEqual([text("a"), text("尾")]);
-    expect("aiPartial" in s).toBe(false);
-  });
-
-  it("没有尾巴时行不变，也不引入空行", () => {
-    expect(flushAiReply(step({ lines: [text("a")], aiPartial: "" })).lines).toEqual([text("a")]);
-    expect(flushAiReply(step({ lines: [text("a")] })).lines).toEqual([text("a")]);
-  });
-
-  it("落下的尾巴是普通文本行（lastWasProgress 复位）", () => {
-    expect(flushAiReply(step({ aiPartial: "尾", lastWasProgress: true })).lastWasProgress).toBe(false);
   });
 });

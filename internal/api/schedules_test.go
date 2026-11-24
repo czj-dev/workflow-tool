@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"workflow-tool/internal/registry"
+	"workflow-tool/internal/runstore"
 	"workflow-tool/internal/schedule"
 	"workflow-tool/internal/workflow"
 )
@@ -229,23 +231,41 @@ func TestRunScheduleNowRejectsMissingID(t *testing.T) {
 	}
 }
 
-func TestRunScheduleNowUsesExistingActionLaunch(t *testing.T) {
+// 立即运行撞上运行中的目标：返回错误并提示「已在运行，已跳过」，不动最近结果，
+// 也不留跳过记录（发起人当场就得到了反馈）。
+func TestRunScheduleNowOnBusyActionReturnsErrorAndKeepsLastRun(t *testing.T) {
 	svc, _ := scheduleService(t, "")
 	if _, err := svc.SaveSchedule(validSchedule()); err != nil {
 		t.Fatal(err)
 	}
 	svc.app = &application.App{}
+	def := schedule.Definition{ID: "check", Name: "Check", Enabled: true, Cron: "* * * * *", Action: "patrol"}
+	if err := svc.launchSchedule(context.Background(), def); err != nil {
+		t.Fatal(err)
+	}
+	before := waitForSchedule(t, svc, "check", func(item ScheduleItem) bool {
+		return item.LastRun != nil && !item.Running
+	}).LastRun
+
 	_, ok := svc.running.begin("patrol")
 	if !ok {
 		t.Fatal("cannot reserve action")
 	}
 	defer svc.running.end("patrol")
-	if err := svc.RunScheduleNow("check"); err == nil || !strings.Contains(err.Error(), "正在运行") {
-		t.Fatalf("expected concurrency rejection: %v", err)
+	err := svc.RunScheduleNow("check")
+	if err == nil || !strings.Contains(err.Error(), "已在运行，已跳过") || !strings.Contains(err.Error(), "patrol") {
+		t.Fatalf("expected busy-and-skipped rejection, got %v", err)
+	}
+	item := svc.ListSchedules().Schedules[0]
+	if item.LastRun.Status != before.Status || item.LastRun.RunID != before.RunID || item.LastSkip != nil {
+		t.Fatalf("run-now changed the schedule's last result: %+v", item)
+	}
+	if got := svc.ListRuns(RunFilter{Status: runstore.StatusSkipped}).Runs; len(got) != 0 {
+		t.Fatalf("run-now must not leave a skipped record: %+v", got)
 	}
 }
 
-func TestRunScheduleNowUsesExistingWorkflowLaunch(t *testing.T) {
+func TestRunScheduleNowOnBusyWorkflowReturnsError(t *testing.T) {
 	svc, _ := scheduleService(t, "")
 	input := validSchedule()
 	input.TargetKind, input.TargetID = "workflow", "daily"
@@ -257,8 +277,8 @@ func TestRunScheduleNowUsesExistingWorkflowLaunch(t *testing.T) {
 		t.Fatal("cannot reserve workflow")
 	}
 	defer svc.wfRunning.end("daily")
-	if err := svc.RunScheduleNow("check"); err == nil || !strings.Contains(err.Error(), "正在运行") {
-		t.Fatalf("expected workflow concurrency rejection, got %v", err)
+	if err := svc.RunScheduleNow("check"); err == nil || !strings.Contains(err.Error(), "已在运行，已跳过") {
+		t.Fatalf("expected workflow busy rejection, got %v", err)
 	}
 }
 
@@ -295,7 +315,7 @@ func TestRunScheduleNowHeadlessUpdatesState(t *testing.T) {
 	item := waitForSchedule(t, svc, "check", func(item ScheduleItem) bool {
 		return item.LastRun != nil && !item.Running
 	})
-	if item.LastRun.Status != "success" {
+	if item.LastRun.Status != runstore.StatusSucceeded {
 		t.Fatalf("unexpected headless last run: %+v", item.LastRun)
 	}
 }

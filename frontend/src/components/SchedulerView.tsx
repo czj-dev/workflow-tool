@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useState, type CSSProperties, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Add01Icon, Edit02Icon } from "@hugeicons/core-free-icons";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -15,13 +15,18 @@ import {
   RunPill,
   RunningFlow,
   TickRuler,
-  ambFor,
   narrativeStamp,
+  runDot,
+  runTone,
 } from "./GridCardParts";
-import { ScheduleFormSheet, type ScheduleFormTarget, type ScheduleFormValue } from "./ScheduleFormSheet";
+import type { ScheduleFormTarget } from "./ScheduleFormSheet";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { fmtGoDuration } from "../lib/duration";
+import { lastSkipText, targetIcon, targetList, targetTitle } from "../lib/runs";
+import { RUN_TARGET_KINDS, type RunTargetKind } from "../types/events";
 import {
+  createScheduleId,
+  DEFAULT_SCHEDULE_CRON,
   describeScheduleCron,
   formatScheduleNextRun,
   nextScheduleRuns,
@@ -29,13 +34,18 @@ import {
 } from "../lib/scheduleCron";
 
 // Schedules 视图（定稿原型 v2 卡阵）：按 targetKind 分组的双态卡网格（动作=amber、
-// 工作流=green，按组序循环取色；空组省略；停用项原位降透明不沉底）。紧凑态 = 身份
-// （目标+句子+下次读数），展开态 = 意图（叙事区原始 cron + 未来 3 次触发 + 最近结果
-// + 编辑/二次确认删除/启停/立即运行）。表单走 ScheduleFormSheet（拨盘编辑器）。
+// 工作流=green、AI 任务=violet，板块色与侧栏一致；空组省略；停用项原位降透明不沉底）。
+// 紧凑态 = 身份（目标+句子+下次读数），展开态 = 意图（叙事区原始 cron + 未来 3 次触发
+// + 最近结果 + 编辑/二次确认删除/启停/立即运行）。表单走 ScheduleFormSheet（拨盘编辑器），
+// 它的状态在 Provider：AI 卡的「定时」入口打开的是同一个抽屉。
 
 const EYEBROW = "font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/80";
-const DEFAULT_CRON = "0 9 * * 1-5";
-const GROUP_KINDS = ["action", "workflow"] as const;
+// 板块固定色：动作=amber、工作流=green、AI 任务=violet（恒为板块色，不随哪一组非空而漂移）
+const GROUP_AMB: Record<RunTargetKind, string> = {
+  action: "var(--amb-amber)",
+  workflow: "var(--amb-green)",
+  ai: "var(--amb-violet)",
+};
 
 type Schedule = {
   id: string;
@@ -53,15 +63,10 @@ type Schedule = {
     finishedAt: string;
     duration: string;
     error: string;
+    runId?: string;
   } | null;
+  lastSkip?: { at: string; reason: string; runId?: string } | null;
 };
-
-function createScheduleId(existingIds: string[]): string {
-  const used = new Set(existingIds);
-  let id = `schedule-${crypto.randomUUID().toLowerCase()}`;
-  while (used.has(id)) id = `schedule-${crypto.randomUUID().toLowerCase()}`;
-  return id;
-}
 
 function InfoRow({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -89,6 +94,7 @@ interface ScheduleCardProps {
   next3: Date[];
   onToggleExpand: () => void;
   onEdit: () => void;
+  onViewRun: (runId: string) => void;
   onDelete: () => void;
   onToggleEnabled: (checked: boolean) => void;
   onRunNow: () => void;
@@ -96,11 +102,12 @@ interface ScheduleCardProps {
 
 function ScheduleCard({
   schedule, amb, expanded, pendingDelete, target, sentence, next, next3,
-  onToggleExpand, onEdit, onDelete, onToggleEnabled, onRunNow,
+  onToggleExpand, onEdit, onViewRun, onDelete, onToggleEnabled, onRunNow,
 }: ScheduleCardProps) {
   const { t } = useTranslation();
-  const { enabled, running, lastRun } = schedule;
+  const { enabled, running, lastRun, lastSkip } = schedule;
   const startedAt = lastRun?.startedAt ? new Date(lastRun.startedAt).getTime() : null;
+  const skip = lastSkipText(lastSkip);
 
   return (
     <div
@@ -132,7 +139,7 @@ function ScheduleCard({
         />
         <span className="ml-auto font-mono text-[10.5px] tracking-[0.06em] tabular-nums text-muted-foreground">
           {running
-            ? t("scheduler.status.running")
+            ? t("runs.status.running")
             : next
               ? formatScheduleNextRun(next, t)
               : !enabled
@@ -177,9 +184,19 @@ function ScheduleCard({
             <InfoRow label={t("scheduler.lastRun")}>
               {lastRun ? (
                 <>
-                  <span className={`font-semibold ${lastRun.status === "failed" ? "text-destructive" : "text-success"}`}>
-                    {t(`scheduler.status.${lastRun.status}`, lastRun.status)}
-                  </span>
+                  {/* 最近结果连着它的运行记录：点状态进运行详情（全应用唯一查看运行过程的地方） */}
+                  <button
+                    type="button"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      if (lastRun.runId) onViewRun(lastRun.runId);
+                    }}
+                    disabled={!lastRun.runId}
+                    title={lastRun.runId ? t("scheduler.viewRun") : undefined}
+                    className={`cursor-pointer border-none bg-transparent p-0 font-semibold underline-offset-2 hover:underline disabled:cursor-default ${runTone(lastRun.status)}`}
+                  >
+                    {t(`runs.status.${lastRun.status}`, lastRun.status)}
+                  </button>
                   {lastRun.duration && (
                     <span className="ml-1.5 text-[11.5px] text-muted-foreground">· {fmtGoDuration(lastRun.duration)}</span>
                   )}
@@ -191,6 +208,21 @@ function ScheduleCard({
                   )}
                 </>
               ) : ("--")}
+              {/* 跳过不是失败：单独说明最近一次到点为什么没跑，不占用「最近结果」 */}
+              {skip && (
+                <button
+                  type="button"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    if (lastSkip?.runId) onViewRun(lastSkip.runId);
+                  }}
+                  disabled={!lastSkip?.runId}
+                  title={t("scheduler.viewRun")}
+                  className="mt-1 block max-w-full cursor-pointer truncate border-none bg-transparent p-0 text-left text-[12px] text-muted-foreground hover:text-foreground disabled:cursor-default"
+                >
+                  ⤬ {t("scheduler.lastSkipped", { reason: skip })}
+                </button>
+              )}
             </InfoRow>
             <InfoRow label={t("scheduler.target")}>
               {t(`scheduler.kind.${schedule.targetKind}`, schedule.targetKind)} · {target.title}
@@ -235,7 +267,7 @@ function ScheduleCard({
             <RunPill
               label={t("scheduler.runNowShort")}
               running={running}
-              runningLabel={t("scheduler.status.running")}
+              runningLabel={t("runs.status.running")}
               onClick={onRunNow}
             />
           </div>
@@ -247,18 +279,21 @@ function ScheduleCard({
           {/* 紧凑态页脚：最近结果 + 快照入口 */}
           <div className="mt-auto flex items-center justify-end border-t border-dashed
             border-[color-mix(in_oklab,var(--amb)_30%,var(--border))] pt-2">
-            <span className="mr-auto flex items-center gap-1.5 text-[11px] text-muted-foreground">
+            <span className="mr-auto flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
               {lastRun ? (
                 <>
-                  <span className={`size-[5px] rounded-full ${lastRun.status === "failed" ? "bg-destructive" : "bg-success"}`} />
-                  {lastRun.duration ? fmtGoDuration(lastRun.duration) : t(`scheduler.status.${lastRun.status}`, lastRun.status)}
+                  <span className={`size-[5px] shrink-0 rounded-full ${runDot(lastRun.status)}`} />
+                  {lastRun.duration ? fmtGoDuration(lastRun.duration) : t(`runs.status.${lastRun.status}`, lastRun.status)}
+                  {skip && <span className="truncate" title={skip}>⤬</span>}
                 </>
+              ) : skip ? (
+                <span className="truncate" title={skip}>⤬ {t("scheduler.skippedShort")}</span>
               ) : ("--")}
             </span>
             {running ? (
               <span className="flex items-center gap-1.5 font-mono text-[10px] tracking-[0.02em] text-primary">
                 <span className="size-1.5 rounded-full bg-primary live-pulse" />
-                {t("scheduler.status.running")} ▸
+                {t("runs.status.running")} ▸
               </span>
             ) : enabled ? (
               <QuickHint label={t("scheduler.runNowShort")} onClick={onRunNow} />
@@ -280,23 +315,15 @@ export function SchedulerView({ active = true }: SchedulerViewProps) {
     scheduleErrors,
     actions,
     workflows,
+    aiTasks,
     setFragmentsOpen,
     setFormSheetOpen,
-    saveSchedule,
     deleteSchedule,
     setScheduleEnabled,
     runScheduleNow,
+    openRun,
+    openScheduleForm,
   } = useActionRunner();
-  const [sheetOpen, setSheetOpen] = useState(false);
-  const [seed, setSeed] = useState<{ key: string; value: ScheduleFormValue; creating: boolean }>({
-    key: "init",
-    creating: true,
-    value: {
-      id: "", name: "", enabled: true, cron: DEFAULT_CRON,
-      targetKind: "action", targetId: "", params: {},
-    },
-  });
-  const seedSeq = useRef(0);
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
 
@@ -306,10 +333,13 @@ export function SchedulerView({ active = true }: SchedulerViewProps) {
     return () => window.clearTimeout(timer);
   }, [pendingDelete]);
 
-  const targetOf = (schedule: Schedule): ScheduleFormTarget => {
-    const list = schedule.targetKind === "workflow" ? workflows : actions;
-    return list.find((item) => item.id === schedule.targetId) ?? { id: schedule.targetId, title: schedule.targetId };
-  };
+  const targetLists = { actions, workflows, aiTasks };
+  // 目标已卸载时回落显示 id（targetTitle 的约定）
+  const targetOf = (schedule: Schedule): ScheduleFormTarget => ({
+    id: schedule.targetId,
+    title: targetTitle(schedule.targetKind, schedule.targetId, targetLists),
+    icon: targetIcon(schedule.targetKind, schedule.targetId, targetLists),
+  });
 
   const safeSentence = (schedule: Schedule): string => {
     try {
@@ -342,51 +372,35 @@ export function SchedulerView({ active = true }: SchedulerViewProps) {
     }
   };
 
+  // 新建调度：目标默认落在第一个有内容的板块（动作 > 工作流 > AI 任务）
   const openCreate = () => {
-    const targetKind = actions.length > 0 ? "action" : "workflow";
-    const targetId = targetKind === "action" ? actions[0]?.id ?? "" : workflows[0]?.id ?? "";
-    setFormSheetOpen(false);
+    const targetKind: RunTargetKind = actions.length > 0 ? "action" : workflows.length > 0 ? "workflow" : "ai";
+    const targetId = targetList(targetKind, targetLists)[0]?.id ?? "";
     if (isMobile) setFragmentsOpen(false);
-    seedSeq.current += 1;
-    setSeed({
-      key: `new:${seedSeq.current}`,
-      creating: true,
-      value: {
-        id: createScheduleId(schedules.map((item) => item.id)),
-        name: "",
-        enabled: true,
-        cron: DEFAULT_CRON,
-        targetKind,
-        targetId,
-        params: {},
-      },
-    });
-    setSheetOpen(true);
+    setFormSheetOpen(false);
+    openScheduleForm({
+      id: createScheduleId(schedules.map((item) => item.id)),
+      name: "",
+      enabled: true,
+      cron: DEFAULT_SCHEDULE_CRON,
+      targetKind,
+      targetId,
+      params: {},
+    }, true);
   };
 
   const openEdit = (schedule: Schedule) => {
-    setFormSheetOpen(false);
     if (isMobile) setFragmentsOpen(false);
-    seedSeq.current += 1;
-    setSeed({
-      key: `${schedule.id}:${seedSeq.current}`,
-      creating: false,
-      value: {
-        id: schedule.id,
-        name: schedule.name,
-        enabled: schedule.enabled,
-        cron: schedule.cron,
-        targetKind: schedule.targetKind === "workflow" ? "workflow" : "action",
-        targetId: schedule.targetId,
-        params: schedule.params ?? {},
-      },
-    });
-    setSheetOpen(true);
-  };
-
-  const handleFormSave = async (value: ScheduleFormValue) => {
-    await saveSchedule(value);
-    setSheetOpen(false);
+    setFormSheetOpen(false);
+    openScheduleForm({
+      id: schedule.id,
+      name: schedule.name,
+      enabled: schedule.enabled,
+      cron: schedule.cron,
+      targetKind: schedule.targetKind === "workflow" || schedule.targetKind === "ai" ? schedule.targetKind : "action",
+      targetId: schedule.targetId,
+      params: schedule.params ?? {},
+    }, false);
   };
 
   const confirmDelete = async (id: string) => {
@@ -436,7 +450,7 @@ export function SchedulerView({ active = true }: SchedulerViewProps) {
             <EmptyDescription>{t("scheduler.empty")}</EmptyDescription>
           </Empty>
         ) : (
-          GROUP_KINDS.map((kind, groupIndex) => {
+          RUN_TARGET_KINDS.map((kind) => {
             const items = schedules.filter((schedule) => schedule.targetKind === kind);
             if (items.length === 0) return null;
             const enabledCount = items.filter((schedule) => schedule.enabled).length;
@@ -454,7 +468,7 @@ export function SchedulerView({ active = true }: SchedulerViewProps) {
                     <ScheduleCard
                       key={schedule.id}
                       schedule={schedule}
-                      amb={ambFor(groupIndex)}
+                      amb={GROUP_AMB[kind]}
                       expanded={expandedId === schedule.id}
                       pendingDelete={pendingDelete === schedule.id}
                       target={targetOf(schedule)}
@@ -465,6 +479,7 @@ export function SchedulerView({ active = true }: SchedulerViewProps) {
                         setExpandedId((current) => (current === schedule.id ? null : schedule.id))
                       }
                       onEdit={() => openEdit(schedule)}
+                      onViewRun={openRun}
                       onDelete={() => void confirmDelete(schedule.id)}
                       onToggleEnabled={(checked) => runRowAction(() => setScheduleEnabled(schedule.id, checked))}
                       onRunNow={() => runRowAction(() => runScheduleNow(schedule.id))}
@@ -476,16 +491,6 @@ export function SchedulerView({ active = true }: SchedulerViewProps) {
           })
         )}
       </div>
-
-      <ScheduleFormSheet
-        open={sheetOpen}
-        active={active}
-        seed={seed}
-        actions={actions}
-        workflows={workflows}
-        onSave={handleFormSave}
-        onClose={() => setSheetOpen(false)}
-      />
     </main>
   );
 }

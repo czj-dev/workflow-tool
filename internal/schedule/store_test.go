@@ -11,7 +11,59 @@ import (
 )
 
 func testCatalog() TargetCatalog {
-	return TargetCatalog{Actions: map[string]struct{}{"patrol": {}}, Workflows: map[string]struct{}{"daily": {}}}
+	return TargetCatalog{Actions: map[string]struct{}{"patrol": {}}, Workflows: map[string]struct{}{"daily": {}}, AITasks: map[string]struct{}{"review-bot": {}}}
+}
+
+func TestLoadFileAcceptsAITarget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "schedules.yaml")
+	writeScheduleFile(t, path, "schedules:\n  - id: nightly\n    name: Nightly\n    cron: '0 2 * * *'\n    ai: review-bot\n    params:\n      CASE_INPUT: '{\"a\":1}'\n      prompt: 只看崩溃线程\n")
+	defs, errs := LoadFile(path, testCatalog())
+	if len(errs) != 0 || len(defs) != 1 {
+		t.Fatalf("defs=%v errs=%v", defs, errs)
+	}
+	kind, id, err := defs[0].Target()
+	if err != nil || kind != TargetAI || id != "review-bot" || defs[0].AI != "review-bot" {
+		t.Fatalf("AI target not preserved: %+v target=%q/%q err=%v", defs[0], kind, id, err)
+	}
+	if defs[0].Params["prompt"] != "只看崩溃线程" {
+		t.Fatalf("reserved run params must survive as plain params: %+v", defs[0].Params)
+	}
+}
+
+func TestLoadFileRejectsUnknownAITarget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "schedules.yaml")
+	writeScheduleFile(t, path, "schedules:\n  - id: nightly\n    name: Nightly\n    cron: '0 2 * * *'\n    ai: missing-task\n")
+	defs, errs := LoadFile(path, testCatalog())
+	if len(defs) != 0 || len(errs) != 1 || !strings.Contains(errs[0].Error(), "unknown ai") || !strings.Contains(errs[0].Error(), "missing-task") {
+		t.Fatalf("defs=%v errs=%v", defs, errs)
+	}
+}
+
+func TestSaveFileRoundTripsAITarget(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "schedules.yaml")
+	want := []Definition{{ID: "nightly", Name: "Nightly", Enabled: true, Cron: "0 2 * * *", AI: "review-bot", Params: map[string]any{"TOPIC": "crash"}}}
+	if err := SaveFile(path, want); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil || !strings.Contains(string(data), "ai: review-bot") || strings.Contains(string(data), "action:") || strings.Contains(string(data), "workflow:") {
+		t.Fatalf("file=%q err=%v", data, err)
+	}
+	got, errs := LoadFile(path, testCatalog())
+	if len(errs) != 0 || !reflect.DeepEqual(got, want) {
+		t.Fatalf("got=%v errs=%v want=%v", got, errs, want)
+	}
+}
+
+func TestSaveFileRejectsMultipleTargets(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "schedules.yaml")
+	err := SaveFile(path, []Definition{{ID: "nightly", Name: "Nightly", Enabled: true, Cron: "0 2 * * *", AI: "review-bot", Action: "patrol"}})
+	if err == nil || !strings.Contains(err.Error(), "exactly one target") {
+		t.Fatalf("err=%v, want exactly-one-target rejection", err)
+	}
+	if _, statErr := os.Stat(path); !os.IsNotExist(statErr) {
+		t.Fatalf("invalid definition created file: %v", statErr)
+	}
 }
 
 func testDefinition() Definition {

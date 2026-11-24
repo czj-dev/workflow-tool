@@ -15,6 +15,8 @@ import (
 	"workflow-tool/internal/builtinvars"
 	"workflow-tool/internal/registry"
 	"workflow-tool/internal/runner"
+	"workflow-tool/internal/runstore"
+	"workflow-tool/internal/target"
 	"workflow-tool/internal/workflow"
 )
 
@@ -42,16 +44,11 @@ func (s *Service) runAction(id string, params map[string]any, source *runSource)
 	}
 	ctx, ok := s.running.begin(id)
 	if !ok {
-		err := fmt.Errorf("动作 %q 正在运行", id)
-		if source != nil {
-			s.failScheduleStart(source.scheduleID, err)
-		}
-		return err
+		return s.onTargetBusy(target.Action, id, decoded, source)
 	}
-	if source != nil {
-		started := s.startScheduleRun(source.scheduleID)
-		source.token = started.token
-	}
+	// 运行记录在占锁之后才建：锁都占不到，就没有这次运行。
+	sess := s.beginRun(target.Action, id, decoded, source)
+	s.beginScheduledRun(source)
 
 	merged := s.mergeGlobalAndParams(decoded)
 	var ctrl chan any
@@ -59,7 +56,7 @@ func (s *Service) runAction(id string, params map[string]any, source *runSource)
 		ctrl = make(chan any, controlChanCap)
 		s.running.setControl(id, ctrl)
 	}
-	go s.execute(ctx, id, la, merged, ctrl, literalKeys, source)
+	go s.execute(ctx, id, la, merged, ctrl, literalKeys, source, sess)
 	return nil
 }
 
@@ -155,42 +152,39 @@ func (s *Service) UpdateLogcatFilter(id string, rule logcat.Rule, reset bool) er
 // execute 在独立 goroutine 里执行动作（事件协议见 events.go 的 actionEvents）：
 // 统一 ${VAR} 展开 → 工作目录校验 → actionrun.Build 构造 runner → 运行 → done 事件。
 // ctrl 为 logcat-stream 的运行期控制通道（其余动作为 nil）。
-func (s *Service) execute(ctx context.Context, id string, la registry.LoadedAction, params map[string]any, ctrl chan any, literalKeys map[string]bool, source *runSource) {
+// sess 是本次运行的记录会话：emit 的每一行同步落进运行日志，结束时在这里写终态。
+func (s *Service) execute(ctx context.Context, id string, la registry.LoadedAction, params map[string]any, ctrl chan any, literalKeys map[string]bool, source *runSource, sess *runstore.Session) {
 	started := time.Now()
 	// 树点击映射值已是终值；其余参数仍以解包后的字符串为变量源展开。
 	params = expandDirectParams(ctx, params, s.builtins, literalKeys)
-	defer s.running.end(id)
 	finished := false
-	defer func() {
-		if source != nil && !finished {
-			s.finishScheduleRun(source, source.token, -1, ctx.Err(), time.Since(started))
-		}
-	}()
+	// 兜底：意外退出时运行记录与调度状态都要有个交代，最后释放目标锁（见 settleRun）。
+	defer s.settleRun(ctx, sess, source, started, &finished, func() { s.running.end(id) })()
 
 	ev := newActionEvents(s.app, id)
+	ev.sink = sess
+	// 早退（发生在任何 output 之前）：done 不带 seq（前端直接应用），运行记录落 failed。
+	failEarly := func(err error) {
+		ev.DoneUnordered(-1, err.Error(), 0)
+		finished = true
+		s.endRun(sess, -1, err, map[string]string{"exit_code": "-1", "success": "false"})
+		if source != nil {
+			s.finishScheduleRun(source, source.token, -1, err, time.Since(started))
+		}
+	}
 
-	// 运行时替换 cwd（用终值 params），替换后检查存在性；
-	// 早退发生在任何 output 之前，done 不带 seq（前端直接应用）。
+	// 运行时替换 cwd（用终值 params），替换后检查存在性。
 	cwd := runner.Expand(ctx, la.Cwd, params, s.builtins)
 	if cwd != "" {
 		if _, err := os.Stat(cwd); err != nil {
-			err := fmt.Errorf("工作目录不存在: %s", cwd)
-			ev.DoneUnordered(-1, err.Error(), 0)
-			if source != nil {
-				finished = true
-				s.finishScheduleRun(source, source.token, -1, err, time.Since(started))
-			}
+			failEarly(fmt.Errorf("工作目录不存在: %s", cwd))
 			return
 		}
 	}
 
 	r, err := actionrun.Build(ctx, la, s.runDeps, actionrun.Options{Params: params, ADBControl: ctrl})
 	if err != nil {
-		ev.DoneUnordered(-1, err.Error(), 0)
-		if source != nil {
-			finished = true
-			s.finishScheduleRun(source, source.token, -1, err, time.Since(started))
-		}
+		failEarly(err)
 		return
 	}
 	protocol := "script"
@@ -206,8 +200,9 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 	res := r.Run(ctx, params, emit)
 
 	ev.Done(res.ExitCode, errStr(res.Err), res.Duration, nil)
+	finished = true
+	s.endRun(sess, res.ExitCode, res.Err, res.Outputs)
 	if source != nil {
-		finished = true
 		s.finishScheduleRun(source, source.token, res.ExitCode, res.Err, res.Duration)
 	}
 }
@@ -228,18 +223,12 @@ func (s *Service) runAi(id string, params map[string]any, source *runSource) err
 	}
 	ctx, ok := s.aiRunning.begin(id)
 	if !ok {
-		err := fmt.Errorf("AI 任务 %q 正在运行", id)
-		if source != nil {
-			s.failScheduleStart(source.scheduleID, err)
-		}
-		return err
+		return s.onTargetBusy(target.AI, id, params, source)
 	}
-	if source != nil {
-		started := s.startScheduleRun(source.scheduleID)
-		source.token = started.token
-	}
+	sess := s.beginRun(target.AI, id, params, source)
+	s.beginScheduledRun(source)
 
-	go s.executeAi(ctx, id, lt, params, source)
+	go s.executeAi(ctx, id, lt, params, source, sess)
 	return nil
 }
 
@@ -251,21 +240,21 @@ func (s *Service) CancelAi(id string) {
 
 // executeAi 在独立 goroutine 里执行 AI 任务（事件协议见 events.go 的 newAiEvents）：
 // 构造 runner → 运行 → done 事件（带终点读数）。
-func (s *Service) executeAi(ctx context.Context, id string, lt ai.LoadedTask, params map[string]any, source *runSource) {
+// executeAi 在独立 goroutine 里执行 AI 任务（事件协议见 events.go 的 newAiEvents）：
+// 构造 runner → 运行 → done 事件（带终点读数）→ 运行记录终态（含本次注入的守则全文）。
+func (s *Service) executeAi(ctx context.Context, id string, lt ai.LoadedTask, params map[string]any, source *runSource, sess *runstore.Session) {
 	started := time.Now()
-	defer s.aiRunning.end(id)
 	finished := false
-	defer func() {
-		if source != nil && !finished {
-			s.finishScheduleRun(source, source.token, -1, ctx.Err(), time.Since(started))
-		}
-	}()
+	// 兜底同 execute。
+	defer s.settleRun(ctx, sess, source, started, &finished, func() { s.aiRunning.end(id) })()
 
 	ev := newAiEvents(s.app, id)
-	res := runAiOnce(ctx, lt, s.aiDeps, airun.Options{
+	ev.sink = sess
+	res, rules := runAiOnce(ctx, lt, s.aiDeps, airun.Options{
 		Params: params,
 		Global: s.GetGlobalConfig(),
 	}, ev.EmitFunc())
+	sess.SetRules(rules)
 
 	// 终点读数（cost/tokens/session_id）随 done 事件下发，聊天页终点展示。
 	var readout map[string]any
@@ -273,8 +262,9 @@ func (s *Service) executeAi(ctx context.Context, id string, lt ai.LoadedTask, pa
 		readout = aiReadout(res.Outputs, res.Duration)
 	}
 	ev.Done(res.ExitCode, errStr(res.Err), res.Duration, readout)
+	finished = true
+	s.endRun(sess, res.ExitCode, res.Err, res.Outputs)
 	if source != nil {
-		finished = true
 		s.finishScheduleRun(source, source.token, res.ExitCode, res.Err, res.Duration)
 	}
 }
@@ -282,12 +272,13 @@ func (s *Service) executeAi(ctx context.Context, id string, lt ai.LoadedTask, pa
 // runAiOnce 是手动运行与 workflow ai step 的共用执行段：构造 AIRunner → 运行。
 // 输入原样交给 airun.Build，模板展开、必填与未知参数校验都在那里完成；早于进程
 // 启动的失败也向 stderr 推一行原因，让两种调用方的事件流里都看得到。
-func runAiOnce(ctx context.Context, lt ai.LoadedTask, deps airun.Deps, opts airun.Options, emit runner.EmitFunc) runner.Result {
+// 第二个返回值是本次注入的无人值守守则全文（构造失败时为空），运行记录据此留档。
+func runAiOnce(ctx context.Context, lt ai.LoadedTask, deps airun.Deps, opts airun.Options, emit runner.EmitFunc) (runner.Result, string) {
 	r, err := airun.Build(ctx, lt, deps, opts)
 	if err != nil {
 		emit("stderr", err.Error())
 		return runner.Result{ExitCode: -1, Err: err,
-			Outputs: map[string]string{"exit_code": "-1", "success": "false"}}
+			Outputs: map[string]string{"exit_code": "-1", "success": "false"}}, ""
 	}
 	res := r.Run(ctx, nil, emit)
 	// 超时被杀时把裸的 context deadline exceeded 换成可行动的提示：会话 id 已在
@@ -295,7 +286,7 @@ func runAiOnce(ctx context.Context, lt ai.LoadedTask, deps airun.Deps, opts airu
 	if errors.Is(res.Err, context.DeadlineExceeded) {
 		res.Err = &aiTimeoutError{limit: lt.Timeout, cause: res.Err}
 	}
-	return res
+	return res, r.Cfg.Rules
 }
 
 // aiTimeoutError 是 AI 运行超时的对外错误：文案给出续接办法，Unwrap 仍指向底层原因
@@ -338,10 +329,13 @@ func (s *Service) aiStepRun(wfCtx context.Context, merged map[string]any) workfl
 		for k, v := range req.Env {
 			env[k] = runner.Expand(req.Ctx, v, merged, s.aiDeps.Builtins)
 		}
-		return runAiOnce(ctx, lt, s.aiDeps, airun.Options{
+		// AI 步骤不单独留运行记录：它是工作流这次运行的一步，输出带步骤归属落在
+		// 父工作流的运行日志里。
+		res, _ := runAiOnce(ctx, lt, s.aiDeps, airun.Options{
 			Params:   req.Params,
 			Global:   s.GetGlobalConfig(),
 			ExtraEnv: env,
 		}, req.Emit)
+		return res
 	}
 }

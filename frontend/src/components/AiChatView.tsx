@@ -25,13 +25,14 @@ import {
   initialAiDraft,
   taskParams,
 } from "../lib/ai";
-import { expandVars } from "../lib/vars";
-import { useStickToBottomContext } from "use-stick-to-bottom";
 import { Thread, ThreadContent, ThreadScrollToBottom } from "@/components/nexus-ui/thread";
+import { AiDiagBlock } from "@/components/ai/AiDiagBlock";
 import { AiOutputPanel } from "@/components/ai/AiOutputPanel";
-import { panelFromHistory } from "@/components/ai/reduceStream";
+import { fmtDuration } from "../lib/duration";
+import { RunStatusBadge } from "./GridCardParts";
+import { aiRunSummary, runDurationMs } from "../lib/runs";
 import type { ParamSpec } from "../../bindings/workflow-tool/internal/registry/models.js";
-import { type AiHistoryEntry } from "../hooks/useAiHistory";
+import type { RunItem } from "../types/events";
 
 // 系统提示词 chip 的字段规格：system 是 RunAi 的保留参数，不在任务 params 里声明，
 // 这里合成一份只为复用 ParamFields 的多行输入。
@@ -48,69 +49,70 @@ const SYSTEM_SPEC: ParamSpec = {
 // 某个 AI 任务的会话页：底部输入框（绑 prompt 草稿）+ 上方流式回答。单轮替换，每次发送
 // 清空上一轮。草稿（prompt / system / 续接会话 / 已声明参数）由 Provider 按任务持有，
 // 本组件只读写；缺必填输入时发送按钮置灰。
+//
+// 右上角「运行记录」打开这个任务的运行记录抽屉（后端 runs/，跨重启保留）：历次运行，
+// 不论是谁发起的（会话页、网格卡、调度）。点一条即把它的会话 id 回填到「续接会话」，
+// 并进运行详情查看那一轮的过程——运行详情是全应用唯一查看运行过程的地方。
 export function AiChatView() {
   const { t } = useTranslation();
   const {
     aiTasks, currentId, aiDraft, globalConfig, setAiDraftValue,
     runAi, cancel, setView, status, exitInfo, aiText, thinkingText, aiPanel,
-    sentPrompt, sentAt, aiDiag, aiHistory, clearAiHistory, openYamlEditor,
+    sentPrompt, sentAt, aiDiag, openYamlEditor,
+    runsRevision, listRuns, openRun,
   } = useActionRunner();
   const task = aiTasks.find((item) => item.id === currentId);
   const running = status === "running";
 
-  // 历史抽屉 + 只读查看态
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [viewing, setViewing] = useState<AiHistoryEntry | null>(null);
+  // 运行记录抽屉的开合 + 这个任务的运行记录。runsRevision 变化（任何运行开始 / 结束）时重拉：
+  // 调度发起的运行前端没有订阅其输出，只能从这里得知。
+  const [runsOpen, setRunsOpen] = useState(false);
+  const [runs, setRuns] = useState<RunItem[]>([]);
+  useEffect(() => {
+    if (!task) return;
+    let cancelled = false;
+    listRuns({ targetKind: "ai", targetId: task.id })
+      .then((items) => { if (!cancelled) setRuns(items); })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [task?.id, runsRevision]);
   // sentPrompt/sentAt 由 Provider 持有（起跑时冻结在运行捕获里，切走再切回仍在，见
-  // ActionRunnerProvider）——组件本地只保留 viewing（与本组件生命周期绑定即可）。
-
-  // 切换卡片（currentId 变化）时重置查看态，避免 viewing 跨卡片残留。
-  // 用 render-time setState 模式（参见 ActionYamlEditor、React 官方「You Might Not Need an Effect」）：
-  // 比 useEffect 早一帧生效，且不触发级联渲染（react-hooks/set-state-in-effect）。
-  const [prevId, setPrevId] = useState(currentId);
-  if (currentId !== prevId) {
-    setPrevId(currentId);
-    setViewing(null);
-  }
+  // ActionRunnerProvider）；组件本地不另存。
 
   if (!task) return null;
 
   const initial = initialAiDraft(task, globalConfig);
   const promptValue = aiDraft[AI_PROMPT] ?? "";
   const canRun = aiCanRun(task, aiDraft);
-  const hasConversation = running || aiText !== "" || thinkingText !== "" || !!exitInfo || !!viewing;
+  const hasConversation = running || aiText !== "" || thinkingText !== "" || !!exitInfo;
 
   // 改一个键：与初值相同就不留补丁（定义 / 全局配置之后变了能自动跟随），否则记入草稿补丁。
   const setDraftValue = (key: string, value: string) => {
     setAiDraftValue(key, value === initial[key] ? undefined : value);
   };
 
-  // 查看历史即「准备续接该会话」：把条目的 session id 回填到续接 chip，退出查看也不撤——
-  // chip 上看得见、点 × 可清，下一次发送就接着这个会话。
-  const showHistory = (e: AiHistoryEntry | null) => {
-    setViewing(e);
-    if (e?.sessionId) setAiDraftValue(AI_RESUME, e.sessionId);
+  // 点一条运行记录即「准备续接该会话」：把它的 session id 回填到续接 chip，进运行详情后
+  // 也不撤——chip 上看得见、点 × 可清，下一次发送就接着这个会话。
+  const showRun = (run: RunItem) => {
+    const sessionId = run.outputs?.session_id;
+    if (sessionId) setAiDraftValue(AI_RESUME, sessionId);
+    openRun(run.id);
   };
 
-  // viewing 非空时渲染只读历史条目，否则渲染当前轮
-  // 历史条目存的是发送时的原始模板（可能含 ${VAR}）；只读查看时按其 params 快照展开，
-  // 与实时气泡（sentPrompt 已 expandVars）保持一致，避免历史里出现 "处理 ${CARD_ID}"。
-  const shownPrompt = viewing ? expandVars(viewing.prompt, viewing.params) : sentPrompt || promptValue;
-  // 工序段面板：实时态用归约状态；历史态由条目重建（无段级计时，读数只有总时长）
-  const shownPanel = viewing ? panelFromHistory(viewing) : aiPanel;
-  const shownAt = viewing ? viewing.timestamp : sentAt;
-  const sentAtLabel = shownAt != null ? new Date(shownAt).toLocaleTimeString([], { hour12: false }) : undefined;
+  // 当前轮的气泡回显与工序段面板：都来自 Provider 持有的这一轮捕获。
+  const shownPrompt = sentPrompt || promptValue;
+  const sentAtLabel = sentAt != null ? new Date(sentAt).toLocaleTimeString([], { hour12: false }) : undefined;
 
   // 诊断输出：本轮运行失败，或 runner 往 stderr 写过东西时展示（后端把 runner 的
-  // stdout/stderr 一并下发）。历史查看态下不展示——那是别的轮次。
-  const failed = !viewing && status === "error";
-  const showDiag = !viewing && (failed || aiDiag.some((line) => line.stream === "stderr"));
+  // stdout/stderr 一并下发）。
+  const failed = status === "error";
+  const showDiag = failed || aiDiag.some((line) => line.stream === "stderr");
 
   const onSend = () => {
     if (!canRun || running) return;
     // prompt 快照与发送时刻由 Provider 在起跑时冻结（含 ${VAR} 展开），组件不自行维护——
     // 否则切走再切回会丢失气泡回显。
-    setViewing(null);
     void runAi(task.id);
   };
 
@@ -131,25 +133,6 @@ export function AiChatView() {
 
   return (
     <main className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-      {viewing && (
-        <div className="flex items-center gap-2 border-b border-primary/25 bg-primary/10 px-4 py-1.5 text-xs">
-          <HugeiconsIcon icon={Clock01Icon} strokeWidth={1.75} className="size-3.5" />
-          <span>{t("aiChat.viewingHistory")} · {new Date(viewing.timestamp).toLocaleString()}</span>
-          {viewing.sessionId && (
-            <button
-              type="button"
-              onClick={() => navigator.clipboard?.writeText(viewing.sessionId!)}
-              title={t("aiChat.sessionIdCopy", { id: viewing.sessionId })}
-              className="max-w-56 truncate rounded font-mono text-[10.5px] tracking-[0.03em] text-muted-foreground hover:text-foreground cursor-pointer"
-            >
-              {t("aiChat.sessionId")} {viewing.sessionId}
-            </button>
-          )}
-          <Button variant="ghost" size="sm" className="ml-auto h-6" onClick={() => showHistory(null)}>
-            {t("aiChat.backToCurrent")}
-          </Button>
-        </div>
-      )}
       <header className="flex items-center justify-between border-b px-4 py-2">
         <div className="flex items-center gap-2">
           <SidebarTrigger />
@@ -181,17 +164,17 @@ export function AiChatView() {
           ) : null}
         </div>
         <ButtonGroup>
-          {/* 历史计数：右上角 badge + label 并入「历史 · N」（aria-label 同步可读） */}
+          {/* 运行记录入口：右上角 badge + label 并入「运行记录 · N」（aria-label 同步可读） */}
           <IconButton
             icon={Clock01Icon}
             label={
-              aiHistory.length > 0
-                ? `${t("aiChat.history")} · ${aiHistory.length}`
-                : t("aiChat.history")
+              runs.length > 0
+                ? `${t("aiChat.runs")} · ${runs.length}`
+                : t("aiChat.runs")
             }
             variant="outline"
-            badge={aiHistory.length}
-            onClick={() => setHistoryOpen((v) => !v)}
+            badge={runs.length}
+            onClick={() => setRunsOpen((v) => !v)}
           />
           {running && (
             <IconButton
@@ -207,9 +190,6 @@ export function AiChatView() {
       {/* min-h-0：Thread 基类带 h-full（height:100%），作为 flex 子项且 min-height:auto 时
           会被 100% 高度托底而不收缩，把 composer 挤出视口、末尾读数行被裁掉。 */}
       <Thread className="flex min-h-0 min-w-0 flex-1">
-        {/* 历史查看切换时 ThreadContent 整段替换，stick-to-bottom 的贴底状态可能在替换瞬间
-            失效（滚动位置被钳制），显式滚到底保证「完成 · 时长」读数行可见。 */}
-        <ThreadViewingScroll trigger={viewing?.id ?? null} />
         <ThreadContent className="p-4">
           {!hasConversation ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
@@ -223,23 +203,9 @@ export function AiChatView() {
             </div>
           ) : (
             <>
-              <AiOutputPanel prompt={shownPrompt} sentAtLabel={sentAtLabel} state={shownPanel} />
+              <AiOutputPanel prompt={shownPrompt} sentAtLabel={sentAtLabel} state={aiPanel} />
               {showDiag && (
-                <div className="mt-2 rounded-lg border border-destructive/30 bg-destructive/5 p-2.5 font-mono text-[11px] leading-relaxed">
-                  <div className="mb-1 flex items-center gap-1.5 font-semibold text-destructive">
-                    <span className="size-1.5 rounded-full bg-destructive" />
-                    {failed ? t("aiChat.runFailed") : t("aiChat.diagnostics")}
-                  </div>
-                  {failed && exitInfo?.err && (
-                    <div className="mb-1 whitespace-pre-wrap break-all text-destructive">{exitInfo.err}</div>
-                  )}
-                  {aiDiag.map((line, i) => (
-                    <div key={i} className="whitespace-pre-wrap break-all text-muted-foreground">
-                      {line.stream === "stderr" ? t("output.stderrPrefix") : ""}
-                      {line.text}
-                    </div>
-                  ))}
-                </div>
+                <AiDiagBlock className="mt-2" failed={failed} error={failed ? exitInfo?.err : undefined} lines={aiDiag} />
               )}
             </>
           )}
@@ -315,78 +281,57 @@ export function AiChatView() {
         </div>
       </div>
 
-      {historyOpen && (
-        <AiHistoryDrawer
-          entries={aiHistory}
-          viewingId={viewing?.id ?? null}
-          onSelect={(e) => { showHistory(e); setHistoryOpen(false); }}
-          onClose={() => setHistoryOpen(false)}
-          onClear={() => { clearAiHistory(); showHistory(null); }}
-        />
+      {runsOpen && (
+        <AiRunsDrawer runs={runs} onSelect={(run) => { showRun(run); setRunsOpen(false); }} onClose={() => setRunsOpen(false)} />
       )}
     </main>
   );
 }
 
-// Thread 内挂载的滚动控制点：trigger 变化（进入/切换/退出历史查看）时滚到底。
-// 必须在 <Thread> 内部使用（依赖 useStickToBottomContext）。
-function ThreadViewingScroll({ trigger }: { trigger: string | null }) {
-  const { scrollToBottom } = useStickToBottomContext();
-  useEffect(() => {
-    scrollToBottom();
-  }, [trigger, scrollToBottom]);
-  return null;
-}
-
-interface AiHistoryDrawerProps {
-  entries: AiHistoryEntry[];
-  viewingId: string | null;
-  onSelect: (e: AiHistoryEntry) => void;
+interface AiRunsDrawerProps {
+  runs: RunItem[];
+  onSelect: (run: RunItem) => void;
   onClose: () => void;
-  onClear: () => void;
 }
 
-function AiHistoryDrawer({ entries, viewingId, onSelect, onClose, onClear }: AiHistoryDrawerProps) {
+// 这个任务的运行记录抽屉（最新在前）。每条显示状态、时刻、耗时与发起来源，正文是当次
+// 提示词的摘要。运行记录由后端保留策略管理（每个目标 50 次、30 天），这里不提供清空。
+function AiRunsDrawer({ runs, onSelect, onClose }: AiRunsDrawerProps) {
   const { t } = useTranslation();
   return (
     <aside className="absolute right-0 top-0 bottom-0 z-40 flex w-80 flex-col border-l bg-card/95 shadow-xl">
       <div className="flex items-center justify-between border-b px-3 py-2.5">
         <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-          {t("aiChat.historyTitle")} · {entries.length}
+          {t("aiChat.runsTitle")} · {runs.length}
         </span>
         <IconButton icon={Cancel01Icon} label={t("main.clear")} onClick={onClose} />
       </div>
       <div className="flex-1 overflow-y-auto p-2">
-        {entries.length === 0 ? (
-          <div className="p-3 text-center text-xs text-muted-foreground">{t("aiChat.historyEmpty")}</div>
+        {runs.length === 0 ? (
+          <div className="p-3 text-center text-xs text-muted-foreground">{t("aiChat.runsEmpty")}</div>
         ) : (
-          entries.map((e) => (
-            <button
-              key={e.id}
-              type="button"
-              onClick={() => onSelect(e)}
-              className={`mb-1.5 flex w-full flex-col gap-1 rounded-lg border p-2.5 text-left hover:border-primary/50 ${viewingId === e.id ? "border-primary bg-primary/8" : "border-border"}`}
-            >
-              <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
-                <span className={`size-1.5 rounded-full ${e.exitCode === 0 ? "bg-success" : "bg-destructive"}`} />
-                {new Date(e.timestamp).toLocaleString()}
-                {e.duration && <span>· {e.duration}</span>}
-              </span>
-              <span className="line-clamp-2 text-xs">{expandVars(e.prompt, e.params)}</span>
-              <span className="line-clamp-1 text-[11px] text-muted-foreground">{e.response}</span>
-            </button>
-          ))
+          runs.map((run) => {
+            const durationMs = runDurationMs(run);
+            const summary = aiRunSummary(run);
+            return (
+              <button
+                key={run.id}
+                type="button"
+                onClick={() => onSelect(run)}
+                title={run.reason || undefined}
+                className="mb-1.5 flex w-full cursor-pointer flex-col gap-1 rounded-lg border border-border p-2.5 text-left hover:border-primary/50"
+              >
+                <span className="flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+                  <RunStatusBadge status={run.status} label={t(`runs.status.${run.status}`, run.status)} />
+                  {run.startedAt && <span>{new Date(run.startedAt).toLocaleString()}</span>}
+                  {durationMs !== null && <span>· {fmtDuration(durationMs)}</span>}
+                  {run.origin !== "manual" && <span>· {t(`runs.origin.${run.origin}`, run.origin)}</span>}
+                </span>
+                <span className="line-clamp-2 text-xs">{summary ?? t("runs.noPrompt")}</span>
+              </button>
+            );
+          })
         )}
-      </div>
-      <div className="flex items-center justify-between border-t px-3 py-2">
-        <span className="font-mono text-[10px] text-muted-foreground">{t("aiChat.historyMax")}</span>
-        <button
-          type="button"
-          onClick={onClear}
-          className="text-[11px] text-muted-foreground underline underline-offset-2 hover:text-destructive"
-        >
-          {t("aiChat.historyClear")}
-        </button>
       </div>
     </aside>
   );

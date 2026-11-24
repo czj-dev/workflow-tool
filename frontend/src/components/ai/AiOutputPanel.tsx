@@ -13,7 +13,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
 import { MessageMarkdown } from "@/components/nexus-ui/message"
 import { TextShimmer } from "@/components/nexus-ui/text-shimmer"
 import { cn } from "@/lib/utils"
-import type { AiPanelState, AiSegment } from "./reduceStream"
+import type { AiPanelState, AiSegment } from "../../lib/reduceStream"
 
 /** 段间距（px）——轨道线段按此值向下延伸补齐 gap，形成连续轨道 */
 const SEG_GAP = 16
@@ -45,29 +45,34 @@ export function AiOutputPanel({
   prompt,
   sentAtLabel,
   state,
+  footer = true,
 }: {
+  // prompt 为空时不渲染指令工单：只嵌入工序段（工作流的 AI 步骤卡、不带提示词的回放）
   prompt: string
   sentAtLabel?: string
   state: AiPanelState
+  // footer=false 不渲染轨道终点的读数行与空态提示：嵌在别处（工作流的 AI 步骤卡，
+  // 卡头已有状态徽标与耗时）时用，避免同一件事说两遍
+  footer?: boolean
 }) {
   const { t } = useTranslation()
   const last = state.segments[state.segments.length - 1]
-  // 三态契约：null = 进行中，undefined = 历史重建段无计时。必须严格 === null，
-  // 宽松 == null 会把历史段误判为 live，导致查看历史时永远显示“生成中”而非完成态。
+  // 两态契约：null = 进行中，数字 = 已结算。必须严格 === null——宽松 == null 会把
+  // 没有计时的段误判为 live，导致面板永远显示“生成中”而非完成态。
   const liveIndex = last && last.durationMs === null ? state.segments.length - 1 : -1
 
   return (
     <div className="flex flex-col" style={{ gap: `${SEG_GAP}px` }}>
-      <PromptTicket prompt={prompt} sentAtLabel={sentAtLabel} />
+      {prompt && <PromptTicket prompt={prompt} sentAtLabel={sentAtLabel} />}
 
       <div className="flex flex-col" style={{ gap: `${SEG_GAP}px` }}>
         {state.segments.map((seg, i) => (
           <SegmentView key={i} seg={seg} live={i === liveIndex} last={i === state.segments.length - 1} />
         ))}
-        {state.readout && <ReadoutLine readout={state.readout} />}
+        {footer && state.readout && <ReadoutLine readout={state.readout} />}
       </div>
 
-      {!state.streaming && !state.readout && state.segments.length === 0 && (
+      {footer && !state.streaming && !state.readout && state.segments.length === 0 && (
         <div className="flex items-center gap-2 pl-1 font-mono text-[11px] tracking-[0.12em] text-muted-foreground">
           <span className="size-1.5 rounded-full bg-primary/70" />
           {t("aiChat.ready")}
@@ -313,7 +318,7 @@ function AnswerSegmentView({ seg, live }: { seg: Extract<AiSegment, { kind: "ans
 /** 轨道终点：会话读数行（总耗时 · tokens · 成本） */
 function ReadoutLine({ readout }: { readout: NonNullable<AiPanelState["readout"]> }) {
   const { t } = useTranslation()
-  // 读数分段拼接：后端给了才显示（历史条目只有总时长，无 cost/tokens）
+  // 读数分段拼接：后端给了才显示
   const parts = [
     readout.durationMs != null ? fmtDur(readout.durationMs) : null,
     readout.inputTokens != null || readout.outputTokens != null
@@ -330,6 +335,16 @@ function ReadoutLine({ readout }: { readout: NonNullable<AiPanelState["readout"]
           readout.isError ? "bg-destructive" : "bg-success",
         )}
       />
+      {readout.sessionId && (
+        <button
+          type="button"
+          title={t("aiChat.sessionIdCopy", { id: readout.sessionId })}
+          onClick={() => navigator.clipboard?.writeText(readout.sessionId!)}
+          className="absolute right-0 top-0 max-w-[45%] truncate rounded font-mono text-[10.5px] text-muted-foreground/80 cursor-pointer hover:text-foreground"
+        >
+          {t("aiChat.sessionId")} {readout.sessionId}
+        </button>
+      )}
       <div className="flex items-center gap-2 font-mono text-[11px] tracking-[0.08em] text-muted-foreground tabular-nums">
         {readout.isError ? (
           <HugeiconsIcon icon={Cancel01Icon} strokeWidth={2} className="size-3.5 text-destructive" />

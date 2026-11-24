@@ -13,7 +13,7 @@ interface IconButtonProps {
   className?: string;
   /** 透传给内部 HugeiconsIcon（如 saving 态的 animate-spin） */
   iconClassName?: string;
-  /** 右上角数字角标（如 AI 历史 N 条）；0/undefined 不渲染。需可读时由调用方并入 label（如「历史 · 3」） */
+  /** 右上角数字角标（如 AI 任务的运行记录 N 条）；0/undefined 不渲染。需可读时由调用方并入 label（如「运行记录 · 3」） */
   badge?: number;
   /** 右上角 live-pulse 脉冲点（dirty/待保存提示） */
   dot?: boolean;

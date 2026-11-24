@@ -9,6 +9,7 @@ import (
 
 	"workflow-tool/internal/ai"
 	"workflow-tool/internal/registry"
+	"workflow-tool/internal/runstore"
 )
 
 // AiTaskItem 是前端可见的 AI 任务描述。
@@ -26,6 +27,9 @@ type AiTaskItem struct {
 	System string `json:"system"`
 	// Timeout 是生效的运行上限（任务未写时为缺省值），如 "30m0s"。
 	Timeout string `json:"timeout"`
+	// LastRun 是这个任务最近一次真实运行的摘要，取自运行记录（跨重启保留；调度发起的
+	// 运行同样算）。AI 卡的叙述区显示它的提示词。从未运行、或只有被跳过的调度时为 nil。
+	LastRun *RunItem `json:"lastRun,omitempty"`
 }
 
 // AiListResult 是 ListAiTasks 的返回值。
@@ -40,7 +44,7 @@ func (s *Service) ListAiTasks() AiListResult {
 	items := make([]AiTaskItem, 0, len(reg.Tasks))
 	for _, id := range reg.Order {
 		lt := reg.Tasks[id]
-		items = append(items, AiTaskItem{
+		item := AiTaskItem{
 			ID:          lt.Task.ID,
 			Title:       lt.Task.Title,
 			Icon:        lt.Task.Icon,
@@ -51,7 +55,13 @@ func (s *Service) ListAiTasks() AiListResult {
 			Prompt:      lt.Task.PromptText(),
 			System:      lt.Task.System,
 			Timeout:     lt.Timeout.String(),
-		})
+		}
+		// 排除 skipped：到点被跳过不改变「最近一次运行是什么」。
+		if rec, ok := s.runs.Latest(runstore.KindAI, id, "", true); ok {
+			last := toRunItem(rec)
+			item.LastRun = &last
+		}
+		items = append(items, item)
 	}
 	errs := make([]string, 0, len(reg.Errors))
 	for _, e := range reg.Errors {

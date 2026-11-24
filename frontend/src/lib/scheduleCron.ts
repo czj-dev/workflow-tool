@@ -185,3 +185,14 @@ export function formatScheduleNextRun(date: Date, t: ScheduleTranslate): string 
   const md = `${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
   return date.getFullYear() === now.getFullYear() ? `${md} ${hm}` : `${date.getFullYear()}-${md}`;
 }
+
+/** 调度编辑器的默认节律：工作日 09:00。 */
+export const DEFAULT_SCHEDULE_CRON = "0 9 * * 1-5";
+
+/** 生成一个未被占用的调度 id：schedule-<uuid>（小写，满足 ^[a-z0-9-]+$）。 */
+export function createScheduleId(existingIds: ReadonlyArray<string>): string {
+  const used = new Set(existingIds);
+  let id = `schedule-${crypto.randomUUID().toLowerCase()}`;
+  while (used.has(id)) id = `schedule-${crypto.randomUUID().toLowerCase()}`;
+  return id;
+}

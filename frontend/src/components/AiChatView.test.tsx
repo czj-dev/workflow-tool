@@ -2,13 +2,19 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, act, fireEvent, within } from "@testing-library/react";
 import { useEffect, useRef } from "react";
 
-const { mockListAiTasks, mockRunAi, mockCancelAi, mockGetAiYaml, mockSetAiYaml } = vi.hoisted(() => ({
-  mockListAiTasks: vi.fn(),
-  mockRunAi: vi.fn(),
-  mockCancelAi: vi.fn(),
-  mockGetAiYaml: vi.fn(),
-  mockSetAiYaml: vi.fn(),
-}));
+const { mockListAiTasks, mockRunAi, mockCancelAi, mockGetAiYaml, mockSetAiYaml, mockListRuns, listeners } = vi.hoisted(() => {
+  // Events.On 记下回调：用例经 listeners 触发应用级事件（runs:changed）
+  const listeners: Record<string, (e: unknown) => void> = {};
+  return {
+    mockListAiTasks: vi.fn(),
+    mockRunAi: vi.fn(),
+    mockCancelAi: vi.fn(),
+    mockGetAiYaml: vi.fn(),
+    mockSetAiYaml: vi.fn(),
+    mockListRuns: vi.fn(),
+    listeners,
+  };
+});
 
 vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   ListActions: vi.fn().mockResolvedValue({ actions: [], errors: [] }),
@@ -26,10 +32,19 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   SetFragments: vi.fn().mockResolvedValue(undefined),
   ListWorkflows: vi.fn().mockResolvedValue({ workflows: [], errors: [] }),
   ListSchedules: vi.fn().mockResolvedValue({ schedules: [], errors: [] }),
+  ListRuns: mockListRuns,
+  GetRun: vi.fn(),
+  GetRunEvents: vi.fn(),
 }));
-vi.mock("@wailsio/runtime", () => ({ Events: { On: () => () => ({}) } }));
-// 拦截 useStickToBottomContext：jsdom 无真实布局，用 spy 验证「进入历史查看时显式滚到底」；
-// 布局修复（min-h-0）另以类名断言守护。StickToBottom/Content 保持真实实现。
+vi.mock("@wailsio/runtime", () => ({
+  Events: {
+    On: (name: string, cb: (e: unknown) => void) => {
+      listeners[name] = cb;
+      return () => { delete listeners[name]; };
+    },
+  },
+}));
+// 拦截 useStickToBottomContext：jsdom 无真实布局。StickToBottom/Content 保持真实实现。
 const { scrollToBottomMock } = vi.hoisted(() => ({ scrollToBottomMock: vi.fn() }));
 vi.mock("use-stick-to-bottom", async (importOriginal) => {
   const actual = await importOriginal<typeof import("use-stick-to-bottom")>();
@@ -41,7 +56,6 @@ vi.mock("use-stick-to-bottom", async (importOriginal) => {
 
 import { ActionRunnerProvider, _emitForTest } from "../context/ActionRunnerProvider";
 import { useActionRunner } from "../hooks/useActionRunner";
-import { clearAiHistory } from "../hooks/useAiHistory";
 import { SidebarProvider } from "@/components/ui/sidebar";
 import { AiChatView } from "./AiChatView";
 
@@ -96,6 +110,23 @@ const emitDone = (seq: number, data: Record<string, unknown> = {}, id = "t1") =>
     _emitForTest(`ai:${id}:done`, { data: { exitCode: 0, err: "", duration: "1.2s", ...data, seq } });
   });
 
+// 这个任务的一条运行记录（后端 runs/，运行记录抽屉的数据源）
+const runOf = (extra: Record<string, unknown> = {}) => ({
+  id: "r20261125-021500-a1b2c3",
+  targetKind: "ai",
+  targetId: "t1",
+  origin: "manual",
+  scheduleId: "",
+  status: "succeeded",
+  reason: "",
+  startedAt: "2026-11-25T02:15:00+08:00",
+  finishedAt: "2026-11-25T02:15:03+08:00",
+  exitCode: 0,
+  params: { prompt: "请处理 ${TOPIC}", system: "你是助手", TOPIC: "季度报告" },
+  outputs: {},
+  ...extra,
+});
+
 interface DriveProps {
   /** 打开哪个任务的会话页 */
   id?: string;
@@ -149,8 +180,8 @@ describe("AiChatView", () => {
     mockRunAi.mockReset().mockResolvedValue(undefined);
     mockCancelAi.mockReset();
     localStorage.clear();
-    // 历史仓是模块级单例（localStorage 只在首次访问时读入）：逐例显式清空各任务的历史
-    for (const task of TASKS) clearAiHistory(task.id);
+    // 运行记录抽屉读的是后端的运行记录：默认没有
+    mockListRuns.mockReset().mockResolvedValue({ runs: [] });
     scrollToBottomMock.mockClear();
   });
 
@@ -187,69 +218,76 @@ describe("AiChatView", () => {
     expect(screen.getByText("· package.json")).toBeInTheDocument();
   });
 
-  it("完成后写入历史，抽屉可浏览；清空历史回到无计数", async () => {
+  it("运行记录抽屉列出该任务的历次运行（含调度发起的），前端不再本地另存", async () => {
+    mockListRuns.mockResolvedValue({ runs: [
+      runOf(),
+      runOf({ id: "r20261125-030000-d4e5f6", origin: "schedule", scheduleId: "nightly", status: "failed", reason: "CLI 未安装",
+        params: { prompt: "夜间巡检 ${TOPIC}", TOPIC: "崩溃日志" } }),
+    ] });
     await renderChat();
-    // 历史按钮常驻，初始无计数（badge 不渲染、aria-label 不带 N）
-    expect(await screen.findByRole("button", { name: "历史" })).toBeInTheDocument();
+    // 计数来自后端的运行记录
+    expect(await screen.findByRole("button", { name: "运行记录 · 2" })).toBeInTheDocument();
+    // 抽屉只拉这个任务的运行记录（Provider 把其余筛选条件补成「不限」）
+    expect(mockListRuns).toHaveBeenCalledWith(expect.objectContaining({ targetKind: "ai", targetId: "t1", status: "", origin: "" }));
+    fireEvent.click(screen.getByRole("button", { name: "运行记录 · 2" }));
+    const drawer = await screen.findByRole("complementary");
+    expect(within(drawer).getByText("运行记录 · 2")).toBeInTheDocument();
+    // 每条是当次提示词的摘要（按当次输入展开）+ 状态 + 发起来源
+    expect(within(drawer).getByText("请处理 季度报告")).toBeInTheDocument();
+    expect(within(drawer).getByText("夜间巡检 崩溃日志")).toBeInTheDocument();
+    expect(within(drawer).getByText("成功")).toBeInTheDocument();
+    expect(within(drawer).getByText("失败")).toBeInTheDocument();
+    expect(within(drawer).getByText(/调度/)).toBeInTheDocument();
+    // 运行记录由后端的保留策略管理：抽屉里只有「每条记录一个按钮 + 关闭钮」，没有清空入口
+    expect(within(drawer).getAllByRole("button")).toHaveLength(3);
+    // 当前这一轮的收尾不改变运行记录：会话页不在本地另存
     emitOut(1, "ai", "done-text");
     emitDone(2, { duration: "1.2s" });
-    // done 写入 1 条历史 → aria-label 变「历史 · 1」；顶栏读数完成 + 时长
-    const counted = await screen.findByRole("button", { name: "历史 · 1" });
-    expect(screen.getByText("· 1.2s")).toBeInTheDocument();
-    // 运行结束：停止钮撤下、发送钮回来
-    expect(screen.queryByRole("button", { name: "停止" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "发送" })).toBeEnabled();
-    fireEvent.click(counted);
-    const drawer = await screen.findByRole("complementary");
-    expect(within(drawer).getByText("历史记录 · 1")).toBeInTheDocument();
-    expect(within(drawer).getByText("请处理 季度报告")).toBeInTheDocument();
-    expect(within(drawer).getByText("done-text")).toBeInTheDocument();
-    // 清空历史：计数消失、抽屉转空态
-    fireEvent.click(within(drawer).getByRole("button", { name: "清空历史" }));
-    expect(screen.getByRole("button", { name: "历史" })).toBeInTheDocument();
-    expect(screen.getByText("暂无历史记录")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "运行记录 · 2" })).toBeInTheDocument();
   });
 
-  it("点历史条目显示完成态而非生成中（liveIndex 三态契约回归）；会话 id 回填续接 chip", async () => {
-    await renderChat();
-    emitOut(1, "ai-thinking", "想一想");
-    emitOut(2, "ai-tool", JSON.stringify({ id: "call_1", name: "Read", input: { file_path: "/a/package.json" } }));
-    emitOut(3, "ai-tool", JSON.stringify({ id: "call_1", content: "react 19" }));
-    emitOut(4, "ai", "最终回答");
-    emitDone(5, {
-      duration: "3.5s",
-      readout: { durationMs: 3500, inputTokens: 100, outputTokens: 20, costUsd: 0.01, sessionId: "sess-a1b2c3" },
+  it("runs:changed 之后重拉运行记录（调度发起的运行前端没订阅其输出，只能从这里得知）", async () => {
+    await renderChat({ run: false });
+    expect(await screen.findByRole("button", { name: "运行记录" })).toBeInTheDocument();
+    mockListRuns.mockResolvedValue({ runs: [runOf()] });
+    await act(async () => {
+      listeners["runs:changed"]?.({ data: { run_id: runOf().id, status: "succeeded" } });
+      await new Promise((resolve) => setTimeout(resolve, 120));
     });
-    // 打开历史抽屉并点选条目 → 只读查看态（进入查看时需显式滚到底，读数行才可见）。
-    // 实时气泡也显示同一条 prompt，故条目查询限定在抽屉内。
-    scrollToBottomMock.mockClear();
-    fireEvent.click(await screen.findByRole("button", { name: "历史 · 1" }));
+    expect(await screen.findByRole("button", { name: "运行记录 · 1" })).toBeInTheDocument();
+  });
+
+  it("没有运行记录时抽屉是空态", async () => {
+    await renderChat({ run: false });
+    fireEvent.click(await screen.findByRole("button", { name: "运行记录" }));
     const drawer = await screen.findByRole("complementary");
+    expect(within(drawer).getByText("运行记录 · 0")).toBeInTheDocument();
+    expect(within(drawer).getByText("暂无运行记录")).toBeInTheDocument();
+  });
+
+  it("点一条运行记录：进运行详情查看那一轮；它的会话 id 回填到续接 chip", async () => {
+    mockListRuns.mockResolvedValue({ runs: [runOf({ outputs: { session_id: "sess-a1b2c3", text: "最终回答" } })] });
+    await renderChat({ run: false });
+    fireEvent.click(await screen.findByRole("button", { name: "运行记录 · 1" }));
+    const drawer = await screen.findByRole("complementary");
+    // 运行过程只在运行详情里查看（全应用唯一一处），会话页没有只读的回看态：还停在会话页
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("ai-chat");
     fireEvent.click(within(drawer).getByText("请处理 季度报告"));
-    await act(() => Promise.resolve());
-    expect(scrollToBottomMock).toHaveBeenCalled();
-    // Thread 必须带 min-h-0：基类 h-full（height:100%）在 flex 列里会把末尾读数行/composer 挤出视口
-    expect(document.querySelector('[data-slot="thread"]')).toHaveClass("min-h-0");
-    // 查看横幅 + 会话 id（顶部展示 + 回填到 resume chip）+ 终点读数行存在
-    expect(await screen.findByText(/正在查看历史记录/)).toBeInTheDocument();
-    expect(screen.getAllByText(/sess-a1b2c3/).length).toBeGreaterThan(0);
-    expect(screen.getAllByText("3.5s").length).toBeGreaterThan(0);
-    // live 态文案不得出现（历史段 durationMs 为 undefined，不能误判为 null=进行中）
-    expect(screen.queryByText("生成中")).not.toBeInTheDocument();
-    expect(screen.queryByText("调用中")).not.toBeInTheDocument();
-    expect(screen.queryByText("思考中")).not.toBeInTheDocument();
-    // 历史回答正文仍在渲染
-    expect(screen.getByText(/最终回答/)).toBeInTheDocument();
-    // 查看历史即「准备续接该会话」：session id 回填到 resume
-    expect(screen.getByRole("button", { name: /续接会话\s*sess-a1b2c3/ })).toBeInTheDocument();
-    // 返回当前：横幅撤下，续接会话保留（下一次发送就接着这个会话）
-    fireEvent.click(screen.getByRole("button", { name: /返回当前/ }));
-    await act(() => Promise.resolve());
-    expect(screen.queryByText(/正在查看历史记录/)).not.toBeInTheDocument();
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("run-detail");
+    // 点一条运行记录即「准备续接该会话」：session id 回填到续接 chip
     expect(screen.getByRole("button", { name: /续接会话\s*sess-a1b2c3/ })).toBeInTheDocument();
     // chip 上的 × 清除 → 回到新会话
     fireEvent.click(screen.getByRole("button", { name: "清除续接会话" }));
-    expect(screen.queryByRole("button", { name: "清除续接会话" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /续接会话\s*新会话/ })).toBeInTheDocument();
+  });
+
+  it("没有会话 id 的运行记录不回填续接 chip", async () => {
+    mockListRuns.mockResolvedValue({ runs: [runOf({ outputs: {} })] });
+    await renderChat({ run: false });
+    fireEvent.click(await screen.findByRole("button", { name: "运行记录 · 1" }));
+    const drawer = await screen.findByRole("complementary");
+    fireEvent.click(within(drawer).getByText("请处理 季度报告"));
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("run-detail");
     expect(screen.getByRole("button", { name: /续接会话\s*新会话/ })).toBeInTheDocument();
   });
 
@@ -327,13 +365,17 @@ describe("AiChatView", () => {
       system: "你是助手",
       TOPIC: "年度总结",
     });
-    // 这一轮带回了会话 id → 落历史；点历史条目把它回填到续接 chip
+    // 这一轮跑完：后端落盘并广播，运行记录里带着它的会话 id；点那条记录把它回填到续接 chip
     emitOut(1, "ai", "ok");
     emitDone(2, { readout: { sessionId: "sess-r9" } });
-    fireEvent.click(await screen.findByRole("button", { name: "历史 · 1" }));
+    mockListRuns.mockResolvedValue({ runs: [runOf({ outputs: { session_id: "sess-r9" }, params: { prompt: "请处理 ${TOPIC}", TOPIC: "年度总结" } })] });
+    await act(async () => {
+      listeners["runs:changed"]?.({ data: { status: "succeeded" } });
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    });
+    fireEvent.click(await screen.findByRole("button", { name: "运行记录 · 1" }));
     const drawer = await screen.findByRole("complementary");
     fireEvent.click(within(drawer).getByText("请处理 年度总结"));
-    fireEvent.click(screen.getByRole("button", { name: /返回当前/ }));
     fireEvent.click(screen.getByRole("button", { name: "发送" }));
     expect(mockRunAi).toHaveBeenCalledTimes(2);
     expect(mockRunAi).toHaveBeenLastCalledWith("t1", {
@@ -353,18 +395,17 @@ describe("AiChatView", () => {
     expect(mockRunAi).toHaveBeenCalledTimes(1);
     emitOut(1, "ai", "ok");
     emitDone(2);
-    expect(await screen.findByRole("button", { name: "历史 · 1" })).toBeInTheDocument();
-    // 上一轮收尾后：⌘Enter 起新一轮
+    // 上一轮收尾后发送钮回来：⌘Enter 起新一轮
+    expect(await screen.findByRole("button", { name: "发送" })).toBeEnabled();
     fireEvent.keyDown(screen.getByPlaceholderText(/输入/), { key: "Enter", metaKey: true });
     expect(mockRunAi).toHaveBeenCalledTimes(2);
   });
 
-  it("RunAi 被拒（后端判正在运行）：会话页显示失败原因，不算一次运行、不落历史", async () => {
+  it("RunAi 被拒（后端判正在运行）：会话页显示失败原因，不算一次运行", async () => {
     mockRunAi.mockRejectedValue("任务正在运行");
     await renderChat();
     expect(await screen.findByText("运行失败")).toBeInTheDocument();
     expect(screen.getByText("任务正在运行")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "历史" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "停止" })).not.toBeInTheDocument();
   });
 
@@ -386,7 +427,8 @@ describe("AiChatView", () => {
     emitOut(1, "ai", "ok");
     emitOut(2, "stderr", "warn-line");
     emitDone(3);
-    expect(await screen.findByRole("button", { name: "历史 · 1" })).toBeInTheDocument();
+    // 收尾后发送钮回来
+    expect(await screen.findByRole("button", { name: "发送" })).toBeEnabled();
     expect(screen.getByText("诊断输出")).toBeInTheDocument();
     expect(screen.getByText("[stderr] warn-line")).toBeInTheDocument();
     expect(screen.queryByText("运行失败")).not.toBeInTheDocument();
@@ -397,7 +439,7 @@ describe("AiChatView", () => {
     emitOut(1, "stdout", "noise");
     emitOut(2, "ai", "ok");
     emitDone(3);
-    expect(await screen.findByRole("button", { name: "历史 · 1" })).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "发送" })).toBeEnabled();
     expect(screen.queryByText("诊断输出")).not.toBeInTheDocument();
     expect(screen.queryByText("运行失败")).not.toBeInTheDocument();
     expect(screen.queryByText("noise")).not.toBeInTheDocument();

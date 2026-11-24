@@ -108,8 +108,11 @@ func TestDefinitionTarget(t *testing.T) {
 	}{
 		{"action", Definition{Action: "run-a"}, TargetAction, "run-a", false},
 		{"workflow", Definition{Workflow: "flow-a"}, TargetWorkflow, "flow-a", false},
+		{"ai", Definition{AI: "task-a"}, TargetAI, "task-a", false},
 		{"missing", Definition{}, "", "", true},
-		{"ambiguous", Definition{Action: "run-a", Workflow: "flow-a"}, "", "", true},
+		{"ambiguous action+workflow", Definition{Action: "run-a", Workflow: "flow-a"}, "", "", true},
+		{"ambiguous action+ai", Definition{Action: "run-a", AI: "task-a"}, "", "", true},
+		{"ambiguous workflow+ai", Definition{Workflow: "flow-a", AI: "task-a"}, "", "", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			kind, id, err := tc.def.Target()

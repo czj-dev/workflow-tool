@@ -14,6 +14,8 @@ import { AiYamlEditor } from "./AiYamlEditor";
 import { SettingsView } from "./SettingsView";
 import { SchedulerView } from "./SchedulerView";
 import { ActionsGridView } from "./ActionsGridView";
+import { RunsView } from "./RunsView";
+import { RunDetailView } from "./RunDetailView";
 import { WorkflowsGridView } from "./WorkflowsGridView";
 
 // 右栏容器：按 view 分派到对应视图。
@@ -46,6 +48,9 @@ function OtherView() {
   if (view === "fragments") return <FragmentsView />;
   if (view === "ai-grid") return <AiGridView />;
   if (view === "ai-chat") return <AiChatView />;
+  // 运行记录（M3）：全部目标的运行列表与单条运行详情
+  if (view === "runs") return <RunsView />;
+  if (view === "run-detail") return <RunDetailView />;
   if (view === "logcat") return <LogcatView />;
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col">

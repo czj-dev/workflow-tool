@@ -9,11 +9,16 @@ import (
 	"github.com/wailsapp/wails/v3/pkg/application"
 
 	"workflow-tool/internal/runner"
+	"workflow-tool/internal/runstore"
+	"workflow-tool/internal/target"
 )
 
 // 本文件是 action:<id>:* / ai:<id>:* / workflow:<id>:* 事件契约的唯一权威定义：
 // 事件名、payload 形状、到达顺序协议（seq 排序 / step 归桶）全部集中在这里，
 // 改事件协议只需改本文件（+前端对应处理）。
+//
+// 运行日志（runs/<run-id>/events.ndjson）也在这里落盘：emit 与落盘是同一处代码、
+// 同一个 payload，所以运行详情回放看到的与前端当时收到的事件同构。
 
 // actionEvents 封装单个目标（action 或 AI 任务）的事件通道
 // （<prefix>:<id>:output / <prefix>:<id>:done），prefix 为 action 或 ai。
@@ -34,6 +39,9 @@ type actionEvents struct {
 	prefix string // "action" | "ai"
 	id     string
 	seq    atomic.Int64
+	// sink 是本次运行的记录会话；每次 emit 的同一份 payload 先落盘再推送前端。
+	// nil（运行记录不可用）时落盘为空操作。
+	sink *runstore.Session
 }
 
 func newActionEvents(app *application.App, id string) *actionEvents {
@@ -65,14 +73,15 @@ func (e *actionEvents) nextSeq() int64 { return e.seq.Add(1) }
 // tree=树帧（line=树 JSON 原文，前端 JSON.parse 后原地渲染内联树块；Go 域经
 // adb.OpContext.EmitTree 直发，script 动作经 runner.parseTreeLine 的 ##[tree ...]
 // 协议行转入同一流）。
+// 取号不受 app 是否在场影响：headless 运行没有前端，运行日志仍要与有前端时同构。
 func (e *actionEvents) EmitFunc() runner.EmitFunc {
 	return func(stream, line string) {
+		payload := map[string]any{"stream": stream, "line": line, "seq": e.nextSeq()}
+		e.sink.Output(payload)
 		if e.app == nil || e.app.Event == nil {
 			return
 		}
-		e.app.Event.Emit(e.name("output"), map[string]any{
-			"stream": stream, "line": line, "seq": e.nextSeq(),
-		})
+		e.app.Event.Emit(e.name("output"), payload)
 	}
 }
 
@@ -92,9 +101,6 @@ func (e *actionEvents) DoneUnordered(exitCode int, errMsg string, d time.Duratio
 }
 
 func (e *actionEvents) emitDone(exitCode int, errMsg string, d time.Duration, readout map[string]any, seq int64) {
-	if e.app == nil || e.app.Event == nil {
-		return
-	}
 	payload := map[string]any{
 		"exitCode": exitCode,
 		"err":      errMsg,
@@ -106,6 +112,10 @@ func (e *actionEvents) emitDone(exitCode int, errMsg string, d time.Duration, re
 	if seq > 0 {
 		payload["seq"] = seq
 	}
+	e.sink.Done(payload)
+	if e.app == nil || e.app.Event == nil {
+		return
+	}
 	e.app.Event.Emit(e.name("done"), payload)
 }
 
@@ -114,13 +124,19 @@ func (e *actionEvents) emitDone(exitCode int, errMsg string, d time.Duration, re
 // 归桶协议（前端契约）：Emit 到达顺序无保证——push 末尾的 100% progress 会与
 // step-done/下一个 step-start 抢跑，输了就被前端折进下一个 step 的输出里。
 // 每条 output 事件带 step 归属（当前 step 索引），前端按索引落桶，与到达顺序无关。
+// 前端的实时归约只按 step 落桶、不依赖 seq；seq（每次运行从 1 递增，done 不取号）
+// 供运行日志回放与「运行中的记录」的详情跟踪排序、去重——与 action / ai 事件同一契约。
 //
 // 并发安全：curStep 写发生在 executor goroutine 的 step 边界，读发生在 runner 的
 // 输出 goroutine；runner.Run 返回前已 join 全部输出 goroutine，故两者有序不重叠。
+// seq 的取号是原子的：executor 的 step 边界与 runner 的输出协程都会 emit。
 type workflowEvents struct {
 	app     *application.App
 	id      string
 	curStep string
+	seq     atomic.Int64
+	// sink 是本次运行的记录会话（nil 安全，见 actionEvents.sink）。
+	sink *runstore.Session
 }
 
 func newWorkflowEvents(app *application.App, id string) *workflowEvents {
@@ -133,25 +149,43 @@ func (e *workflowEvents) EmitFunc() runner.EmitFunc {
 		if stream == "step-start" || stream == "step-skip" {
 			e.curStep = line
 		}
+		payload := map[string]any{"stream": stream, "line": line, "step": e.curStep, "seq": e.seq.Add(1)}
+		e.sink.Output(payload)
 		if e.app == nil || e.app.Event == nil {
 			return
 		}
-		e.app.Event.Emit(workflowEventName(e.id, "output"), map[string]string{
-			"stream": stream, "line": line, "step": e.curStep,
-		})
+		e.app.Event.Emit(workflowEventName(e.id, "output"), payload)
 	}
 }
 
-// Done 发送 workflow 结束事件（workflow 无 output 排序协议，done 直接应用）。
+// Done 发送 workflow 结束事件。done 不取号、不参与排序：前端与回放都直接应用。
 func (e *workflowEvents) Done(exitCode int, errMsg string, d time.Duration) {
-	if e.app == nil || e.app.Event == nil {
-		return
-	}
-	e.app.Event.Emit(workflowEventName(e.id, "done"), map[string]any{
+	payload := map[string]any{
 		"exitCode": exitCode,
 		"err":      errMsg,
 		"duration": d.String(),
-	})
+	}
+	e.sink.Done(payload)
+	if e.app == nil || e.app.Event == nil {
+		return
+	}
+	e.app.Event.Emit(workflowEventName(e.id, "done"), payload)
+}
+
+// 应用级失效通知：payload 只作「有变化」的信号，前端收到后重新向后端取列表，
+// 不维护第二份 DTO 状态。
+const (
+	// eventSchedulesChanged：调度增删改、启停、运行开始/结束/启动失败。
+	eventSchedulesChanged = "schedules:changed"
+	// eventRunsChanged：一条运行记录被创建或写终态。
+	// payload 见 runsChangedPayload。
+	eventRunsChanged = "runs:changed"
+)
+
+// runsChangedPayload 是 runs:changed 的 payload（唯一权威定义）：{run_id, status,
+// target_kind, target_id}。带上目标，订阅方不必重拉就知道是哪个目标在变。
+func runsChangedPayload(runID, status string, kind target.Kind, id string) map[string]any {
+	return map[string]any{"run_id": runID, "status": status, "target_kind": string(kind), "target_id": id}
 }
 
 // eventName 拼目标事件名：<prefix>:<id>:<suffix>。
