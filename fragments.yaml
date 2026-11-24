@@ -50,7 +50,7 @@ fragments:
       tags:
         - Log
     - title: Asr_sn_filter
-      content: vrsdk_AsrEngine_\d+\(\d+\):\s+asrResultInfo\s+sn:\s*(\S+)\s+(offline|online)\s+asr:\s*(.+?)\s+(partial|final)_result
+      content: vrsdk_AsrEngine_\d+:\s+asrResultInfo\s+sn:\s*(\S+)\s+(offline|online)\s+asr:\s*(.+?)\s+(partial|final)_result(?:\s+(\S+))?\s*$
       tags:
         - Rg
     - title: 环境打印信息
@@ -67,3 +67,7 @@ fragments:
         adb shell dumpsys package com.baidu.che.codriver | grep -E "RECORD_AUDIO|ACCESS_FINE_LOCATION" -A2
       tags:
         - adb
+    - title: Asr_sn_filter_final
+      content: vrsdk_AsrEngine_\d+:\s+asrResultInfo\s+sn:\s*(\S+)\s+(offline|online)\s+asr:\s*(.+?)\s+(final)_result(?:\s+(\S+))?\s*$
+      tags:
+        - Log

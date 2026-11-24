@@ -23,6 +23,7 @@
 
 环境变量:
     MODEL 可选 518 / 5181 / 216-C，默认 5181；action 通过同名参数注入。
+    SPM_INSECURE=1 跳过 HTTPS 证书校验（仅限特殊网络环境的退路，见 build_ssl_context）。
 
 输出（##[output 协议行）：saved_dir / saved_count / failed_count；saved_paths 为
 成功落盘路径的 JSON 数组字符串（协议行必须单行，不能换行 join）；命中恰好 1 个
@@ -32,12 +33,16 @@
     MODEL=518 python3 spm-download.py log_1788599460103_LS6ANE0P0TK534164.zip 170216 /tmp/logs
     python3 spm-download.py log_x.zip $'170216\nCLIENT_VER' /tmp/logs   # 多片段
 """
+# PEP 604 写法（str | None）需 Python >= 3.10；此行让注解延迟求值，兼容 3.7+。
+from __future__ import annotations
+
 import concurrent.futures as cf
 import contextlib
 import json
 import ntpath
 import os
 import secrets
+import ssl
 import sys
 import tempfile
 import threading
@@ -102,6 +107,28 @@ def split_zip_url(zip_arg: str) -> tuple[str, str | None]:
     )
 
 
+def build_ssl_context() -> ssl.SSLContext | None:
+    """python.org 的 macOS Python 不读系统钥匙串，默认根证书库为空，HTTPS 全挂
+    （unable to get local issuer certificate）；有 certifi 就用它的根证书包（spm 的
+    TrustAsia 证书链在内）。None = 回退默认上下文，行为与旧版一致。SPM_INSECURE=1
+    跳过校验，仅作公司抓包代理等特殊环境的逃生口，会在 stderr 打警告。
+    """
+    if os.environ.get("SPM_INSECURE", "").strip().lower() in ("1", "true", "yes"):
+        print("警告: SPM_INSECURE=1 已跳过 HTTPS 证书校验", file=sys.stderr)
+        insecure = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        insecure.check_hostname = False
+        insecure.verify_mode = ssl.CERT_NONE
+        return insecure
+    try:
+        import certifi
+    except ImportError:
+        return None
+    return ssl.create_default_context(cafile=certifi.where())
+
+
+SSL_CONTEXT = build_ssl_context()
+
+
 def post(path: str, body: dict) -> dict:
     req = urllib.request.Request(
         BASE + path,
@@ -110,9 +137,18 @@ def post(path: str, body: dict) -> dict:
         method="POST",
     )
     try:
-        return json.load(urllib.request.urlopen(req, timeout=120))
+        return json.load(urllib.request.urlopen(req, timeout=120, context=SSL_CONTEXT))
     except urllib.error.HTTPError as e:
         raise SpmError(f"HTTP {e.code}: {e.read().decode('utf-8', 'replace')[:200]}") from e
+    except urllib.error.URLError as e:
+        if isinstance(getattr(e, "reason", None), ssl.SSLCertVerificationError):
+            raise SpmError(
+                "HTTPS 证书校验失败：本机 Python 缺根证书。"
+                "请运行 `pip3 install certifi` 后重试"
+                "（python.org 安装包也可双击 /Applications/Python 3.9/Install Certificates.command），"
+                "或设 SPM_INSECURE=1 跳过校验"
+            ) from e
+        raise
 
 
 def resolve_args(argv: list[str], env: Mapping[str, str]) -> list[str]:
@@ -279,6 +315,17 @@ def write_entry_chunks(sid: str, zip_path: str, entry: dict, f, progress: Progre
         progress.add_bytes(len(chunk))
 
 
+# 写盘分支按能力探测而非 os.name 猜测：解释器缺 openat 族（os.open/os.mkdir/os.unlink
+# 的 dir_fd、os.replace 的 src_dir_fd/dst_dir_fd——supports_dir_fd 集合登记的是底层
+# os.rename）时退回 makedirs+mkstemp 方案（Windows 原生如此，个别受限构建同样缺，
+# 会抛 "dir_fd unavailable on this platform"），独占创建与原子改名的核心保证不变。
+DIR_FD_OK = (
+    hasattr(os, "O_DIRECTORY")
+    and hasattr(os, "O_NOFOLLOW")
+    and all(fn in os.supports_dir_fd for fn in (os.open, os.mkdir, os.unlink, os.rename))
+)
+
+
 def open_output_dir(out_dir: str, parts: list[str], stack: contextlib.ExitStack) -> int:
     directory = os.open(os.sep, os.O_RDONLY | os.O_DIRECTORY)
     stack.callback(os.close, directory)
@@ -297,12 +344,13 @@ def open_output_dir(out_dir: str, parts: list[str], stack: contextlib.ExitStack)
 
 def fetch_entry(sid: str, zip_path: str, entry: dict, dest: str,
                 progress: Progress, out_dir: str) -> None:
-    """目录句柄限定写入位置，临时文件独占创建后原子改名。"""
+    """优先用目录句柄限定写入位置（解释器缺 dir_fd 能力时退回 mkstemp），
+    临时文件独占创建后原子改名。"""
     relative = os.path.relpath(dest, out_dir)
     parts = relative.split(os.sep)
     if any(part in ("", ".", "..") for part in parts):
         raise ValueError("目标路径超出输出目录")
-    if os.name == "nt":
+    if not DIR_FD_OK:
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         fd, tmp = tempfile.mkstemp(prefix=".spm-", suffix=".part",
                                     dir=os.path.dirname(dest))
