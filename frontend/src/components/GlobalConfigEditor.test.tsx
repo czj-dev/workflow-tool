@@ -12,6 +12,7 @@ const { mockGetGlobalConfig, mockSetGlobalConfig, mockGetFragments, mockGetVarRe
 
 vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   ListActions: vi.fn().mockResolvedValue({ actions: [], errors: [] }),
+  ListAiTasks: vi.fn().mockResolvedValue({ tasks: [], errors: [] }),
   RunAction: vi.fn().mockResolvedValue(undefined),
   CancelAction: vi.fn(),
   GetGlobalConfig: mockGetGlobalConfig,

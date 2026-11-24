@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
+  AiBrain01Icon,
   CommandIcon,
   Clock01Icon,
   FlashIcon,
@@ -16,6 +17,7 @@ export const STEP_ICON = {
   action: FlashIcon,
   sleep: Clock01Icon,
   run: CommandIcon,
+  ai: AiBrain01Icon,
 } as const;
 
 // 配置态的静态管线预览：每行一个步骤（节点 + 连线 + 序号 + 图标 + 名称 + kind），

@@ -29,7 +29,25 @@ func (r *runRegistry) begin(id string) (context.Context, bool) {
 	if _, exists := r.running[id]; exists {
 		return nil, false
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	return r.register(id, context.Background())
+}
+
+// beginChild 登记 id 并把 ctx 挂在 parent 之下：既占目标锁，又随 parent 取消而终止。
+// 用于 workflow 的 AI 步骤——取消工作流（parent）或从任务上 cancel(id) 都会终止该步骤。
+// id 已在运行时返回 ok=false：撞锁不等待，由调用方决定失败。
+func (r *runRegistry) beginChild(id string, parent context.Context) (context.Context, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if _, exists := r.running[id]; exists {
+		return nil, false
+	}
+	return r.register(id, parent)
+}
+
+// register 创建挂在 parent 下的可取消 ctx 并登记 cancel。调用方须持有 r.mu，
+// 且已确认 id 未在运行。
+func (r *runRegistry) register(id string, parent context.Context) (context.Context, bool) {
+	ctx, cancel := context.WithCancel(parent)
 	r.running[id] = cancel
 	return ctx, true
 }

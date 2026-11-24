@@ -2,7 +2,7 @@
 # 后端构建：生成 bindings → 编译单二进制
 #   Windows：-H windowsgui 隐藏控制台；编译前释放占用中的 exe
 #   macOS / Linux：普通二进制
-# 用法：bash build/backend.sh   （需 frontend/dist 已就绪）
+# 用法：bash deploy/backend.sh   （需 frontend/dist 已就绪）
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -30,7 +30,7 @@ echo "→ 生成 bindings…"
 
 # dist 必须就绪（embed 进二进制）
 if [ ! -d "$FRONTEND/dist" ]; then
-  echo "✗ frontend/dist 缺失，请先跑 build/frontend.sh" >&2
+  echo "✗ frontend/dist 缺失，请先跑 deploy/frontend.sh" >&2
   exit 1
 fi
 

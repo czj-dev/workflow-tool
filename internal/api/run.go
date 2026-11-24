@@ -10,9 +10,12 @@ import (
 
 	"workflow-tool/internal/actionrun"
 	"workflow-tool/internal/adb/logcat"
+	"workflow-tool/internal/ai"
+	"workflow-tool/internal/airun"
 	"workflow-tool/internal/builtinvars"
 	"workflow-tool/internal/registry"
 	"workflow-tool/internal/runner"
+	"workflow-tool/internal/workflow"
 )
 
 // controlChanCap 控制通道缓冲：前端 300ms 防抖后过滤更新的到达速率远低于后端
@@ -202,20 +205,143 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 	}
 	res := r.Run(ctx, params, emit)
 
-	// LLM 形态提取终点读数（cost/tokens/session_id），随 done 事件下发。
-	var readout map[string]any
-	if la.Def.Command.LLM.Prompt != "" {
-		readout = llmReadout(res.Outputs, res.Duration)
-	}
-	errMsg := errStr(res.Err)
-	// LLM 超时被杀时把裸的 context deadline exceeded 换成可行动的提示：
-	// 会话 id 已在 readout 里，用户可填入 SESSION_ID 参数续接重跑而非从头再来。
-	if errors.Is(res.Err, context.DeadlineExceeded) && la.Def.Command.LLM.Prompt != "" {
-		errMsg = fmt.Sprintf("LLM 调用超时（上限 %s），进程已终止；可将 readout 中的 sessionId 填入 SESSION_ID 参数续接会话重跑", la.Timeout)
-	}
-	ev.Done(res.ExitCode, errMsg, res.Duration, readout)
+	ev.Done(res.ExitCode, errStr(res.Err), res.Duration, nil)
 	if source != nil {
 		finished = true
 		s.finishScheduleRun(source, source.token, res.ExitCode, res.Err, res.Duration)
+	}
+}
+
+// ——— AI 任务的执行（列表与 CRUD 在 ai.go；对标上面的动作执行路径）———
+
+// RunAi 按 id 启动 AI 任务，输出通过 ai:<id>:* 事件推送。
+// params 是本次输入：已声明参数的值 + 保留运行参数 prompt/system/resume，原样交给
+// airun.Build（不做 ${VAR} 预展开——用户在输入框里写什么就进什么模板）。
+func (s *Service) RunAi(id string, params map[string]any) error {
+	return s.runAi(id, params, nil)
+}
+
+func (s *Service) runAi(id string, params map[string]any, source *runSource) error {
+	lt, ok := s.aiRegistry().Get(id)
+	if !ok {
+		return fmt.Errorf("未知 AI 任务 %q", id)
+	}
+	ctx, ok := s.aiRunning.begin(id)
+	if !ok {
+		err := fmt.Errorf("AI 任务 %q 正在运行", id)
+		if source != nil {
+			s.failScheduleStart(source.scheduleID, err)
+		}
+		return err
+	}
+	if source != nil {
+		started := s.startScheduleRun(source.scheduleID)
+		source.token = started.token
+	}
+
+	go s.executeAi(ctx, id, lt, params, source)
+	return nil
+}
+
+// CancelAi 取消正在运行的 AI 任务。任务若正被某个 workflow 的 ai step 占用，
+// 取消的是那个步骤本身（步骤失败，workflow 随之停止）。
+func (s *Service) CancelAi(id string) {
+	s.aiRunning.cancel(id)
+}
+
+// executeAi 在独立 goroutine 里执行 AI 任务（事件协议见 events.go 的 newAiEvents）：
+// 构造 runner → 运行 → done 事件（带终点读数）。
+func (s *Service) executeAi(ctx context.Context, id string, lt ai.LoadedTask, params map[string]any, source *runSource) {
+	started := time.Now()
+	defer s.aiRunning.end(id)
+	finished := false
+	defer func() {
+		if source != nil && !finished {
+			s.finishScheduleRun(source, source.token, -1, ctx.Err(), time.Since(started))
+		}
+	}()
+
+	ev := newAiEvents(s.app, id)
+	res := runAiOnce(ctx, lt, s.aiDeps, airun.Options{
+		Params: params,
+		Global: s.GetGlobalConfig(),
+	}, ev.EmitFunc())
+
+	// 终点读数（cost/tokens/session_id）随 done 事件下发，聊天页终点展示。
+	var readout map[string]any
+	if len(res.Outputs) > 0 {
+		readout = aiReadout(res.Outputs, res.Duration)
+	}
+	ev.Done(res.ExitCode, errStr(res.Err), res.Duration, readout)
+	if source != nil {
+		finished = true
+		s.finishScheduleRun(source, source.token, res.ExitCode, res.Err, res.Duration)
+	}
+}
+
+// runAiOnce 是手动运行与 workflow ai step 的共用执行段：构造 AIRunner → 运行。
+// 输入原样交给 airun.Build，模板展开、必填与未知参数校验都在那里完成；早于进程
+// 启动的失败也向 stderr 推一行原因，让两种调用方的事件流里都看得到。
+func runAiOnce(ctx context.Context, lt ai.LoadedTask, deps airun.Deps, opts airun.Options, emit runner.EmitFunc) runner.Result {
+	r, err := airun.Build(ctx, lt, deps, opts)
+	if err != nil {
+		emit("stderr", err.Error())
+		return runner.Result{ExitCode: -1, Err: err,
+			Outputs: map[string]string{"exit_code": "-1", "success": "false"}}
+	}
+	res := r.Run(ctx, nil, emit)
+	// 超时被杀时把裸的 context deadline exceeded 换成可行动的提示：会话 id 已在
+	// outputs 里（session_id），后续运行用保留参数 resume 续接，不必从头再来。
+	if errors.Is(res.Err, context.DeadlineExceeded) {
+		res.Err = &aiTimeoutError{limit: lt.Timeout, cause: res.Err}
+	}
+	return res
+}
+
+// aiTimeoutError 是 AI 运行超时的对外错误：文案给出续接办法，Unwrap 仍指向底层原因
+// （簿记与调用方继续用 errors.Is 判定 context.DeadlineExceeded）。
+type aiTimeoutError struct {
+	limit time.Duration
+	cause error
+}
+
+func (e *aiTimeoutError) Error() string {
+	return fmt.Sprintf("AI 运行超时（上限 %s），进程已终止；可用 resume 续接该会话重跑", e.limit)
+}
+
+func (e *aiTimeoutError) Unwrap() error { return e.cause }
+
+// aiStepRun 构造 workflow 中 ai step 的执行回调（对标 actionrun.WorkflowCallbacks）。
+//   - 占目标锁：与手动运行共用 aiRunning。撞锁立即失败、不等待。
+//   - ctx 派生自工作流 ctx：取消工作流或 CancelAi 都会终止该步骤。
+//   - 输入原样交给 airun.Build，与手动运行同一条构造路径；step 的 workflow+step env
+//     先用 merged 展开 ${VAR}（executor 只做了 ${{ }} 替换），再作为 ExtraEnv 覆盖任务定义。
+//   - 不发 ai:<id>:*：输出带步骤归属落在 workflow:<wf-id>:output 上。
+func (s *Service) aiStepRun(wfCtx context.Context, merged map[string]any) workflow.AIRunFunc {
+	return func(req workflow.AIRequest) runner.Result {
+		fail := func(err error) runner.Result {
+			req.Emit("stderr", err.Error())
+			return runner.Result{ExitCode: -1, Err: err,
+				Outputs: map[string]string{"exit_code": "-1", "success": "false"}}
+		}
+		lt, ok := s.aiRegistry().Get(req.TaskID)
+		if !ok {
+			return fail(fmt.Errorf("未知 AI 任务 %q", req.TaskID))
+		}
+		ctx, ok := s.aiRunning.beginChild(req.TaskID, wfCtx)
+		if !ok {
+			return fail(fmt.Errorf("AI 任务 %q 正在运行，步骤不等待", req.TaskID))
+		}
+		defer s.aiRunning.end(req.TaskID)
+
+		env := make(map[string]string, len(req.Env))
+		for k, v := range req.Env {
+			env[k] = runner.Expand(req.Ctx, v, merged, s.aiDeps.Builtins)
+		}
+		return runAiOnce(ctx, lt, s.aiDeps, airun.Options{
+			Params:   req.Params,
+			Global:   s.GetGlobalConfig(),
+			ExtraEnv: env,
+		}, req.Emit)
 	}
 }

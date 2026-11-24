@@ -39,25 +39,46 @@ import {
   DeleteSchedule,
   SetScheduleEnabled,
   RunScheduleNow,
+  ListAiTasks,
+  RunAi,
+  CancelAi,
+  GetAiYaml,
+  SetAiYaml,
 } from "../../bindings/workflow-tool/internal/api/service.js";
 import type {
   ActionItem,
+  AiTaskItem,
   ScheduleInput,
   ScheduleItem,
   WorkflowItem,
 } from "../../bindings/workflow-tool/internal/api/models.js";
 import type { Fragment } from "../../bindings/workflow-tool/internal/registry/models.js";
-import { useLlmHistory, type LlmHistoryEntry } from "../hooks/useLlmHistory";
+import {
+  appendAiHistory,
+  useAiHistory,
+  type AiHistoryEntry,
+  type AiHistoryTool,
+} from "../hooks/useAiHistory";
 import {
   applyEvent,
   finalizePanel,
   parseToolEvent,
   EMPTY_PANEL_STATE,
-  type LlmPanelState,
-} from "../components/llm/reduceStream";
+  type AiPanelState,
+} from "../components/ai/reduceStream";
 import { foldOutputLine } from "../lib/outputFold";
 import { treeFrameToText } from "../lib/treeFrame";
 import { expandVars } from "../lib/vars";
+import {
+  AI_RESUME,
+  aiCanRun,
+  aiDraftFor,
+  aiRunParams,
+  flushAiReply,
+  mergeAiReply,
+  type AiDraft,
+  type AiPatch,
+} from "../lib/ai";
 import { missingRequired, resolveActionParams } from "../lib/params";
 import { invalidArrayParams, normalizeArrayParams } from "../lib/arrayParams";
 import {
@@ -77,6 +98,7 @@ import type {
   LogcatEntry,
   LogcatReplaceFrame,
   LogcatRule,
+  AiDiagLine,
 } from "../types/events";
 import { EMPTY_LOGCAT_RULE } from "../types/events";
 
@@ -115,6 +137,72 @@ interface ExitInfo {
   duration: string;
 }
 
+// ——— AI 任务的运行态（AI 是与 action 并列的独立对象，见 docs/ai.md） ———
+
+// 单个 AI 任务的会话视图态（聊天页回放用）。由 Provider 持有：聊天页切走再切回
+// （组件卸载重挂载）不丢。
+interface AiViewState {
+  text: string;
+  thinking: string;
+  panel: AiPanelState;
+  // 本轮发送的 prompt 快照（已展开 ${VAR}）与发送时刻：聊天页气泡回显用
+  sentPrompt: string;
+  sentAt: number | null;
+  // 运行期间 runner 的 stdout/stderr 行（诊断用：失败时在聊天页展示）
+  diag: AiDiagLine[];
+}
+
+const EMPTY_AI_VIEW: AiViewState = {
+  text: "",
+  thinking: "",
+  panel: EMPTY_PANEL_STATE,
+  sentPrompt: "",
+  sentAt: null,
+  diag: [],
+};
+
+// 一次 AI 运行的捕获（按任务 id 一份，前台/后台运行都建）。回放与收尾都读它，不依赖
+// currentId——后台运行时 currentId 是别的项。
+interface AiCapture {
+  // 运行起点：面板工序段时间轴 = Date.now() - startAt
+  startAt: number;
+  // 本次运行的 seq 帧门（结构同 action 的 seqGate，号段独立：每次运行后端从 1 重新取号）
+  gate: { nextSeq: number; pending: Map<number, OutputEventData>; consumed: Set<number> };
+  view: AiViewState;
+  // 运行时的完整草稿（写历史用）与实际发送的参数（再跑用）
+  draft: AiDraft;
+  sent: AiDraft;
+  // done 事件与到达时刻
+  done: DoneEventData | null;
+  doneAt: number | null;
+  settleTimer: ReturnType<typeof setTimeout> | null;
+}
+
+// done 已到但帧门里还有空洞（output 与 done 各起 goroutine 投递，done 可能抢跑）时，
+// 给迟到增量一段有界宽限再收尾：不给会随机丢回复尾巴，不设上限则丢包时永远不落历史。
+const AI_SETTLE_GRACE_MS = 400;
+const AI_SETTLE_RETRY_MS = 50;
+// 诊断行缓冲上限（只留尾部，够失败时回看）与单行长度上限
+const MAX_AI_DIAG = 200;
+const MAX_AI_DIAG_LINE = 2000;
+
+// 收尾后的面板里的工具段 → 历史快照
+function toolSegments(panel: AiPanelState): AiHistoryTool[] {
+  const tools: AiHistoryTool[] = [];
+  for (const s of panel.segments) {
+    if (s.kind !== "tool") continue;
+    tools.push({
+      id: s.id,
+      name: s.name,
+      summary: s.summary,
+      result: s.result,
+      isError: s.isError,
+      durationMs: s.durationMs ?? undefined,
+    });
+  }
+  return tools;
+}
+
 // 右栏视图枚举：OutputPanel 按此分派。原先在接口/useState/setView 三处重复，抽成单一来源。
 // 表单不再是视图：action / workflow 参数表单走左侧非模态抽屉 ParamSheet（formSheetOpen）。
 export type RunnerView =
@@ -129,8 +217,9 @@ export type RunnerView =
   | "actions-grid"
   | "workflows-grid"
   | "schedules"
-  | "llm-grid"
-  | "llm-chat";
+  | "ai-grid"
+  | "ai-chat"
+  | "ai-edit";
 
 export interface RunnerContextValue {
   actions: ActionItem[];
@@ -148,17 +237,20 @@ export interface RunnerContextValue {
   varRefCounts: Record<string, number | undefined>;
   formValues: Record<string, string>;
   view: RunnerView;
-  llmText: string;
+  // AI 会话视图态（聊天页当前展示的那一轮）：回复/思考全文、发送快照、面板归约态、诊断行。
+  // 放在 Provider 而非 AiChatView 本地 state，才能在切走/切回（组件卸载重挂载）后保留。
+  aiText: string;
   thinkingText: string;
   // 本轮发送的 prompt 快照（已展开 ${VAR}）与发送时刻：聊天页气泡回显用。
-  // 放在 Provider 而非 LlmChatView 本地 state，才能在切走/切回（组件卸载重挂载）后保留。
   sentPrompt: string;
   sentAt: number | null;
-  // LLM 输出面板归约态（思考/工具/回答工序段 + 终点读数）；llmText/thinkingText 保留供历史与轻量判断
-  llmPanel: LlmPanelState;
-  // LLM 运行历史（按 currentId 分桶，最新在前）+ 清空
-  llmHistory: LlmHistoryEntry[];
-  clearLlmHistory: () => void;
+  // AI 输出面板归约态（思考/工具/回答工序段 + 终点读数）；aiText/thinkingText 保留供历史与轻量判断
+  aiPanel: AiPanelState;
+  // 本轮运行期间 runner 的 stdout/stderr 行（聊天页失败时展示）
+  aiDiag: AiDiagLine[];
+  // AI 运行历史（按 currentId 分桶，最新在前）+ 清空
+  aiHistory: AiHistoryEntry[];
+  clearAiHistory: () => void;
   // logcat 视图：结构化条目缓冲（环形 ~10000，对齐后端 raw ring）
   logcatEntries: LogcatEntry[];
   // 统一过滤规则（后端唯一求值器，前端只编辑+下发；启动/切回时由 params 重建）
@@ -183,8 +275,8 @@ export interface RunnerContextValue {
   toggleFragments: () => void;
   // 参数表单抽屉（非模态，左侧，action / workflow 共用单实例）：开合态会话内有效不落盘。
   // selectPreset / selectWorkflow / editRerun 打开（主区视图原地不动，抽屉只是叠加）；
-  // 前台点火（runAction / runWorkflow 非 background）与切走 currentId 的导航
-  // （focusRunning / focusWorkflow / openLlmChat）关闭。内容按 currentId 从
+  // 前台点火（runAction / runWorkflow / runAi 非 background）与切走 currentId 的导航
+  // （focusRunning / focusWorkflow / focusAi / openAiChat）关闭。内容按 currentId 从
   // actions / workflows 解析，故单实例重定向：开着时点其他项即替换内容。
   formSheetOpen: boolean;
   setFormSheetOpen: (v: boolean) => void;
@@ -203,26 +295,39 @@ export interface RunnerContextValue {
   wfStartedAt: number | null;
   workflowFormValues: Record<string, string>;
   runningWorkflowId: string | null;
-  // 使用频次（三桶：action-usage / workflow-usage / llm-usage）。写入只在 runAction /
-  // runWorkflow 单点发生，读取经 useActionUsage(bucket)——各视图与侧栏共用这一份，
+  // 使用频次（三桶：action-usage / workflow-usage / ai-usage）。写入只在 runAction /
+  // runWorkflow / runAi 单点发生，读取经 useActionUsage(bucket)——各视图与侧栏共用这一份，
   // 跑一次即所有排序同步刷新。
   usage: UsageByBucket;
   runAction: (id: string, params?: Record<string, any>, background?: boolean, literalKeys?: string[]) => Promise<void>;
-  // 上次运行时实际使用的 params（按 id 索引，action / workflow 共用）。空对象表示无参运行过。
+  // 上次运行时实际使用的 params（按 id 索引，action / workflow / ai 共用）。空对象表示无参运行过。
   // 存在即代表"跑过至少一次"，OutputToolbar / WorkflowView 据此显示再跑入口。
   lastRunParams: Record<string, Record<string, string>>;
-  // 用 lastRunParams[id] 原样再跑（自动分派 action / workflow）
+  // 用 lastRunParams[id] 原样再跑（自动分派 action / workflow / ai）
   rerun: (id: string) => void;
   // 用 lastRunParams[id] 预填表单并切到 form / workflow-form 视图，供用户改后再跑
   editRerun: (id: string) => void;
-  // 打开某 LLM 卡片的聊天页空态；presetName 非空时带预设进对话（预填合并 preset > default > 全局）
-  openLlmChat: (id: string, presetName?: string) => void;
-  // 把 id 切回 currentId 并切视图（用于点侧栏"运行中的动作"回到其输出）
-  focusRunning: (id: string, targetView: "output" | "llm-chat" | "logcat") => void;
+  // AI 任务：列表 / 加载错误 / 当前任务的完整草稿（已声明参数 + prompt/system/resume）
+  aiTasks: AiTaskItem[];
+  aiErrors: string[];
+  aiDraft: AiDraft;
+  // 改当前任务草稿的一个键；传 undefined 撤回对该键的修改（回到定义默认值）
+  setAiDraftValue: (key: string, value: string | undefined) => void;
+  // 运行 AI 任务。overrides（预设值等）并入草稿；background=true（网格卡 run）只登记运行态不切视图。
+  runAi: (id: string, overrides?: AiPatch, background?: boolean) => Promise<void>;
+  // 该 AI 任务是否在跑（含正被 workflow 的 AI 步骤执行）
+  isAiRunning: (id: string) => boolean;
+  // 回到某 AI 任务的会话页（运行中则回放；被 workflow 占用则去那个 workflow）
+  focusAi: (id: string) => void;
+  // 打开某 AI 任务的会话页空态；patch（预设值等）并入草稿。该任务正在运行则改为回到其会话。
+  openAiChat: (id: string, patch?: AiPatch) => void;
+  // 把 id 切回 currentId 并切视图（用于点侧栏"运行中的动作"回到其输出；AI 任务走 focusAi）
+  focusRunning: (id: string, targetView: "output" | "logcat") => void;
   // 把仍在运行的 workflow 切回 workflow 视图（点侧栏运行中 workflow 用）
   focusWorkflow: (id: string) => void;
-  // 从卡面直达 YAML 编辑页（action → edit / workflow → workflow-edit），编辑器以 currentId 初始化
-  openYamlEditor: (id: string, kind: "action" | "workflow") => void;
+  // 从卡面直达 YAML 编辑页（action → edit / workflow → workflow-edit / ai → ai-edit），
+  // 编辑器以 currentId 初始化
+  openYamlEditor: (id: string, kind: "action" | "workflow" | "ai") => void;
   cancel: () => void;
   clearOutput: () => void;
   copyOutput: () => Promise<void>;
@@ -248,6 +353,8 @@ export interface RunnerContextValue {
   selectWorkflow: (id: string) => void;
   getWorkflowYaml: (id: string) => Promise<string>;
   saveWorkflowYaml: (id: string, text: string) => Promise<void>;
+  getAiYaml: (id: string) => Promise<string>;
+  saveAiYaml: (id: string, text: string) => Promise<void>;
 }
 
 // 事件分发表：测试用 _emitForTest 触发；运行时由 Events.On 回调写入。
@@ -275,8 +382,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       Object.fromEntries(BUCKETS.map((b) => [b, readUsage(b)])) as UsageByBucket,
   );
 
-  // 计数唯一写入口。桶由运行对象形态决定，调用点只有 runAction / runWorkflow 两处——
-  // 挂在 UI 事件上时漏一个入口就静默失真（llm 桶曾零写者、表单跑 action 曾不计数）。
+  // 计数唯一写入口。桶由运行对象形态决定，调用点只有 runAction / runWorkflow / runAi 三处——
+  // 挂在 UI 事件上时漏一个入口就静默失真（ai 桶曾有零写者、表单跑 action 曾不计数）。
   const recordUsage = (bucket: Bucket, id: string) => {
     setUsage((prev) => {
       const next = decayAndBump(prev[bucket], id);
@@ -290,26 +397,58 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [varRefCounts, setVarRefCounts] = useState<Record<string, number | undefined>>({});
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [view, setView] = useState<RunnerView>("output");
-  const [llmText, setLlmText] = useState<string>("");
-  const [thinkingText, setThinkingText] = useState<string>("");
-  // 本轮发送快照（prompt 展开后文本 + 发送时刻）：随 runAction 写入，
-  // focusRunning 切回运行中动作时随 llmText/llmPanel 一并保留，不再随组件卸载丢失
-  // （原先是 LlmChatView 本地 state，外部点进运行中卡片时组件重挂载即丢失气泡回显）。
-  const [sentPrompt, setSentPrompt] = useState<string>("");
-  const [sentAt, setSentAt] = useState<number | null>(null);
-  // ref 镜像：done 回调闭包捕获旧 state，改用 ref 拿最新 llm 文本用于历史写入
-  const llmTextRef = useRef("");
-  llmTextRef.current = llmText;
-  const thinkingTextRef = useRef("");
-  thinkingTextRef.current = thinkingText;
-  // LLM 输出面板归约态 + 运行起点（事件时间轴 = Date.now() - 起点；done 时机段结算改用后端精确时长）
-  const [llmPanel, setLlmPanel] = useState<LlmPanelState>(EMPTY_PANEL_STATE);
-  const llmPanelRef = useRef(llmPanel);
-  llmPanelRef.current = llmPanel;
-  const llmRunStartRef = useRef(0);
-  // LLM 历史（按 currentId 分桶）
-  const { entries: llmHistory, append: appendLlmHistory, clear: clearLlmHistory } =
-    useLlmHistory(currentId);
+  // AI 会话视图态：聊天页当前展示的那一轮（见 AiViewState）。真身在每次运行的捕获里
+  // （AiCapture.view），这里是它面向渲染的投影，由 syncAiView / showAi 写入。
+  const [aiView, setAiView] = useState<AiViewState>(EMPTY_AI_VIEW);
+  const { text: aiText, thinking: thinkingText, panel: aiPanel, sentPrompt, sentAt, diag: aiDiag } =
+    aiView;
+  // AI 任务列表 / 加载错误
+  const [aiTasks, setAiTasks] = useState<AiTaskItem[]>([]);
+  const aiTasksRef = useRef<AiTaskItem[]>([]);
+  aiTasksRef.current = aiTasks;
+  const [aiErrors, setAiErrors] = useState<string[]>([]);
+  // AI 草稿补丁（按任务 id）：只存用户改过的键，其余键现算（定义默认值 > 全局配置），
+  // 这样改了定义或全局配置后未动过的键自动跟随。值为 undefined = 撤回对该键的修改。
+  const [aiDrafts, setAiDrafts] = useState<Record<string, AiDraft>>({});
+  // ref 镜像：同步路径（runAi）要读最新补丁，setState 不保证在同一次调用栈里立即可见
+  const aiDraftsRef = useRef<Record<string, AiDraft>>({});
+  const patchAiDraft = (id: string, patch: AiPatch) => {
+    const next = { ...aiDraftsRef.current[id] };
+    for (const [key, value] of Object.entries(patch)) {
+      if (value === undefined) delete next[key];
+      else next[key] = value;
+    }
+    const all = { ...aiDraftsRef.current, [id]: next };
+    aiDraftsRef.current = all;
+    setAiDrafts(all);
+  };
+  // 聊天页当前展示的 AI 任务 id（ref：事件回调据此判断是否要同步可见态）
+  const displayedAiRef = useRef<string | null>(null);
+  // 每个任务的运行捕获 / 订阅清理（见 AiCapture；后台运行也占位，收尾时落历史）
+  const aiCapturesRef = useRef<Record<string, AiCapture>>({});
+  const aiUnsubsRef = useRef<Record<string, () => void>>({});
+  // 正在运行的 AI 任务 id 集合（驱动侧栏/网格卡徽标）
+  const [aiRunningIds, setAiRunningIds] = useState<Set<string>>(new Set());
+  const aiRunningIdsRef = useRef<Set<string>>(new Set());
+  const setAiRunning = (id: string, running: boolean) => {
+    if (aiRunningIdsRef.current.has(id) === running) return;
+    const next = new Set(aiRunningIdsRef.current);
+    if (running) next.add(id);
+    else next.delete(id);
+    aiRunningIdsRef.current = next;
+    setAiRunningIds(next);
+  };
+  // 正被某个运行中 workflow 的 AI 步骤执行的任务：aiHolders[aiId] = workflowId。
+  // 后端对 AI 任务按 id 加锁，被占着时直接 runAi 会被拒，故占用也算「运行中」。
+  const [aiHolders, setAiHolders] = useState<Record<string, string>>({});
+  const aiHoldersRef = useRef<Record<string, string>>({});
+  // 当前任务是 AI 任务时的完整草稿（聊天页读写它）与历史；不是 AI 任务时为空对象 / 空
+  const currentAiTask =
+    currentId !== null ? aiTasks.find((task) => task.id === currentId) : undefined;
+  const aiDraft = currentAiTask
+    ? aiDraftFor(currentAiTask, aiDrafts[currentAiTask.id], globalConfig)
+    : {};
+  const { entries: aiHistory, clear: clearAiHistory } = useAiHistory(currentAiTask?.id ?? null);
   // done 闭包由 currentId useEffect 捕获，读 actions/formValues 时闭包可能陈旧，用 ref
   const actionsRef = useRef<ActionItem[]>([]);
   actionsRef.current = actions;
@@ -445,10 +584,21 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   });
 
   // 规则编辑 300ms 防抖下发（spec 决策 3）。params 映射（runAction/focusRunning）
-  // 与 openLlmChat 重置在写入 state 的同时登记 synced 引用：effect 发现规则与 synced
+  // 与 resetLogcatState 重置在写入 state 的同时登记 synced 引用：effect 发现规则与 synced
   // 同引用即不下发——初始规则后端已从同一 params 编译，重发只会多一次整体重放
   // （闪烁+滚动复位）；currentId 切到其他运行中动作时同理不误发。
   const logcatRuleSyncedRef = useRef<LogcatRule | null>(null);
+  // logcat 面板态整体归零（去 AI 会话页时调用：入站缓冲/条目/规则/读数/拒绝原因）
+  const resetLogcatState = () => {
+    logcatBufferRef.current = [];
+    setLogcatEntries([]);
+    logcatRuleSyncedRef.current = EMPTY_LOGCAT_RULE;
+    setLogcatRuleState(EMPTY_LOGCAT_RULE);
+    setLogcatStats({ matched: 0, total: 0 });
+    setLogcatTagHist([]);
+    setLogcatReplaceSeq(0);
+    setLogcatFilterError("");
+  };
   useEffect(() => {
     const id = currentId;
     if (!id || !runningIdsRef.current.has(id)) return;
@@ -498,6 +648,9 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [workflowFormValues, setWorkflowFormValues] = useState<
     Record<string, string>
   >({});
+  // ref 镜像：workflow 常驻跟踪的事件回调要按 id 查步骤定义（是否 AI 步骤）
+  const workflowsRef = useRef<WorkflowItem[]>([]);
+  workflowsRef.current = workflows;
   const linesRef = useRef<OutputLineItem[]>([]);
   linesRef.current = lines;
   // 当前查看的 id（供持久 done 回调判断是否该更新可见 UI，不触发重渲染）
@@ -515,11 +668,13 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const actionDoneUnsubs = useRef<Record<string, () => void>>({});
   // 当前 workflow 订阅的清理函数（同步订阅，见 subscribeWorkflow 注释）
   const wfUnsubRef = useRef<(() => void) | null>(null);
+  // 各运行中 workflow 的常驻跟踪清理函数（见 registerWorkflowTracker）
+  const wfTrackerUnsubs = useRef<Record<string, () => void>>({});
   // 当前正在运行的 workflow id（供 cancelWorkflow 使用，无需触发重渲染）
   const workflowIdRef = useRef<string | null>(null);
   // 正在运行中的 workflow id（持久标记，点其他 action 再点回来时仍能识别）
   const [runningWorkflowId, setRunningWorkflowId] = useState<string | null>(null);
-  // 上次运行时实际使用的 params（action / workflow 共用一份，按 id 索引）
+  // 上次运行时实际使用的 params（action / workflow / ai 共用一份，按 id 索引）
   const [lastRunParams, setLastRunParams] = useState<Record<string, Record<string, string>>>({});
   // ref 镜像：done 闭包按 [currentId] 捕获，读 state 会陈旧
   const lastRunParamsRef = useRef<Record<string, Record<string, string>>>({});
@@ -567,6 +722,17 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         setErrors((res && res.errors) || []);
       })
       .catch((e) => setErrors([t("error.loadFailed") + ": " + e]));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 挂载时拉取 AI 任务列表
+  useEffect(() => {
+    ListAiTasks()
+      .then((res) => {
+        setAiTasks((res && res.tasks) || []);
+        setAiErrors((res && res.errors) || []);
+      })
+      .catch((e) => setAiErrors([t("error.loadFailed") + ": " + e]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -649,7 +815,12 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         setWorkflowSteps((prev) =>
           prev.map((s) =>
             s.index === idx
-              ? { ...s, status: code === 0 ? ("done" as const) : ("error" as const), exitCode: code, endedAt: now }
+              ? flushAiReply({
+                  ...s,
+                  status: code === 0 ? ("done" as const) : ("error" as const),
+                  exitCode: code,
+                  endedAt: now,
+                })
               : s,
           ),
         );
@@ -668,8 +839,10 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
         });
         return;
       }
-      // stdout/stderr/progress：优先按后端下发的 step 索引落桶（规避 Wails 事件乱序，
+      // stdout/stderr/progress/ai：优先按后端下发的 step 索引落桶（规避 Wails 事件乱序，
       // 见 events.ts 的 step 字段注释）；无 step 字段时退回「最后一个 running」。
+      // AI 步骤的思考/工具事件步骤桶暂不收（运行记录 M3 再接），只收回复正文与 stdout/stderr。
+      if (d.stream === "ai-thinking" || d.stream === "ai-tool") return;
       setWorkflowSteps((prev) => {
         const idx = d.step ? parseInt(d.step, 10) : NaN;
         let list = prev;
@@ -682,6 +855,12 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
           list = [...prev, target];
         }
         if (!target) return prev;
+        const targetIndex = target.index;
+        // AI 回复是流式增量：按行合并后再落桶，不让每个增量各占一行
+        if (d.stream === "ai") {
+          const merged = mergeAiReply(target, d.line || "");
+          return list.map((s) => (s.index === targetIndex ? merged : s));
+        }
         const folded = foldOutputLine(
           {
             lines: target.lines,
@@ -695,7 +874,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
           },
         );
         return list.map((s) =>
-          s.index === target!.index
+          s.index === targetIndex
             ? {
                 ...s,
                 lines: folded.lines,
@@ -709,11 +888,11 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
 
     const onDone = (e: unknown) => {
       const d = (((e as { data?: unknown })?.data) || {}) as DoneEventData;
+      // 只刷可见态；runningWorkflowId 与 AI 任务占用的释放归常驻跟踪（registerWorkflowTracker）
       if (viewRef.current === "workflow" && currentIdRef.current === wfid) {
         setStatus(d.exitCode === 0 ? "done" : "error");
         setExitInfo(d);
       }
-      setRunningWorkflowId(null);
     };
 
     handlers[`workflow:${wfid}:output`] = onOutput;
@@ -728,37 +907,31 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     };
   };
 
-  useEffect(() => unsubscribeWorkflow, []);
+  // 卸载：拆掉全部 workflow / AI 订阅并清结算定时器（不落历史：窗口正在销毁）
+  useEffect(() => {
+    return () => {
+      wfUnsubRef.current?.();
+      wfUnsubRef.current = null;
+      Object.values(wfTrackerUnsubs.current).forEach((fn) => fn());
+      wfTrackerUnsubs.current = {};
+      Object.entries(aiCapturesRef.current).forEach(([id, c]) => {
+        if (c.settleTimer) clearTimeout(c.settleTimer);
+        aiUnsubsRef.current[id]?.();
+      });
+      aiUnsubsRef.current = {};
+      aiCapturesRef.current = {};
+    };
+  }, []);
 
   // 按 currentId 订阅事件
   useEffect(() => {
-    if (!currentId) return;
+    // AI 任务的事件走 ai:<id>:*，由每次运行的订阅处理（见 subscribeAi），不在这里订阅
+    if (!currentId || aiTasksRef.current.some((task) => task.id === currentId)) return;
     const unsubs: Array<() => void> = [];
 
     // 统一 seq 排序门后再分派：replace 帧的正确性依赖严格的到达顺序（见 seqGateRef
     // 注释）。无 seq（异常场景）直接应用，与旧行为一致。
     const apply = (d: OutputEventData) => {
-      // LLM 三通道共用归约器维护面板工序段；atMs 用到达时刻相对运行起点
-      const llmApply = (ev: ReturnType<typeof parseToolEvent>) => {
-        if (ev)
-          setLlmPanel((prev) =>
-            applyEvent(prev, ev, Math.max(0, Date.now() - llmRunStartRef.current)),
-          );
-      };
-      if (d.stream === "llm") {
-        setLlmText((prev) => prev + (d.line || ""));
-        llmApply({ kind: "text", delta: d.line || "" });
-        return;
-      }
-      if (d.stream === "llm-thinking") {
-        setThinkingText((prev) => prev + (d.line || ""));
-        llmApply({ kind: "thinking", delta: d.line || "" });
-        return;
-      }
-      if (d.stream === "llm-tool") {
-        llmApply(parseToolEvent(d.line || ""));
-        return;
-      }
       if (d.stream === "logcat") {
         pushLogcatBatch(d.line || "");
         return;
@@ -867,48 +1040,6 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       }
       setStatus(d.exitCode === 0 ? "done" : "error");
       setExitInfo(d);
-      // LLM 历史写入：done 时把本轮 prompt/response/thinking 持久化到 localStorage
-      const cur = actionsRef.current.find((a) => a.id === currentId);
-      if (cur?.llm) {
-        // 面板收尾：结算末段 + 写终点读数（后端 readout 优先，缺失字段不显示）
-        const finalized = finalizePanel(llmPanelRef.current, {
-          durationMs: d.readout?.durationMs,
-          inputTokens: d.readout?.inputTokens,
-          outputTokens: d.readout?.outputTokens,
-          costUsd: d.readout?.costUsd,
-          isError: d.exitCode !== 0,
-        });
-        setLlmPanel(finalized);
-        const tools = finalized.segments
-          .filter((s) => s.kind === "tool")
-          .map((s) =>
-            s.kind === "tool"
-              ? {
-                  id: s.id,
-                  name: s.name,
-                  summary: s.summary,
-                  result: s.result,
-                  isError: s.isError,
-                  durationMs: s.durationMs ?? undefined,
-                }
-              : undefined,
-          )
-          .filter((t): t is NonNullable<typeof t> => t != null);
-        const promptId = cur.llm.promptParam;
-        // 用发送时快照而非当前表单值：防止流式期间编辑 textarea 导致历史记录漂移
-        const sentParams = lastRunParamsRef.current[currentId] ?? {};
-        appendLlmHistory({
-          prompt: sentParams[promptId] ?? "",
-          params: { ...sentParams },
-          response: llmTextRef.current,
-          thinking: thinkingTextRef.current,
-          tools,
-          // 会话 id 随历史持久化（历史查看态顶部展示，供 --resume 用）
-          sessionId: d.readout?.sessionId,
-          exitCode: d.exitCode,
-          duration: d.duration,
-        });
-      }
     };
 
     handlers[`action:${currentId}:output`] = onOutput;
@@ -946,7 +1077,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     lastLiteralKeysRef.current = { ...lastLiteralKeysRef.current, [id]: mappedKeys };
     setLastRunParams((prev) => ({ ...prev, [id]: { ...effectiveParams } }));
     setRunningIds((prev) => new Set(prev).add(id));
-    recordUsage(action?.llm ? "llm-usage" : "action-usage", id);
+    recordUsage("action-usage", id);
     // background=true（grid 卡片 run 按钮）：只登记 runningIds 驱动徽标，不切视图/不清输出，
     // 用户留在 grid 继续操作；要看输出就点卡片本体走前台路径（单缓冲不恢复是已知限制）。
     if (!background) {
@@ -956,20 +1087,9 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       setStatus("running");
       setExitInfo(null);
       setSelectedPreset(null);
-      // 点火即关表单抽屉：输出属于主区视图（output / logcat / llm-chat），不再有「发射态」。
+      // 点火即关表单抽屉：输出属于主区视图（output / logcat），不再有「发射态」。
       setFormSheetOpen(false);
-      if (action?.llm) {
-        setLlmText("");
-        setThinkingText("");
-        setLlmPanel(EMPTY_PANEL_STATE);
-        llmRunStartRef.current = Date.now();
-        // 冻结本轮 prompt 快照（展开 ${VAR} 后与后端 ExpandParams 一致）+ 发送时刻，
-        // 供聊天页气泡回显；切走再切回（focusRunning）时随面板状态一并保留。
-        const promptParam = action.llm.promptParam;
-        setSentPrompt(expandVars((effectiveParams[promptParam] as string) ?? "", effectiveParams as Record<string, string>));
-        setSentAt(Date.now());
-        setView("llm-chat");
-      } else if (action?.stream === "logcat") {
+      if (action?.stream === "logcat") {
         logcatBufferRef.current = [];
         setLogcatEntries([]);
         // 把本次运行的服务端预过滤参数带入面板规则（映射见 ruleFromParams）。
@@ -994,7 +1114,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     } catch (e) {
       // 后端判定该 action 已在运行（前端 runningIds 偶发与之不同步，
       // 或用户双击了运行中动作/预设）：此时上方的乐观状态
-      // （currentId=id / status=running / 已入 runningIds / view 已切到 output|llm|logcat）
+      // （currentId=id / status=running / 已入 runningIds / view 已切到 output|logcat）
       // 恰好就是「回到运行视图」的目标态，直接保留——这样点运行中的动作会回到其输出界面
       // 且停止按钮可用，而不是把 UI 打成 error 并写一行「启动失败」。
       if (String(e).includes("正在运行")) {
@@ -1029,53 +1149,77 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     };
   };
 
-  // 为指定 workflow 注册持久 done 监听（grid 静默运行路径用）：只清 runningWorkflowId，
-  // 不订阅 output、不切视图（与 subscribeWorkflow 的 done 各管一件事，键带 :persistent 不冲突）。
-  const wfDoneUnsubs = useRef<Record<string, () => void>>({});
-  const registerWorkflowDone = (id: string) => {
-    wfDoneUnsubs.current[id]?.();
+  // 清掉某 workflow 占用的全部 AI 任务标记
+  const dropAiHoldersOf = (wfid: string) => {
+    if (!Object.values(aiHoldersRef.current).includes(wfid)) return;
+    const next = { ...aiHoldersRef.current };
+    for (const [aiId, wf] of Object.entries(next)) {
+      if (wf === wfid) delete next[aiId];
+    }
+    aiHoldersRef.current = next;
+    setAiHolders(next);
+  };
+  const setAiHolder = (aiId: string, wfid: string) => {
+    aiHoldersRef.current = { ...aiHoldersRef.current, [aiId]: wfid };
+    setAiHolders(aiHoldersRef.current);
+  };
+  const clearAiHolder = (aiId: string) => {
+    if (!(aiId in aiHoldersRef.current)) return;
+    const next = { ...aiHoldersRef.current };
+    delete next[aiId];
+    aiHoldersRef.current = next;
+    setAiHolders(next);
+  };
+  // 拆掉某 workflow 的常驻跟踪（订阅 + AI 任务占用）
+  const releaseWorkflowTracker = (id: string) => {
+    dropAiHoldersOf(id);
+    wfTrackerUnsubs.current[id]?.();
+    delete wfTrackerUnsubs.current[id];
+  };
+
+  // 为指定 workflow 注册常驻跟踪（不随 currentId 切换销毁；前台/后台运行都注册）：
+  //  - done：清 runningWorkflowId、放掉它占用的 AI 任务、自清理；
+  //  - step-start/step-done/step-skip：该步骤是 AI 任务时登记/释放占用（aiHolders）。
+  // 与 subscribeWorkflow（视图态）订阅同一事件，各管一件事，键带 :persistent 不冲突。
+  const registerWorkflowTracker = (id: string) => {
+    releaseWorkflowTracker(id);
+    const onStep = (e: unknown) => {
+      const d = (((e as { data?: unknown })?.data) || {}) as OutputEventData;
+      if (d.stream !== "step-start" && d.stream !== "step-done" && d.stream !== "step-skip") return;
+      // step-done 的 line 是 "<索引>:<退出码>"，parseInt 同样取到索引
+      const info = workflowsRef.current.find((w) => w.id === id)?.steps?.[parseInt(d.line, 10)];
+      if (info?.kind !== "ai" || !info.label) return;
+      if (d.stream === "step-start") setAiHolder(info.label, id);
+      else clearAiHolder(info.label);
+    };
     const onDone = () => {
       setRunningWorkflowId(null);
-      wfDoneUnsubs.current[id]?.();
-      delete wfDoneUnsubs.current[id];
+      releaseWorkflowTracker(id);
     };
+    handlers[`workflow:${id}:output:persistent`] = onStep;
     handlers[`workflow:${id}:done:persistent`] = onDone;
-    const unsub = Events.On(`workflow:${id}:done`, onDone);
-    wfDoneUnsubs.current[id] = () => {
+    const unsubs = [
+      Events.On(`workflow:${id}:output`, onStep),
+      Events.On(`workflow:${id}:done`, onDone),
+    ];
+    wfTrackerUnsubs.current[id] = () => {
+      delete handlers[`workflow:${id}:output:persistent`];
       delete handlers[`workflow:${id}:done:persistent`];
-      unsub();
+      unsubs.forEach((fn) => fn && fn());
     };
   };
 
-  // focusRunning：把仍在运行的 id 切回当前视图（点击侧栏运行中动作用）。
+  // focusRunning：把仍在运行的 action 切回当前视图（点击侧栏运行中动作用）。
   // 重置 status=running 与 exitInfo=null，让 UI 显示「运行中」而不是上次运行的完成态。
-  const focusRunning = (
-    id: string,
-    targetView: "output" | "llm-chat" | "logcat",
-  ) => {
-    // 切回的是否就是当前 id：是则单缓冲仍是本动作的活数据（llm 面板/文本、行缓冲），
-    // 从 grid/sidebar 点进来只是换视图，事件一直在往里写，必须原样保留；
-    // 否则（切自另一个后台运行动作）单缓冲已被覆盖，本就无法恢复（已知单缓冲限制），才清空。
-    const sameId = currentIdRef.current === id;
+  // AI 任务走 focusAi（每次运行的输出都进捕获，可回放，没有单缓冲丢失问题）。
+  const focusRunning = (id: string, targetView: "output" | "logcat") => {
     // 导航去运行视图：表单抽屉随之关闭（内容按 currentId 取，不跟随切换）
     setFormSheetOpen(false);
     setCurrentId(id);
     setStatus("running");
     setExitInfo(null);
     setSelectedPreset(null);
-    if (targetView === "llm-chat") {
-      // LLM 面板/文本/prompt 快照：同 id 保留（会话信息回填），跨 id 才重置。
-      if (!sameId) {
-        setLines([]);
-        resetSeqState();
-        setLlmText("");
-        setThinkingText("");
-        setLlmPanel(EMPTY_PANEL_STATE);
-        setSentPrompt("");
-        setSentAt(null);
-        llmRunStartRef.current = Date.now();
-      }
-    } else if (targetView === "logcat") {
+    if (targetView === "logcat") {
       setLines([]); // 单缓冲已被覆盖，保留会误导
       resetSeqState();
       logcatBufferRef.current = [];
@@ -1101,46 +1245,339 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setView(targetView);
   };
 
-  // openLlmChat：打开某 LLM 卡片的聊天页（空态）——设为当前、清上次输出缓冲、切 llm-chat。
-  // 与 focusRunning("llm-chat") 的区别：那个是切回仍在跑的动作（status=running），这个是全新空态。
-  const openLlmChat = (id: string, presetName?: string) => {
-    // 按 selectPreset 的同一优先级预填 formValues（preset > default > 全局配置），否则上个动作的
-    // 同名 param 值会残留到这张卡片（聊天页的 chip / composer 直接读 formValues）。
-    // presetName（网格卡 chips 的「带预设进对话」）只覆写预设显式给出的 key，稀疏预设保留回退。
-    const a = actions.find((x) => x.id === id);
-    const preset = presetName ? a?.presets?.find((x) => x.name === presetName) : undefined;
-    const vals: Record<string, string> = {};
-    a?.params?.forEach((spec) => {
-      vals[spec.id] = preset?.values?.[spec.id] ?? (spec.default || globalConfig[spec.id] || "");
-    });
-    setFormValues(vals);
+  // ——— AI 任务：运行、回放、导航 ———
+
+  // 可见态同步：只有「会话页正展示这个任务」时才把捕获写进 aiView。两个条件都要：
+  // 只看 displayedAiRef 的话，切到别的项后残留的值会让别的项的状态被这个任务的事件改写。
+  const isDisplayedAi = (id: string) =>
+    displayedAiRef.current === id && currentIdRef.current === id;
+  const syncAiView = (id: string) => {
+    const c = aiCapturesRef.current[id];
+    if (c && isDisplayedAi(id)) setAiView(c.view);
+  };
+
+  // 把一条已过帧门的 AI output 事件并入捕获。ai/ai-thinking/ai-tool 三通道共用归约器
+  // 维护面板工序段（atMs 用到达时刻相对运行起点）；stdout/stderr 进诊断缓冲。
+  const applyAiEvent = (c: AiCapture, d: OutputEventData) => {
+    const v = c.view;
+    if (d.stream === "ai" || d.stream === "ai-thinking") {
+      const delta = d.line || "";
+      const isText = d.stream === "ai";
+      c.view = {
+        ...v,
+        text: isText ? v.text + delta : v.text,
+        thinking: isText ? v.thinking : v.thinking + delta,
+        panel: applyEvent(
+          v.panel,
+          { kind: isText ? "text" : "thinking", delta },
+          Math.max(0, Date.now() - c.startAt),
+        ),
+      };
+    } else if (d.stream === "ai-tool") {
+      const ev = parseToolEvent(d.line || "");
+      if (ev)
+        c.view = { ...v, panel: applyEvent(v.panel, ev, Math.max(0, Date.now() - c.startAt)) };
+    } else if (d.stream === "stdout" || d.stream === "stderr") {
+      const text = (d.line || "").slice(0, MAX_AI_DIAG_LINE);
+      c.view = { ...v, diag: [...v.diag.slice(1 - MAX_AI_DIAG), { stream: d.stream, text }] };
+    }
+  };
+
+  // 帧门 drain：从 nextSeq 起逐号出队应用；consumed 里的号（done 独占号）直接跨过。
+  const drainAi = (c: AiCapture) => {
+    const gate = c.gate;
+    for (;;) {
+      if (gate.consumed.delete(gate.nextSeq)) {
+        gate.nextSeq++;
+        continue;
+      }
+      const ev = gate.pending.get(gate.nextSeq);
+      if (!ev) return;
+      gate.pending.delete(gate.nextSeq);
+      gate.nextSeq++;
+      applyAiEvent(c, ev);
+    }
+  };
+
+  // 同步订阅某次 AI 运行的 output/done：必须在 RunAi 之前建立（理由同 subscribeWorkflow）。
+  // 订阅跟着这一轮运行走（不跟 currentId），收尾时拆除。
+  const subscribeAi = (id: string) => {
+    aiUnsubsRef.current[id]?.();
+
+    const onOutput = (e: unknown) => {
+      const c = aiCapturesRef.current[id];
+      if (!c) return;
+      const d = (((e as { data?: unknown })?.data) || {}) as OutputEventData;
+      if (d.seq == null) {
+        // 无 seq（异常场景）直接应用，与 action 侧行为一致
+        applyAiEvent(c, d);
+      } else {
+        c.gate.pending.set(d.seq, d);
+        drainAi(c);
+      }
+      syncAiView(id);
+      // done 已到、这一帧正好补齐空洞：立即收尾，不等下一次宽限复查
+      if (c.done) settleAi(id, c);
+    };
+
+    const onDone = (e: unknown) => {
+      const c = aiCapturesRef.current[id];
+      if (!c || c.done) return;
+      const d = (((e as { data?: unknown })?.data) || {}) as DoneEventData;
+      // done 独占一个 seq（后端 events.go 的 Done 用 nextSeq 取号）：登记为已消耗并跨过
+      if (d.seq != null) {
+        c.gate.consumed.add(d.seq);
+        drainAi(c);
+      }
+      c.done = d;
+      c.doneAt = Date.now();
+      syncAiView(id);
+      settleAi(id, c);
+    };
+
+    handlers[`ai:${id}:output`] = onOutput;
+    handlers[`ai:${id}:done`] = onDone;
+    const unsubs = [
+      Events.On(`ai:${id}:output`, onOutput),
+      Events.On(`ai:${id}:done`, onDone),
+    ];
+    aiUnsubsRef.current[id] = () => {
+      delete handlers[`ai:${id}:output`];
+      delete handlers[`ai:${id}:done`];
+      unsubs.forEach((fn) => fn && fn());
+    };
+  };
+
+  // 收尾：结算面板、落历史（recordHistory=false 为点火失败，不算一次运行）、刷可见态、
+  // 拆订阅、清运行标记。
+  const finalizeAi = (id: string, c: AiCapture, recordHistory: boolean) => {
+    if (c.settleTimer) {
+      clearTimeout(c.settleTimer);
+      c.settleTimer = null;
+    }
+    aiUnsubsRef.current[id]?.();
+    delete aiUnsubsRef.current[id];
+    if (aiCapturesRef.current[id] === c) delete aiCapturesRef.current[id];
+    const d = c.done ?? { exitCode: 1, err: "", duration: "" };
+    // 面板收尾：结算末段 + 写终点读数（后端 readout 优先，缺失字段不显示）
+    const view: AiViewState = {
+      ...c.view,
+      panel: finalizePanel(c.view.panel, {
+        durationMs: d.readout?.durationMs,
+        inputTokens: d.readout?.inputTokens,
+        outputTokens: d.readout?.outputTokens,
+        costUsd: d.readout?.costUsd,
+        isError: d.exitCode !== 0,
+      }),
+    };
+    c.view = view;
+    if (recordHistory) {
+      // 用运行时的草稿快照而非当前草稿：防止流式期间用户编辑输入框导致历史漂移
+      appendAiHistory(id, {
+        prompt: c.sent.prompt,
+        params: { ...c.draft },
+        response: view.text,
+        thinking: view.thinking,
+        tools: toolSegments(view.panel),
+        // 会话 id 随历史持久化（历史查看态顶部展示，续接会话用）
+        sessionId: d.readout?.sessionId,
+        exitCode: d.exitCode,
+        duration: d.duration,
+      });
+    }
+    if (isDisplayedAi(id)) {
+      setAiView(view);
+      setStatus(d.exitCode === 0 ? "done" : "error");
+      setExitInfo(d);
+    }
+    setAiRunning(id, false);
+  };
+
+  // done 到达后判断能否收尾：帧门已无空洞，或宽限（AI_SETTLE_GRACE_MS）用尽；否则稍后再看。
+  const settleAi = (id: string, c: AiCapture) => {
+    if (aiCapturesRef.current[id] !== c || !c.done) return;
+    const doneSeq = c.done.seq;
+    if (
+      doneSeq == null ||
+      c.gate.nextSeq >= doneSeq ||
+      Date.now() - (c.doneAt ?? 0) >= AI_SETTLE_GRACE_MS
+    ) {
+      finalizeAi(id, c, true); // 同时清掉待触发的复查定时器
+      return;
+    }
+    if (c.settleTimer) return;
+    c.settleTimer = setTimeout(() => {
+      c.settleTimer = null;
+      settleAi(id, c);
+    }, AI_SETTLE_RETRY_MS);
+  };
+
+  // 点火失败（RPC 被拒：后端判「正在运行」而前端没有这次运行的跟踪、参数不合法等）。
+  // 前台运行时失败原因显示在会话页；后台运行不打断用户当前所在视图，静默收场。
+  const failAi = (id: string, message: string) => {
+    const c = aiCapturesRef.current[id];
+    if (!c) return;
+    c.done = { exitCode: 1, err: message, duration: "" };
+    finalizeAi(id, c, false);
+  };
+
+  // startAi：用一份草稿补丁起一轮运行（不写回草稿；rerun 用，免得一次性的 resume 留在
+  // 会话里）。同步建捕获 + 订阅后再发 RPC，确保不漏首帧。background=true（网格卡 run
+  // 按钮）只登记运行态不切视图，要看会话就点卡片本体（focusAi 回放捕获）。
+  const startAi = async (task: AiTaskItem, overlay: AiPatch | undefined, background: boolean) => {
+    const id = task.id;
+    if (aiHoldersRef.current[id]) {
+      // 正被某个 workflow 的 AI 步骤执行（后端同一把锁，RunAi 会被拒）：去那个 workflow
+      focusAi(id);
+      return;
+    }
+    const existing = aiCapturesRef.current[id];
+    if (existing) {
+      if (!existing.done) {
+        // 已在运行：前台点运行 = 回到会话，后台保持不动
+        if (!background) focusAi(id);
+        return;
+      }
+      // 上一轮 done 已到、还在等迟到增量：立即收尾再起新一轮
+      finalizeAi(id, existing, true);
+    }
+    const draft = aiDraftFor(task, overlay, globalConfig);
+    if (!aiCanRun(task, draft)) {
+      // 缺必填输入（提示词为空 / 必填参数未填）：进会话页补全
+      openAiChat(id);
+      return;
+    }
+    const sent = aiRunParams(task, overlay, draft);
+    setLastRunParams((prev) => ({ ...prev, [id]: sent }));
+    setAiRunning(id, true);
+    recordUsage("ai-usage", id);
+    const now = Date.now();
+    const c: AiCapture = {
+      startAt: now,
+      gate: { nextSeq: 1, pending: new Map(), consumed: new Set() },
+      view: {
+        ...EMPTY_AI_VIEW,
+        // 冻结本轮 prompt 快照（展开 ${VAR} 后的文本）+ 发送时刻，供聊天页气泡回显
+        sentPrompt: expandVars(draft.prompt, { ...globalConfig, ...draft }),
+        sentAt: now,
+      },
+      draft,
+      sent,
+      done: null,
+      doneAt: null,
+      settleTimer: null,
+    };
+    aiCapturesRef.current[id] = c;
+    subscribeAi(id);
+    if (!background) {
+      setLines([]); // action 输出单缓冲：让位给会话页，保留会误导
+      resetSeqState();
+      setCurrentId(id);
+      setSelectedPreset(null);
+      setStatus("running");
+      setExitInfo(null);
+      setFormSheetOpen(false);
+      resetLogcatState();
+      // currentIdRef 随渲染同步，这里要提前镜像：RunAi 紧接着被拒时收尾路径（failAi）
+      // 读的还是旧值，会把这一轮当成「没在展示」，失败原因落不到会话页
+      currentIdRef.current = id;
+      displayedAiRef.current = id;
+      setAiView(c.view);
+      setView("ai-chat");
+    } else if (isDisplayedAi(id)) {
+      // 该任务的会话页正开着：新一轮输出只进捕获，页面回到空态
+      displayedAiRef.current = null;
+      setAiView(EMPTY_AI_VIEW);
+      setStatus("idle");
+      setExitInfo(null);
+    }
+    try {
+      await RunAi(id, sent);
+    } catch (e) {
+      failAi(id, e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  // runAi：运行 AI 任务。overrides（预设值等）并入该任务的草稿。
+  const runAi = async (id: string, overrides?: AiPatch, background = false) => {
+    const task = aiTasksRef.current.find((t) => t.id === id);
+    if (!task) return;
+    if (overrides) patchAiDraft(id, overrides);
+    await startAi(task, aiDraftsRef.current[id], background);
+  };
+
+  // openAiChat：打开某 AI 任务的会话页空态——设为当前、清输出缓冲、切 ai-chat。
+  // patch（网格卡预设 chips 的「带预设进对话」等）并入草稿：只覆写给出的 key，稀疏预设
+  // 保留回退（定义默认值 > 全局配置）。该任务正在运行则改为回到其会话（focusAi）。
+  const openAiChat = (id: string, patch?: AiPatch) => {
+    if (!aiTasksRef.current.some((task) => task.id === id)) return;
+    if (patch) patchAiDraft(id, patch);
+    if (aiCapturesRef.current[id]) {
+      focusAi(id);
+      return;
+    }
+    setFormSheetOpen(false); // 进会话页：表单抽屉关闭
     setCurrentId(id);
-    setSelectedPreset(presetName || null);
+    setSelectedPreset(null);
     setLines([]);
     resetSeqState();
-    setLlmText("");
-    setThinkingText("");
-    setLlmPanel(EMPTY_PANEL_STATE);
-    setSentPrompt("");
-    setSentAt(null);
-    logcatBufferRef.current = [];
-    setLogcatEntries([]);
-    logcatRuleSyncedRef.current = EMPTY_LOGCAT_RULE;
-    setLogcatRuleState(EMPTY_LOGCAT_RULE);
-    setLogcatStats({ matched: 0, total: 0 });
-    setLogcatTagHist([]);
-    setLogcatReplaceSeq(0);
-    setLogcatFilterError("");
+    resetLogcatState();
     setStatus("idle");
     setExitInfo(null);
-    setFormSheetOpen(false); // 进聊天页：表单抽屉关闭
-    setView("llm-chat");
+    currentIdRef.current = id;
+    displayedAiRef.current = id;
+    setAiView(EMPTY_AI_VIEW);
+    setView("ai-chat");
+  };
+
+  // 把 id 的会话态摆到可见位（有运行捕获则回放——含 done 已到但尚未收尾的一轮；否则空态），
+  // 不动 view。focusAi 与 openYamlEditor("ai") 共用：编辑页退出回到 ai-chat 时看到的
+  // 必须与直接进会话页一致。
+  const showAi = (id: string) => {
+    setFormSheetOpen(false);
+    setCurrentId(id);
+    setSelectedPreset(null);
+    const c = aiCapturesRef.current[id];
+    // 会话页正展示着这个任务且它没有运行捕获（上一轮已收尾）：可见态原样保留——
+    // 从编辑页退回来时，刚结束的那一轮还在页面上。
+    if (!c && isDisplayedAi(id)) return;
+    currentIdRef.current = id;
+    displayedAiRef.current = id;
+    setAiView(c ? c.view : EMPTY_AI_VIEW);
+    if (c?.done) {
+      setStatus(c.done.exitCode === 0 ? "done" : "error");
+      setExitInfo(c.done);
+    } else {
+      setStatus(c ? "running" : "idle");
+      setExitInfo(null);
+    }
+  };
+
+  // focusAi：回到某 AI 任务的会话页（点侧栏 / 网格卡片本体）。
+  // 正被 workflow 的 AI 步骤执行 → 去那个 workflow；有运行捕获 → 回放；否则开空态。
+  const focusAi = (id: string) => {
+    const holder = aiHoldersRef.current[id];
+    if (holder) {
+      focusWorkflow(holder);
+      return;
+    }
+    if (!aiCapturesRef.current[id]) {
+      openAiChat(id);
+      return;
+    }
+    if (!isDisplayedAi(id)) {
+      setLines([]); // action 输出单缓冲已被覆盖，保留会误导
+      resetSeqState();
+      resetLogcatState();
+    }
+    showAi(id);
+    setView("ai-chat");
   };
 
   // focusWorkflow：切回仍在运行的 workflow，不清 steps（保留已跑到的进度）。
   // 与 focusRunning（action）语义类似；已完成时不动 status/exitInfo（保留 done/error 徽标）。
-  // 仍在运行（含 grid 静默后台跑）：后台路径只注册了持久 done（registerWorkflowDone），
-  // 没订 output——必须补建 subscribeWorkflow 否则 spine 看不到任何步骤推进；
+  // 仍在运行（含 grid 静默后台跑）：后台路径只有常驻跟踪（registerWorkflowTracker），
+  // 不维护步骤桶——必须补建 subscribeWorkflow 否则 spine 看不到任何步骤推进；
   // 同时登记 workflowIdRef（停止按钮可用）并置 running 态/起点（spine 仪表带依赖）。
   // 起点后端不提供，用回跳时刻近似（总耗时低估，但不至于拿上一轮的起点倒挂）。
   const focusWorkflow = (id: string) => {
@@ -1159,11 +1596,16 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
 
   // openYamlEditor：从卡面直达该对象的 YAML 编辑页（网格卡展开态「编辑配置」）。
   // 只做导航 + 设 currentId（编辑器以 currentId 初始化 editingId），不动 status/output 缓冲。
-  const openYamlEditor = (id: string, kind: "action" | "workflow") => {
-    setFormSheetOpen(false); // 导航离开：表单抽屉关闭
-    setCurrentId(id);
-    setSelectedPreset(null);
-    setView(kind === "workflow" ? "workflow-edit" : "edit");
+  // ai：编辑页退出回到 ai-chat，故先把该任务的会话态摆好（见 showAi）。
+  const openYamlEditor = (id: string, kind: "action" | "workflow" | "ai") => {
+    if (kind === "ai") {
+      showAi(id);
+    } else {
+      setFormSheetOpen(false); // 导航离开：表单抽屉关闭
+      setCurrentId(id);
+      setSelectedPreset(null);
+    }
+    setView(kind === "workflow" ? "workflow-edit" : kind === "ai" ? "ai-edit" : "edit");
   };
 
   // runWorkflow：先同步订阅事件再启动执行，确保不漏首帧。
@@ -1194,15 +1636,16 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       workflowIdRef.current = id;
       // 同步订阅 output/done：前台运行要展示 pipeline spine 与状态。
       subscribeWorkflow(id);
-    } else {
-      // grid 静默运行：不订阅 output、不切视图，仅注册持久 done 清 runningWorkflowId（驱动徽标）。
-      registerWorkflowDone(id);
     }
+    // grid 静默运行（background）不订阅 output、不切视图。前台/后台都注册常驻跟踪：
+    // done 清 runningWorkflowId（驱动徽标），并跟踪 AI 步骤占用的任务。
+    registerWorkflowTracker(id);
     try {
       await RunWorkflow(id, effectiveParams);
     } catch {
       if (!background) setStatus("error");
       setRunningWorkflowId(null);
+      releaseWorkflowTracker(id);
     }
   };
 
@@ -1332,6 +1775,21 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       .catch(() => {});
   };
 
+  const getAiYaml = async (id: string): Promise<string> => {
+    return await GetAiYaml(id);
+  };
+
+  // saveAiYaml：写回 yaml（后端校验+重载），成功后用返回的列表刷新 aiTasks/aiErrors。
+  const saveAiYaml = async (id: string, text: string): Promise<void> => {
+    const res = await SetAiYaml(id, text);
+    setAiTasks((res && res.tasks) || []);
+    setAiErrors((res && res.errors) || []);
+    // AI 任务改动可能改变 ${VAR} 引用（prompt/system/参数默认值），刷新计数
+    GetVarReferenceCounts()
+      .then((m) => setVarRefCounts(m ?? {}))
+      .catch(() => {});
+  };
+
   // saveActionYaml：写回 yaml（后端校验+重载），成功后用返回的列表刷新 actions/errors。
   const saveActionYaml = async (id: string, text: string): Promise<void> => {
     const res = await SetActionYaml(id, text);
@@ -1368,6 +1826,11 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const setWorkflowFormValue = (id: string, value: string) =>
     setWorkflowFormValues((prev) => ({ ...prev, [id]: value }));
 
+  // 改当前 AI 任务草稿的一个键（聊天页 composer / chips / 历史回填共用）
+  const setAiDraftValue = (key: string, value: string | undefined) => {
+    if (currentId) patchAiDraft(currentId, { [key]: value });
+  };
+
   const pickDirectory = async () => {
     const p = await PickDirectory();
     return p || "";
@@ -1383,11 +1846,23 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   };
 
   const cancel = () => {
-    if (currentId) CancelAction(currentId);
+    if (!currentId) return;
+    // 会话页停的是 AI 任务；output / logcat 视图停的是 action
+    if (displayedAiRef.current === currentId) CancelAi(currentId);
+    else CancelAction(currentId);
   };
 
-  // rerun：用上次 params 原样重跑，自动判断 action / workflow
+  // rerun：用上次 params 原样重跑，自动判断 action / workflow / ai
   const rerun = (id: string) => {
+    const aiTask = aiTasks.find((t) => t.id === id);
+    if (aiTask) {
+      // 上次实际发送的参数原样重放，不写回草稿（其中的 resume 只属于那一次运行）
+      const sent = lastRunParams[id] ?? {};
+      const overlay: AiDraft = { ...aiDraftsRef.current[id], ...sent };
+      if (!(AI_RESUME in sent)) delete overlay[AI_RESUME];
+      void startAi(aiTask, overlay, false);
+      return;
+    }
     const params = lastRunParams[id] ?? {};
     if (workflows.find((w) => w.id === id)) {
       runWorkflow(id, params);
@@ -1398,6 +1873,11 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
 
   // editRerun：用上次 params 预填表单，让用户改后再跑
   const editRerun = (id: string) => {
+    // ai：草稿就是表单（上次发送用的值还在草稿里），回会话页改了再发
+    if (aiTasks.some((t) => t.id === id)) {
+      openAiChat(id);
+      return;
+    }
     const params = lastRunParams[id] ?? {};
     const wf = workflows.find((w) => w.id === id);
     if (wf) {
@@ -1461,19 +1941,20 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     selectedPreset,
     lines,
     status,
-    isRunning: (id: string) => runningIds.has(id),
+    isRunning: (id: string) => runningIds.has(id) || aiRunningIds.has(id) || !!aiHolders[id],
     exitInfo,
     globalConfig,
     varRefCounts,
     formValues,
     view,
-    llmText,
+    aiText,
     thinkingText,
     sentPrompt,
     sentAt,
-    llmPanel,
-    llmHistory,
-    clearLlmHistory,
+    aiPanel,
+    aiDiag,
+    aiHistory,
+    clearAiHistory,
     logcatEntries,
     logcatRule,
     setLogcatRule,
@@ -1506,7 +1987,14 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     lastRunParams,
     rerun,
     editRerun,
-    openLlmChat,
+    aiTasks,
+    aiErrors,
+    aiDraft,
+    setAiDraftValue,
+    runAi,
+    isAiRunning: (id: string) => aiRunningIds.has(id) || !!aiHolders[id],
+    focusAi,
+    openAiChat,
     focusRunning,
     focusWorkflow,
     openYamlEditor,
@@ -1530,6 +2018,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     selectWorkflow,
     getWorkflowYaml,
     saveWorkflowYaml,
+    getAiYaml,
+    saveAiYaml,
   };
 
   return (

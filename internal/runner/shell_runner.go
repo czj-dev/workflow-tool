@@ -176,6 +176,23 @@ func buildEnv(params map[string]any, cfgEnv map[string]string) []string {
 	return env
 }
 
+// MergeEnv 合并两层 env（extra 覆盖同名）：定义里的 env 为底层，workflow/step
+// 注入的 env 为上层。extra 为空时原样返回 base，不复制。
+// actionrun（动作）与 airun（AI 任务）共用同一份合并语义。
+func MergeEnv(base, extra map[string]string) map[string]string {
+	if len(extra) == 0 {
+		return base
+	}
+	out := make(map[string]string, len(base)+len(extra))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range extra {
+		out[k] = v
+	}
+	return out
+}
+
 // finalizeOutputs 补齐通用 Layer 1 outputs：exit_code/stdout/stderr/success。
 // 协议行已提前写入 outputs，若与 reserved key 同名则协议值优先（不覆盖回退）。
 func finalizeOutputs(outputs map[string]string, exitCode int, stdout, stderr string) map[string]string {

@@ -320,7 +320,7 @@ func TestDebugWorkflowsLaunchWithStepArgs(t *testing.T) {
 					params := map[string]any{"ADB_SERIAL": "device 1"}
 					launch := workflow.LoadedWorkflow{Def: workflow.WorkflowDef{Env: loaded.Def.Env, Steps: []workflow.Step{step}}}
 					actionRun, shellRun := actionrun.WorkflowCallbacks(actions, actionrun.Deps{}, params)
-					result := (&workflow.Executor{}).Execute(context.Background(), launch, actionRun, shellRun, params, func(string, string) {})
+					result := (&workflow.Executor{}).Execute(context.Background(), launch, actionRun, shellRun, nil, params, func(string, string) {})
 					if result.Err != nil || result.ExitCode != 0 {
 						t.Fatalf("workflow launch failed: %+v", result)
 					}

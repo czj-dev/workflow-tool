@@ -72,7 +72,7 @@ describe("topItems", () => {
     expect(topItems([mk("a")], {}, 3)).toHaveLength(1);
   });
 
-  it("接受任意 { id } 形状（action / workflow / llm 复用同一排序）", () => {
+  it("接受任意 { id } 形状（action / workflow / ai 复用同一排序）", () => {
     const wfs = [
       { id: "demo-x", title: "t" },
       { id: "adb-y", title: "t" },
@@ -134,7 +134,7 @@ describe("readUsage / writeUsage 持久化", () => {
     expect([...BUCKETS]).toEqual([
       "action-usage",
       "workflow-usage",
-      "llm-usage",
+      "ai-usage",
     ]);
   });
 });

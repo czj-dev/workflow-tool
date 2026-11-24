@@ -38,20 +38,46 @@ type ShellRequest struct {
 // ShellRunFunc 执行 inline run step。
 type ShellRunFunc func(ShellRequest) runner.Result
 
+// AIRequest 是 executor 对单个 AI step（ai: <任务 id>）的执行请求。
+type AIRequest struct {
+	Ctx    context.Context
+	TaskID string
+	// Params 是 step.params，只做了 ${{ }} 替换：${VAR} 原样留给回调方——AI 任务
+	// 的输入不做预展开，模板展开统一发生在 airun.Build（与手动运行同一条路径）。
+	Params map[string]any
+	// Env 是 workflow+step env（已 ${{ }} 替换，剩余 ${VAR} 由回调方展开），覆盖任务定义同名 env。
+	Env  map[string]string
+	Emit runner.EmitFunc
+}
+
+// AIRunFunc 执行 AI 任务。返回值的 Outputs 即该步骤的产出（text、thinking、
+// session_id、cost_usd 等），后续步骤经 steps.<id>.outputs.<key> 引用。
+type AIRunFunc func(AIRequest) runner.Result
+
+// callbacks 是执行 step 所需的三类回调，在 Execute 入口收拢后向下传递。
+type callbacks struct {
+	action ActionRunFunc
+	shell  ShellRunFunc
+	ai     AIRunFunc
+}
+
 // Executor 按顺序执行 workflow 的 steps。
 type Executor struct{}
 
 // Execute 串行执行 wf 的每个 step。
 // baseParams 是 config.yaml 合并 workflow 表单参数的结果（api 层构造）。
+// aiRun 可为 nil，但此时 ai step 一执行到就失败（headless 的 CLI 路径不运行 AI 任务）。
 func (e *Executor) Execute(
 	ctx context.Context,
 	wf LoadedWorkflow,
 	actionRun ActionRunFunc,
 	shellRun ShellRunFunc,
+	aiRun AIRunFunc,
 	baseParams map[string]any,
 	emit runner.EmitFunc,
 ) runner.Result {
 	start := time.Now()
+	cbs := callbacks{action: actionRun, shell: shellRun, ai: aiRun}
 	stepCtx := &StepContext{
 		Steps:  map[string]StepOutput{},
 		Env:    resolveEnv(wf.Def.Env, baseParams),
@@ -76,7 +102,7 @@ func (e *Executor) Execute(
 		}
 
 		emit("step-start", fmt.Sprintf("%d", i))
-		res := e.runStep(ctx, step, actionRun, shellRun, stepCtx, emit)
+		res := e.runStep(ctx, step, cbs, stepCtx, emit)
 		emit("step-done", fmt.Sprintf("%d:%d", i, res.ExitCode))
 
 		// 累积 outputs
@@ -104,18 +130,17 @@ func (e *Executor) Execute(
 func (e *Executor) runStep(
 	ctx context.Context,
 	step Step,
-	actionRun ActionRunFunc,
-	shellRun ShellRunFunc,
+	cbs callbacks,
 	stepCtx *StepContext,
 	emit runner.EmitFunc,
 ) runner.Result {
-	res := e.dispatch(ctx, step, actionRun, shellRun, stepCtx, emit)
+	res := e.dispatch(ctx, step, cbs, stepCtx, emit)
 	if res.ExitCode == 0 || step.Retry <= 0 {
 		return res
 	}
 	for attempt := 1; attempt <= step.Retry; attempt++ {
 		emit("stdout", fmt.Sprintf("retry %d/%d", attempt, step.Retry))
-		res = e.dispatch(ctx, step, actionRun, shellRun, stepCtx, emit)
+		res = e.dispatch(ctx, step, cbs, stepCtx, emit)
 		if res.ExitCode == 0 {
 			return res
 		}
@@ -127,8 +152,7 @@ func (e *Executor) runStep(
 func (e *Executor) dispatch(
 	ctx context.Context,
 	step Step,
-	actionRun ActionRunFunc,
-	shellRun ShellRunFunc,
+	cbs callbacks,
 	stepCtx *StepContext,
 	emit runner.EmitFunc,
 ) runner.Result {
@@ -146,7 +170,7 @@ func (e *Executor) dispatch(
 			emit("stderr", err.Error())
 			return runner.Result{ExitCode: -1, Err: err}
 		}
-		return actionRun(ActionRequest{
+		return cbs.action(ActionRequest{
 			Ctx: ctx, ActionID: step.Action, Params: toAnyMap(resolved),
 			Env: stepEnv, CaptureOutput: step.CaptureOutput, Emit: emit,
 		})
@@ -156,10 +180,27 @@ func (e *Executor) dispatch(
 			emit("stderr", err.Error())
 			return runner.Result{ExitCode: -1, Err: err}
 		}
-		return shellRun(ShellRequest{
+		return cbs.shell(ShellRequest{
 			Ctx: ctx, Run: substituted, Shell: step.Shell, Timeout: step.Timeout,
 			Env: stepEnv, CaptureOutput: step.CaptureOutput,
 			Params: stepCtx.Params, Emit: emit,
+		})
+	case step.AI != "":
+		if cbs.ai == nil {
+			err := fmt.Errorf("AI 任务 %q 无法执行：未注入 AI 回调", step.AI)
+			emit("stderr", err.Error())
+			return runner.Result{ExitCode: -1, Err: err}
+		}
+		// 只做 ${{ }} 替换：step.params 里可以写 ${{ steps.x.outputs.y }} 引用前序产出，
+		// 也可以用 prompt: 整体替换任务定义里的提示词模板。
+		resolved, err := substituteMap(step.Params, stepCtx, "params")
+		if err != nil {
+			emit("stderr", err.Error())
+			return runner.Result{ExitCode: -1, Err: err}
+		}
+		return cbs.ai(AIRequest{
+			Ctx: ctx, TaskID: step.AI, Params: toAnyMap(resolved),
+			Env: stepEnv, Emit: emit,
 		})
 	default:
 		return runner.Result{ExitCode: -1, Err: fmt.Errorf("step 无有效 kind")}

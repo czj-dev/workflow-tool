@@ -43,6 +43,6 @@ bash deploy/macos-app.sh   # 仅 macOS
 
 ## macOS .app 打包
 
-`deploy/macos-app.sh`：SVG → `.iconset`（16/32/128/256/512 各 @1x/@2x）→ `iconutil` 生成 `.icns`，拼 `WorkflowTool.app` bundle。运行时文件（`actions/`、`workflows/`、`config.yaml`、`fragments.yaml`）拷进 `Contents/MacOS/` 与二进制同级，`exeDir()` 逻辑无需改动。
+`deploy/macos-app.sh`：SVG → `.iconset`（16/32/128/256/512 各 @1x/@2x）→ `iconutil` 生成 `.icns`，拼 `WorkflowTool.app` bundle。运行时文件（`actions/`、`workflows/`、`ai/`、`config.yaml`、`fragments.yaml`、`schedules.yaml`，以及 action `script:` 引用的目录）拷进 `Contents/MacOS/` 与二进制同级，`apphome.ExeDir()` 的约定无需改动。
 
 首次打开若被 Gatekeeper 拦：`xattr -cr WorkflowTool.app` 或右键 → 打开。

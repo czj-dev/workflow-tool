@@ -55,7 +55,8 @@ func TestWorkflowActionEmptyDefaultUsesEnvironment(t *testing.T) {
 				Params:  []registry.ParamSpec{{ID: "FOO"}},
 				Command: registry.Command{Run: "printf '%s\\n' \"${FOO}\""},
 			},
-			Timeout: time.Second,
+			// 只防挂死：断言与环境变量有关，与耗时无关；留足余量免得整机跑测时起 shell 超时。
+			Timeout: 5 * time.Second,
 		},
 	}}
 	actionRun, _ := WorkflowCallbacks(reg, Deps{}, nil)

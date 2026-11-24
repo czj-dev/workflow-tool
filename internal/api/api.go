@@ -1,6 +1,7 @@
 // Package api 是暴露给前端的 Wails 服务层（唯一依赖 Wails 的包）。
 // 按域拆文件：actions.go（动作 CRUD/列表）、run.go（直跑执行）、workflows.go
-// （workflow CRUD/执行）、events.go（事件发射器与顺序协议）、devices.go（设备选择）、
+// （workflow CRUD/执行）、ai.go（AI 任务 CRUD/列表）、events.go（事件发射器与顺序
+// 协议）、devices.go（设备选择）、
 // config.go（全局配置/片段）、dialog.go（原生对话框）、runregistry.go（运行簿记）。
 package api
 
@@ -16,6 +17,8 @@ import (
 	"workflow-tool/internal/actionrun"
 	"workflow-tool/internal/adb/binary"
 	"workflow-tool/internal/adb/device"
+	"workflow-tool/internal/ai"
+	"workflow-tool/internal/airun"
 	"workflow-tool/internal/builtinvars"
 	"workflow-tool/internal/registry"
 	"workflow-tool/internal/schedule"
@@ -38,6 +41,11 @@ type Service struct {
 	wfReg     *workflow.WorkflowRegistry
 	wfMu      sync.RWMutex // registry 指针由 ReloadWorkflows 原子替换
 	wfRunning *runRegistry // workflow 运行簿记
+	aiReg     *ai.Registry
+	aiMu      sync.RWMutex // aiReg 指针由 Reload 原子替换
+	// aiRunning 是 AI 任务的目标锁簿记：手动运行与 workflow 的 ai step 共用，
+	// 同一任务同一时刻只有一个运行（规格：目标锁与冲突）。
+	aiRunning *runRegistry
 
 	schedulePath    string
 	scheduleMu      sync.Mutex
@@ -53,6 +61,7 @@ type Service struct {
 	dev      *device.Service       // 设备列表 + 激活 serial
 	builtins *builtinvars.Registry // 内置变量注册表（CURRENT_DATE/CURRENT_TIME/ADB_SERIAL）
 	runDeps  actionrun.Deps        // actionrun.Build 的共享依赖（两条执行路径共用）
+	aiDeps   airun.Deps            // airun.Build 的共享依赖（手动运行与 workflow ai step 共用）
 }
 
 // New 创建 service。cfgPath 是全局配置 config.yaml 路径，fragPath 是 fragments.yaml 路径。
@@ -82,6 +91,8 @@ func New(reg *registry.Registry, wfReg *workflow.WorkflowRegistry, baseDir, cfgP
 		running:      newRunRegistry(),
 		wfReg:        wfReg,
 		wfRunning:    newRunRegistry(),
+		aiReg:        ai.Load(filepath.Join(baseDir, "ai"), reg.Skills),
+		aiRunning:    newRunRegistry(),
 		schedulePath: filepath.Join(baseDir, "schedules.yaml"),
 		scheduleRuns: make(map[string]*scheduleRunState),
 	}
@@ -91,8 +102,9 @@ func New(reg *registry.Registry, wfReg *workflow.WorkflowRegistry, baseDir, cfgP
 	svc.bin = binary.NewService()
 	svc.dev = device.NewService(svc.binPaths)
 	svc.builtins = builtinvars.New(svc.dev)
-	svc.runDeps = actionrun.Deps{BaseDir: baseDir, ADBPaths: svc.binPaths, ADBDevice: svc.dev, Builtins: svc.builtins, BashPath: svc.bashOverride,
-		SkillRouter: &actionrun.SkillRouter{
+	svc.runDeps = actionrun.Deps{BaseDir: baseDir, ADBPaths: svc.binPaths, ADBDevice: svc.dev, Builtins: svc.builtins, BashPath: svc.bashOverride}
+	svc.aiDeps = airun.Deps{BaseDir: baseDir, Builtins: svc.builtins,
+		SkillRouter: &airun.SkillRouter{
 			// 惰性取当前 registry（热重载后 Skills 随之更新）
 			Skills:     func() map[string]registry.SkillMeta { return svc.actionRegistry().Skills },
 			HomeDir:    func() string { h, _ := os.UserHomeDir(); return h },
@@ -111,6 +123,12 @@ func (s *Service) workflowRegistry() *workflow.WorkflowRegistry {
 	s.wfMu.RLock()
 	defer s.wfMu.RUnlock()
 	return s.wfReg
+}
+
+func (s *Service) aiRegistry() *ai.Registry {
+	s.aiMu.RLock()
+	defer s.aiMu.RUnlock()
+	return s.aiReg
 }
 
 // SetApp 注入 Wails app 引用（用于 emit 事件）。

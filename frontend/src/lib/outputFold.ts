@@ -4,7 +4,7 @@
 // - progress 原地覆盖上一条 progress（模拟终端 \r 刷新），否则追加
 // - tree（##[tree 协议行）：JSON 解析为树帧后以行项入桶，不落文本行
 // - stdout / 其他流：追加
-// llm/llm-thinking/logcat/step-* 这类结构化 stream 有自己的缓冲，不走这条路径。
+// ai/ai-thinking/logcat/step-* 这类结构化 stream 有自己的缓冲，不走这条路径。
 import type { OutputEventData, OutputLineItem } from "../types/events";
 import { parseTreeFrame } from "./treeFrame";
 

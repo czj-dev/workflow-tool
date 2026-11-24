@@ -18,16 +18,16 @@ import (
 
 // ActionDef 是动作的 YAML 定义。
 type ActionDef struct {
-	ID          string      `yaml:"id"`
-	Title       string      `yaml:"title"`
-	Icon        string      `yaml:"icon"`
-	Description string      `yaml:"description"`
+	ID          string `yaml:"id"`
+	Title       string `yaml:"title"`
+	Icon        string `yaml:"icon"`
+	Description string `yaml:"description"`
 	// Color 可选，卡片氛围色名（ValidAmbColors）；空 = 缺省按分组序循环（ADR-0003）。
-	Color       string      `yaml:"color"`
-	Command     Command     `yaml:"command"`
-	Params      []ParamSpec `yaml:"params"`
-	Presets     []Preset    `yaml:"presets"`
-	HMI         *HMI        `json:"hmi,omitempty" yaml:"hmi"`
+	Color   string      `yaml:"color"`
+	Command Command     `yaml:"command"`
+	Params  []ParamSpec `yaml:"params"`
+	Presets []Preset    `yaml:"presets"`
+	HMI     *HMI        `json:"hmi,omitempty" yaml:"hmi"`
 }
 
 type HMI struct {
@@ -78,11 +78,8 @@ type Command struct {
 	// nil/true=默认捕获；false=关闭（scrcpy/logcat 等长跑用）
 	CaptureOutput *bool `yaml:"capture_output"`
 	// Adb 是第三种执行形态：调用内置 ADBRunner 按 operation 分发到 adb 域服务。
-	// 与 run/script/llm 四选一互斥。
+	// 与 run/script 三选一互斥。
 	Adb AdbCommand `yaml:"adb"`
-	// LLM 是第四种执行形态：调用内置 LLMRunner，按 System/Prompt 指向的 param 拼装 CLI 调用。
-	// 与 run/script/adb 四选一互斥。
-	LLM LLMCommand `yaml:"llm"`
 }
 
 // AdbCommand 描述一个 adb 域操作调用。
@@ -90,21 +87,6 @@ type AdbCommand struct {
 	// Operation 是 adb 域操作名（如 install-package/logcat-stream/push/scrcpy-start）。
 	// 空表示该动作不是 adb 形态。
 	Operation string `yaml:"operation"`
-}
-
-// LLMCommand 描述一次 LLM 调用：作者只声明「哪个 param 是 system、哪个是 prompt」，
-// CLI 名（config.yaml LLM_CLI，默认 ducc）、固定 flag 拼装、stream-json 解析全在 LLMRunner 内部。
-type LLMCommand struct {
-	// System 可选，param id，值通过 --append-system-prompt 作为独立 argv 传给 CLI
-	// （不经 shell 字符串，多行/引号/$ 都零风险）。空表示不追加系统提示。
-	System string `yaml:"system"`
-	// Prompt 必填，param id，值写入子进程 stdin。空表示该动作不是 llm 形态。
-	Prompt string `yaml:"prompt"`
-	// Resume 可选，param id，值非空时通过 --resume <值> 续接指定 session id 的历史会话。
-	Resume string `yaml:"resume"`
-	// Skills 可选，绑定的 skill id 列表。运行前由 actionrun.SkillRouter 把
-	// skills/ 源目录里对应 skill 同步到 Agent 工作目录，CLI 自行发现加载。
-	Skills []string `yaml:"skills"`
 }
 
 // LoadedAction 是已校验、字段已解析的动作。
@@ -169,10 +151,6 @@ func Load(dir, baseDir string) *Registry {
 			reg.Errors = append(reg.Errors, FileError{File: filepath.Base(f), Error: fmt.Sprintf("重复 id %q", def.ID)})
 			continue
 		}
-		if err := validateSkillRefs(def, skills); err != nil {
-			reg.Errors = append(reg.Errors, FileError{File: filepath.Base(f), Error: err.Error()})
-			continue
-		}
 		// Phase 3：不在 Load 时替换 ${VAR}，保留 raw，运行时由 runner 用 params 替换
 		reg.Actions[def.ID] = LoadedAction{
 			Def:     *def,
@@ -222,7 +200,7 @@ func Validate(def *ActionDef) error {
 			}
 		}
 	}
-	// command 四选一互斥：run / script / adb.operation / llm.prompt
+	// command 三选一互斥：run / script / adb.operation
 	commandForms := 0
 	if def.Command.Run != "" {
 		commandForms++
@@ -233,18 +211,15 @@ func Validate(def *ActionDef) error {
 	if def.Command.Adb.Operation != "" {
 		commandForms++
 	}
-	if def.Command.LLM.Prompt != "" {
-		commandForms++
-	}
 	if commandForms == 0 {
-		return fmt.Errorf("command 必须指定 run/script/adb/llm 之一")
+		return fmt.Errorf("command 必须指定 run/script/adb 之一")
 	}
 	if commandForms > 1 {
-		return fmt.Errorf("command.run/script/adb/llm 四选一互斥")
+		return fmt.Errorf("command.run/script/adb 三选一互斥")
 	}
 	// shell 是 run/script 形态的修饰字段
 	if def.Command.Shell != "" {
-		if def.Command.Adb.Operation != "" || def.Command.LLM.Prompt != "" {
+		if def.Command.Adb.Operation != "" {
 			return fmt.Errorf("command.shell 只能搭配 run/script 形态")
 		}
 		if _, err := runner.LookupShellSpec(def.Command.Shell); err != nil {
@@ -258,22 +233,8 @@ func Validate(def *ActionDef) error {
 			return err
 		}
 	}
-	// params 校验
-	for i, p := range def.Params {
-		switch p.Type {
-		case "text", "bool", "select", "path", "file", "textarea", "list", "arguments":
-			// 合法
-		default:
-			return fmt.Errorf("params[%d].type 非法 %q（应为 text/bool/select/path/file/textarea/list/arguments）", i, p.Type)
-		}
-		if p.Type == "select" && len(p.Options) == 0 {
-			return fmt.Errorf("params[%d] (%s) 是 select 必须提供 options", i, p.ID)
-		}
-		if p.Default != "" {
-			if err := ValidateArrayParamValue(p.Type, p.Default); err != nil {
-				return fmt.Errorf("params[%d] (%s) default: %w", i, p.ID, err)
-			}
-		}
+	if err := ValidateParamSpecs(def.Params); err != nil {
+		return err
 	}
 	for _, preset := range def.Presets {
 		for _, p := range def.Params {
@@ -289,23 +250,6 @@ func Validate(def *ActionDef) error {
 			}
 		}
 	}
-	// command.llm 校验：prompt/system/resume 引用的 param 必须存在
-	if def.Command.LLM.Prompt != "" {
-		if !hasParam(def.Params, def.Command.LLM.Prompt) {
-			return fmt.Errorf("command.llm.prompt 引用的 param %q 不存在于 params 中", def.Command.LLM.Prompt)
-		}
-		if def.Command.LLM.System != "" && !hasParam(def.Params, def.Command.LLM.System) {
-			return fmt.Errorf("command.llm.system 引用的 param %q 不存在于 params 中", def.Command.LLM.System)
-		}
-		if def.Command.LLM.Resume != "" && !hasParam(def.Params, def.Command.LLM.Resume) {
-			return fmt.Errorf("command.llm.resume 引用的 param %q 不存在于 params 中", def.Command.LLM.Resume)
-		}
-		for _, id := range def.Command.LLM.Skills {
-			if !idPattern.MatchString(id) {
-				return fmt.Errorf("command.llm.skills[%q] 必须匹配 ^[a-z0-9-]+$", id)
-			}
-		}
-	}
 	switch def.Command.Stream {
 	case "", "logcat":
 		// 合法
@@ -315,14 +259,46 @@ func Validate(def *ActionDef) error {
 	return nil
 }
 
-// hasParam 判断 params 中是否存在指定 id 的参数。
-func hasParam(params []ParamSpec, id string) bool {
-	for _, p := range params {
-		if p.ID == id {
-			return true
+// ValidID 判断 id 是否符合 ^[a-z0-9-]+$（动作、工作流、AI 任务共用）。
+func ValidID(id string) bool {
+	return idPattern.MatchString(id)
+}
+
+// ValidateParamSpecs 校验 params 的类型、select 的 options 与数组类型的默认值。
+// 动作与 AI 任务共用同一份规则（本包 Validate 与 internal/ai.Validate 都调用它）。
+func ValidateParamSpecs(params []ParamSpec) error {
+	for i, p := range params {
+		switch p.Type {
+		case "text", "bool", "select", "path", "file", "textarea", "list", "arguments":
+			// 合法
+		default:
+			return fmt.Errorf("params[%d].type 非法 %q（应为 text/bool/select/path/file/textarea/list/arguments）", i, p.Type)
+		}
+		if p.Type == "select" && len(p.Options) == 0 {
+			return fmt.Errorf("params[%d] (%s) 是 select 必须提供 options", i, p.ID)
+		}
+		if p.Default != "" {
+			if err := ValidateArrayParamValue(p.Type, p.Default); err != nil {
+				return fmt.Errorf("params[%d] (%s) default: %w", i, p.ID, err)
+			}
 		}
 	}
-	return false
+	return nil
+}
+
+// ValidatePresetArrayValues 校验 preset 值里数组类型参数（list/arguments）的格式，
+// 只看 params 里声明过的键。
+func ValidatePresetArrayValues(params []ParamSpec, values map[string]string, presetName string) error {
+	for _, p := range params {
+		value, ok := values[p.ID]
+		if !ok {
+			continue
+		}
+		if err := ValidateArrayParamValue(p.Type, value); err != nil {
+			return fmt.Errorf("preset %q param %q: %w", presetName, p.ID, err)
+		}
+	}
+	return nil
 }
 
 func parseTimeout(s string) time.Duration {
@@ -474,11 +450,15 @@ func loadSkills(baseDir string) (map[string]SkillMeta, []FileError) {
 	return skills, errs
 }
 
-// validateSkillRefs 校验动作引用的 skill id 都在可用集内（加载级，需 skills 扫描结果）。
-func validateSkillRefs(def *ActionDef, skills map[string]SkillMeta) error {
-	for _, id := range def.Command.LLM.Skills {
+// ValidateSkillRefs 校验引用的 skill id 格式合法且都在可用集内（加载级，需 skills 扫描结果）。
+// 调用方组织错误文案时自行带上字段名（如 skills[%q]）。
+func ValidateSkillRefs(ids []string, skills map[string]SkillMeta) error {
+	for _, id := range ids {
+		if !idPattern.MatchString(id) {
+			return fmt.Errorf("skill id %q 必须匹配 ^[a-z0-9-]+$", id)
+		}
 		if _, ok := skills[id]; !ok {
-			return fmt.Errorf("command.llm.skills 引用的 skill %q 不存在于 skills/ 目录", id)
+			return fmt.Errorf("skill %q 不存在于 skills/ 目录", id)
 		}
 	}
 	return nil

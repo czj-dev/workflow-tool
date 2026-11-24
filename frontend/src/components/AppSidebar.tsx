@@ -126,32 +126,39 @@ function SectionEntry({
   );
 }
 
-// 左侧可折叠侧边栏：渲染工作流 + 常用 top 3 动作 + 全部动作入口 + 底部「片段 / 全局配置 / 设置」
+// 左侧可折叠侧边栏：渲染工作流 + 常用 top 3 动作 + 全部动作入口 + 常用 top 3 AI 任务 +
+// 底部「片段 / 全局配置 / 设置」
 export function AppSidebar() {
   const { t } = useTranslation();
-  const { actions, errors, workflows, workflowErrors, setView, openActionsDir, openLlmChat, focusRunning, isRunning, toggleFragments, fragmentsOpen, view, currentId, runningWorkflowId } =
+  const { actions, errors, workflows, workflowErrors, aiTasks, aiErrors, setView, openActionsDir, focusAi, isAiRunning, isRunning, toggleFragments, fragmentsOpen, view, currentId, runningWorkflowId, formSheetOpen } =
     useActionRunner();
   const { topActions } = useActionUsage();
   const { topActions: topWorkflows } = useActionUsage("workflow-usage");
-  const { topActions: topLlm } = useActionUsage("llm-usage");
+  const { topActions: topAi } = useActionUsage("ai-usage");
 
-  const shellActions = actions.filter((a) => !a.llm);
-  const llmActions = actions.filter((a) => a.llm);
+  // 动作不再有 LLM 形态（AI 任务独立在 ai/ 下，走 aiTasks），全部进动作组
+  const shellActions = actions;
   const top3 = topActions(shellActions, 3);
   const top3Wf = topWorkflows(workflows, 3);
-  const top3Llm = topLlm(llmActions, 3);
+  const top3Ai = topAi(aiTasks, 3);
 
-  // 分组「点亮」（gp=live）：当前视图或当前项落在该板块 → 整组提亮（样式在 index.css .side-sec[data-lit]）
+  // 分组「点亮」（gp=live）：当前视图落在该板块，或共享承接视图/表单抽屉正在展示该板块的当前项
+  // （样式在 index.css .side-sec[data-lit]）。裸 currentId 命中会把上次选中残留成常亮——
+  // 进过 workflow 后经分组头/底栏去任何非 workflow 页，蓝组都不灭；workflow 没有共享视图，
+ // 仅剩「表单抽屉开着且当前项是 workflow」一种承接态；action 的承接视图 = output/logcat/edit。
   const litWf =
     view === "workflows-grid" || view === "workflow" || view === "workflow-edit" ||
-    workflows.some((w) => w.id === currentId);
-  const litAct = view === "actions-grid" || shellActions.some((a) => a.id === currentId);
-  const litLlm =
-    view === "llm-grid" || view === "llm-chat" || llmActions.some((a) => a.id === currentId);
+    (formSheetOpen && workflows.some((w) => w.id === currentId));
+  const actShared = view === "output" || view === "logcat" || view === "edit";
+  const litAct =
+    view === "actions-grid" ||
+    ((actShared || formSheetOpen) && shellActions.some((a) => a.id === currentId));
+  // AI 任务没有共享承接视图（会话页 ai-chat / 编辑页 ai-edit 都是专属视图），点亮只看视图
+  const litAi = view === "ai-grid" || view === "ai-chat" || view === "ai-edit";
   // 运行 LED：该板块有在跑条目（primary 只留给运行态）
   const runWf = runningWorkflowId !== null;
   const runAct = shellActions.some((a) => isRunning(a.id));
-  const runLlm = llmActions.some((a) => isRunning(a.id));
+  const aiRunning = aiTasks.some((task) => isAiRunning(task.id));
 
   return (
     <Sidebar collapsible="icon">
@@ -252,40 +259,47 @@ export function AppSidebar() {
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>
-        {/* AI 对话：llm 卡片单击直接进聊天页，不复用 ActionItem（那会进 form 视图） */}
-        {llmActions.length > 0 && (
+        {/* AI 任务：单击进会话页（运行中回到这一轮的会话），不复用 ActionItem（那是跑动作）。
+            加载失败（YAML 写坏）时任务可能为空，组仍渲染，错误才有地方落 */}
+        {(aiTasks.length > 0 || aiErrors.length > 0) && (
           <SidebarGroup
             data-amb="violet"
-            data-lit={litLlm || undefined}
+            data-lit={litAi || undefined}
             className="side-sec group-data-[collapsible=icon]:border-t-0 group-data-[collapsible=icon]:p-2 group-data-[collapsible=icon]:pb-7 gap-0 border-t border-sidebar-border px-2 pt-2 pb-4"
           >
             <SectionEntry
               icon={AiChat02Icon}
-              label={t("sidebar.aiChat")}
-              entry={t("sidebar.allLlm")}
-              count={llmActions.length}
-              running={runLlm}
-              onOpen={() => setView("llm-grid")}
+              label={t("sidebar.aiTasks")}
+              entry={t("sidebar.allAi")}
+              count={aiTasks.length}
+              running={aiRunning}
+              onOpen={() => setView("ai-grid")}
             />
             <SidebarGroupContent>
               <SidebarMenu>
-                {top3Llm.map((a) => (
-                  <SidebarMenuItem key={a.id}>
+                {top3Ai.map((task) => (
+                  <SidebarMenuItem key={task.id}>
                     <SidebarMenuButton
-                      tooltip={a.description || a.title}
-                      // 在跑的卡片要切回运行中态（重订阅输出），否则会落进全新空态
-                      onClick={() =>
-                        isRunning(a.id) ? focusRunning(a.id, "llm-chat") : openLlmChat(a.id)
-                      }
+                      tooltip={task.description || task.title}
+                      // focusAi：有运行捕获则回放这一轮（含运行中），否则开空态会话页
+                      onClick={() => focusAi(task.id)}
                     >
-                      <ActionIcon name={a.icon} className="shrink-0" />
-                      <span>{a.title}</span>
-                      {isRunning(a.id) && (
+                      <ActionIcon name={task.icon || "hi:ai"} className="shrink-0" />
+                      <span>{task.title}</span>
+                      {isAiRunning(task.id) && (
                         <SidebarMenuBadge className="right-2.5">
                           <span className="size-1.5 shrink-0 rounded-full bg-primary live-pulse" />
                         </SidebarMenuBadge>
                       )}
                     </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+                {aiErrors.map((e, i) => (
+                  <SidebarMenuItem key={`ai-err-${i}`}>
+                    <Alert variant="destructive" className="py-2">
+                      <HugeiconsIcon icon={Alert02Icon} strokeWidth={1.75} />
+                      <AlertDescription>{e}</AlertDescription>
+                    </Alert>
                   </SidebarMenuItem>
                 ))}
               </SidebarMenu>

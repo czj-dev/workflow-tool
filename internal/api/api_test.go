@@ -40,6 +40,7 @@ steps:
   - action: some-action
   - sleep: 5
   - run: echo hi
+  - ai: claude-ask
 `)
 	res := svc.ListWorkflows()
 	if len(res.Workflows) != 1 {
@@ -53,6 +54,7 @@ steps:
 		{Kind: "action", Label: "some-action"},
 		{Kind: "sleep", Label: "5s"},
 		{Kind: "run", Label: "echo hi"},
+		{Kind: "ai", Label: "claude-ask"},
 	}
 	if len(w.Steps) != len(want) {
 		t.Fatalf("steps 数量不符：%+v", w.Steps)
@@ -131,14 +133,14 @@ func TestRunActionMergesGlobalAndParams(t *testing.T) {
 	}
 }
 
-func TestLLMReadoutIncludesSessionID(t *testing.T) {
+func TestAiReadoutIncludesSessionID(t *testing.T) {
 	outputs := map[string]string{
 		"session_id":    "abc-123",
 		"cost_usd":      "0.02",
 		"input_tokens":  "10",
 		"output_tokens": "20",
 	}
-	r := llmReadout(outputs, 3_500_000_000)
+	r := aiReadout(outputs, 3_500_000_000)
 	if r["sessionId"] != "abc-123" {
 		t.Fatalf("sessionId 未透传: %+v", r)
 	}
@@ -147,12 +149,12 @@ func TestLLMReadoutIncludesSessionID(t *testing.T) {
 	}
 	// 失败/超时场景：result 事件未到达（无 cost/tokens），但 system/init 的 session_id 已写入，
 	// sessionId 必须随 readout 下发（否则历史条目丢会话 id，无法查现场/--resume）。
-	fail := llmReadout(map[string]string{"session_id": "abc"}, 0)
+	fail := aiReadout(map[string]string{"session_id": "abc"}, 0)
 	if fail == nil || fail["sessionId"] != "abc" {
 		t.Fatalf("失败时 sessionId 应单独撑起 readout，got %+v", fail)
 	}
 	// 完全无可读字段（连 session_id 都没有）才返回 nil
-	if got := llmReadout(map[string]string{}, 0); got != nil {
+	if got := aiReadout(map[string]string{}, 0); got != nil {
 		t.Fatalf("完全无可读字段应返回 nil，got %+v", got)
 	}
 }
@@ -225,38 +227,6 @@ command:
 	}
 	if res.Actions[0].Stream != "logcat" {
 		t.Fatalf("ListActions 未带回 stream: %+v", res.Actions[0].Stream)
-	}
-}
-
-// TestListActionsIncludesLLMInfo 验证 command.llm 形态动作在 ListActions 里带回 LLMInfo，
-// 供前端切 LlmForm 主次布局 + LlmView 流式视图。
-func TestListActionsIncludesLLMInfo(t *testing.T) {
-	dir := t.TempDir()
-	cfgPath := filepath.Join(dir, "config.yaml")
-	os.WriteFile(filepath.Join(dir, "a.yaml"), []byte(`id: a
-title: A
-params:
-  - { id: ROLE, label: 角色, type: textarea }
-  - { id: Q, label: 问题, type: textarea, required: true }
-  - { id: SID, label: 会话, type: text }
-command:
-  llm:
-    system: ROLE
-    prompt: Q
-    resume: SID
-`), 0644)
-
-	svc := New(registry.Load(dir, dir), nil, dir, cfgPath, filepath.Join(dir, "fragments.yaml"))
-	res := svc.ListActions()
-	if len(res.Actions) != 1 {
-		t.Fatalf("want 1 action, got %d", len(res.Actions))
-	}
-	llm := res.Actions[0].LLM
-	if llm == nil {
-		t.Fatal("LLM 形态动作应带回 LLMInfo，got nil")
-	}
-	if llm.SystemParam != "ROLE" || llm.PromptParam != "Q" || llm.ResumeParam != "SID" {
-		t.Fatalf("LLMInfo = %+v，want system=ROLE prompt=Q resume=SID", llm)
 	}
 }
 

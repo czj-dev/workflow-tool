@@ -4,12 +4,13 @@ import { OutputToolbar } from "./OutputToolbar";
 import { OutputConsole } from "./OutputConsole";
 import { GlobalConfigEditor } from "./GlobalConfigEditor";
 import { FragmentsView } from "./FragmentsView";
-import { LlmGridView } from "./LlmGridView";
-import { LlmChatView } from "./LlmChatView";
+import { AiGridView } from "./AiGridView";
+import { AiChatView } from "./AiChatView";
 import { LogcatView } from "./LogcatView";
 import { ActionYamlEditor } from "./ActionYamlEditor";
 import { WorkflowView } from "./WorkflowView";
 import { WorkflowYamlEditor } from "./WorkflowYamlEditor";
+import { AiYamlEditor } from "./AiYamlEditor";
 import { SettingsView } from "./SettingsView";
 import { SchedulerView } from "./SchedulerView";
 import { ActionsGridView } from "./ActionsGridView";
@@ -33,6 +34,7 @@ function OtherView() {
   if (view === "workflows-grid") return <WorkflowsGridView />;
   if (view === "workflow") return <WorkflowView />;
   if (view === "workflow-edit") return <WorkflowYamlEditor />;
+  if (view === "ai-edit") return <AiYamlEditor />;
   if (view === "edit") {
     return (
       <main className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -42,8 +44,8 @@ function OtherView() {
   }
   if (view === "global") return <GlobalConfigEditor />;
   if (view === "fragments") return <FragmentsView />;
-  if (view === "llm-grid") return <LlmGridView />;
-  if (view === "llm-chat") return <LlmChatView />;
+  if (view === "ai-grid") return <AiGridView />;
+  if (view === "ai-chat") return <AiChatView />;
   if (view === "logcat") return <LogcatView />;
   return (
     <main className="flex min-h-0 min-w-0 flex-1 flex-col">

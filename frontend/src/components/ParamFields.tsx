@@ -116,7 +116,7 @@ export function ParamFields({ params, values, setValue }: ParamFieldsProps) {
         }
 
         if (p.type === "textarea") {
-          // 多行长文本（如 LLM prompt 模板）：field-sizing-content 自适应高度，min 6 行
+          // 多行长文本（如 AI 提示词模板）：field-sizing-content 自适应高度，min 6 行
           return (
             <Field key={p.id}>
               <FieldLabel htmlFor={p.id}>{renderLabel(p)}</FieldLabel>

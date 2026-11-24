@@ -6,14 +6,14 @@ import "./index.css"
 import App from "./App.tsx"
 import { ThemeProvider } from "@/components/theme-provider.tsx"
 
-// dev 专用 mockup 入口：?mockup=llm 渲染 LLM 输出面板设计稿、?mockup=logcat-link 渲染
+// dev 专用 mockup 入口：?mockup=ai 渲染 AI 输出面板设计稿、?mockup=logcat-link 渲染
 // logcat 连接符机制设计稿（动态 import，不进主 bundle）
 const mockup = new URLSearchParams(location.search).get("mockup")
-if (mockup === "llm") {
-  import("./components/llm/LlmOutputMockup").then(({ LlmOutputMockup }) => {
+if (mockup === "ai") {
+  import("./components/ai/AiOutputMockup").then(({ AiOutputMockup }) => {
     createRoot(document.getElementById("root")!).render(
       <StrictMode>
-        <LlmOutputMockup />
+        <AiOutputMockup />
       </StrictMode>
     )
   })

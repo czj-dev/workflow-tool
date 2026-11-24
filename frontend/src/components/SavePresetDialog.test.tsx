@@ -20,6 +20,7 @@ const { mockAddPreset, action } = vi.hoisted(() => ({
 
 vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   ListActions: vi.fn().mockResolvedValue({ actions: [action], errors: [] }),
+  ListAiTasks: vi.fn().mockResolvedValue({ tasks: [], errors: [] }),
   RunAction: vi.fn(),
   CancelAction: vi.fn(),
   GetGlobalConfig: vi.fn().mockResolvedValue({}),

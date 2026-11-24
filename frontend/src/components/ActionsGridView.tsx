@@ -57,13 +57,12 @@ export function ActionsGridView() {
   const [expandedId, setExpandedId] = useState<string | null>(null); // 双态：展开的卡
   const [query, setQuery] = useState("");
 
-  const allShellActions = actions.filter((a) => !a.llm);
   // 头部搜索（FragmentsList 同款）：命中 标题 / id / 描述，小写子串
   const normalized = query.trim().toLowerCase();
-  const shellActions = normalized
-    ? allShellActions.filter((a) => [a.title, a.id, a.description ?? ""].join(" ").toLowerCase().includes(normalized))
-    : allShellActions;
-  const groups = groupByPrefix(shellActions);
+  const filteredActions = normalized
+    ? actions.filter((a) => [a.title, a.id, a.description ?? ""].join(" ").toLowerCase().includes(normalized))
+    : actions;
+  const groups = groupByPrefix(filteredActions);
   const groupEntries = Object.entries(groups).sort(([a], [b]) => compareGroupKeys(a, b));
 
   return (
@@ -83,20 +82,20 @@ export function ActionsGridView() {
           />
         </InputGroup>
         <span className="ml-auto font-mono text-[11px] tracking-[0.14em] uppercase text-muted-foreground">
-          {t("grid.itemsCount", { count: shellActions.length })}
+          {t("grid.itemsCount", { count: filteredActions.length })}
           {" · "}
           {t("grid.groupsCount", { count: groupEntries.length })}
         </span>
       </header>
 
       <div className="p-4 space-y-6">
-        {allShellActions.length === 0 && (
+        {actions.length === 0 && (
           <div className="flex flex-col items-center gap-2 px-4 py-20 text-center">
             <span className={EYEBROW}>{t("grid.emptyEyebrow")}</span>
             <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">{t("grid.empty")}</p>
           </div>
         )}
-        {allShellActions.length > 0 && shellActions.length === 0 && (
+        {actions.length > 0 && filteredActions.length === 0 && (
           <div className="flex flex-col items-center gap-2 px-4 py-20 text-center">
             <span className={EYEBROW}>{t("grid.noResultsEyebrow")}</span>
             <p className="max-w-sm text-sm leading-relaxed text-muted-foreground">{t("grid.noResults")}</p>

@@ -1,14 +1,13 @@
 // Package actionrun 把 registry.LoadedAction 构造成 runner.Runner。
-// command 四选一形态分发（shell/script、adb.operation、llm.prompt）、env 分层
+// command 三选一形态分发（shell/script、adb.operation）、env 分层
 // （action 定义 + workflow/step 注入）、capture_output 合并（step 覆盖 > action
-// 定义）、LLM 参数拼装全部收敛在这里——api 的直接执行路径与 workflow 的 action
+// 定义）全部收敛在这里——api 的直接执行路径与 workflow 的 action
 // step 路径共用同一份构造逻辑，两条路径行为保持一致。
+// AI 任务不走这里，它的构造在 internal/airun。
 package actionrun
 
 import (
 	"context"
-	"fmt"
-	"strings"
 
 	"workflow-tool/internal/adb"
 	"workflow-tool/internal/adb/binary"
@@ -24,22 +23,18 @@ type DeviceResolver interface {
 	IsReady(ctx context.Context, serial string) bool
 }
 
-// Deps 是跨动作共享的执行依赖，由 api.Service 构造一次、全程复用。
+// Deps 是跨动作共享的执行依赖，由调用方构造一次、全程复用。
 type Deps struct {
-	BaseDir   string                // exe 目录，解析相对 script 路径
+	BaseDir   string                // 应用目录，解析相对 script 路径
 	ADBPaths  func() binary.Paths   // 二进制路径解析（config 覆盖 → PATH → 常见路径），唯一实现是 api.binPaths
 	ADBDevice DeviceResolver        // 设备解析（serial 校验与回退）
 	Builtins  *builtinvars.Registry // 内置变量注册表（CURRENT_DATE/CURRENT_TIME/ADB_SERIAL）
 	BashPath  func() string         // config.yaml BASH_PATH 惰性读取（bash/sh 解析级联第一优先），nil = 无覆盖
-	// SkillRouter 集中维护 skill 同步路径映射与足迹账本（nil = 不支持 skill 同步，
-	// 仅测试场景；声明了 skills 且 router 为 nil 时 Build 报错）。
-	SkillRouter *SkillRouter
 }
 
 // Options 是一次构造的可变输入：直接运行与 workflow step 运行的差异全部在这里。
 type Options struct {
-	// Params 是终值参数（${VAR} 已展开）。LLM 形态按 command.llm 声明的 param id
-	// 从中取 system/prompt/resume 与 LLM_CLI。
+	// Params 是终值参数（${VAR} 已展开）。
 	Params map[string]any
 	// ExtraEnv 是 workflow/step 注入的 env（已展开），覆盖 action 定义的同名 env。
 	// 直接运行为 nil。
@@ -53,15 +48,13 @@ type Options struct {
 }
 
 // Build 按 LoadedAction 的 command 形态构造对应 Runner。
-// registry.Validate 已保证四选一互斥，default 分支即 shell/script 形态。
-// LLM 形态绑定了 skills 时先执行同步（失败即返回 error，动作失败）。
+// registry.Validate 已保证三选一互斥，default 分支即 shell/script 形态。
 func Build(ctx context.Context, la registry.LoadedAction, deps Deps, opts Options) (runner.Runner, error) {
 	capture := la.Def.Command.CaptureOutput
 	if opts.CaptureOverride != nil {
 		capture = opts.CaptureOverride
 	}
-	switch {
-	case la.Def.Command.Adb.Operation != "":
+	if la.Def.Command.Adb.Operation != "" {
 		return &adb.ADBRunner{
 			Operation:    la.Def.Command.Adb.Operation,
 			Timeout:      la.Timeout,
@@ -70,92 +63,19 @@ func Build(ctx context.Context, la registry.LoadedAction, deps Deps, opts Option
 			Control:      opts.ADBControl,
 			Builtins:     deps.Builtins,
 		}, nil
-	case la.Def.Command.LLM.Prompt != "":
-		return buildLLM(ctx, la, deps, opts)
-	default:
-		return &runner.ShellRunner{Cfg: runner.ShellConfig{
-			Run:           la.Def.Command.Run,
-			Script:        la.Def.Command.Script,
-			Shell:         la.Def.Command.Shell,
-			BashPath:      bashPathOf(deps),
-			Cwd:           la.Cwd, // raw，由 ShellRunner 用 params 替换
-			Timeout:       la.Timeout,
-			Env:           mergeEnv(la.Def.Command.Env, opts.ExtraEnv),
-			BaseDir:       deps.BaseDir,
-			CaptureOutput: capture,
-			Builtins:      deps.Builtins,
-		}}, nil
 	}
-}
-
-// buildLLM 按 command.llm 声明的 param id 从 params 取终值构造 LLMRunner。
-// CLI 名空时由 LLMRunner 内部取默认（ducc）。绑定了 skills 时先路由+同步：
-// agent-cwd 用展开后的 Cwd（空则 BaseDir 兜底，与 registry 扫描同源），
-// 同步失败返回 error（动作失败）；账本 Record 失败降级为警告行。
-func buildLLM(ctx context.Context, la registry.LoadedAction, deps Deps, opts Options) (runner.Runner, error) {
-	cmd := la.Def.Command.LLM
-	cwd := runner.Expand(ctx, la.Cwd, opts.Params, deps.Builtins)
-	if cwd == "" {
-		cwd = deps.BaseDir // 显式兜底，不依赖子进程「继承父进程 cwd」的隐式语义
-	}
-	cfg := runner.LLMConfig{
-		CLI:          strOf(opts.Params, "LLM_CLI"),
-		SystemPrompt: strOf(opts.Params, cmd.System),
-		Prompt:       strOf(opts.Params, cmd.Prompt),
-		Resume:       strings.TrimSpace(strOf(opts.Params, cmd.Resume)),
-		// LLMRunner 不做 ${VAR} 替换，Cwd 在这里展开成终值（与 Shell 形态传 raw 不同）。
-		Cwd:      cwd,
-		Timeout:  la.Timeout,
-		Env:      mergeEnv(la.Def.Command.Env, opts.ExtraEnv),
-		Builtins: deps.Builtins,
-	}
-	if len(cmd.Skills) > 0 {
-		if deps.SkillRouter == nil {
-			return nil, fmt.Errorf("动作绑定了 command.llm.skills 但 SkillRouter 未注入")
-		}
-		items, routeReport, err := deps.SkillRouter.Route(cmd.Skills, cwd, cfg.CLI)
-		if err != nil {
-			return nil, err
-		}
-		syncReport, err := SyncSkills(items)
-		if err != nil {
-			return nil, err
-		}
-		if err := deps.SkillRouter.Record(items); err != nil {
-			syncReport.Warnings = append(syncReport.Warnings,
-				fmt.Sprintf("[skill-sync] 足迹账本写入失败（不影响本次同步）: %v", err))
-		}
-		cfg.SkillSyncReport = syncReport.Lines()
-		cfg.SkillSyncWarnings = append(routeReport.Warnings, syncReport.Warnings...)
-	}
-	return &runner.LLMRunner{Cfg: cfg}, nil
-}
-
-// mergeEnv 合并 action 定义 env 与注入 env（注入覆盖同名）。
-func mergeEnv(actionEnv, extraEnv map[string]string) map[string]string {
-	if len(extraEnv) == 0 {
-		return actionEnv
-	}
-	out := make(map[string]string, len(actionEnv)+len(extraEnv))
-	for k, v := range actionEnv {
-		out[k] = v
-	}
-	for k, v := range extraEnv {
-		out[k] = v
-	}
-	return out
-}
-
-// strOf 从 params map 安全取 string 值（key 空或缺失返回 ""）。
-func strOf(params map[string]any, key string) string {
-	if key == "" {
-		return ""
-	}
-	v, ok := params[key]
-	if !ok || v == nil {
-		return ""
-	}
-	return fmt.Sprint(v)
+	return &runner.ShellRunner{Cfg: runner.ShellConfig{
+		Run:           la.Def.Command.Run,
+		Script:        la.Def.Command.Script,
+		Shell:         la.Def.Command.Shell,
+		BashPath:      bashPathOf(deps),
+		Cwd:           la.Cwd, // raw，由 ShellRunner 用 params 替换
+		Timeout:       la.Timeout,
+		Env:           runner.MergeEnv(la.Def.Command.Env, opts.ExtraEnv),
+		BaseDir:       deps.BaseDir,
+		CaptureOutput: capture,
+		Builtins:      deps.Builtins,
+	}}, nil
 }
 
 // bashPathOf 安全读取 deps.BashPath（nil 返回空串）。

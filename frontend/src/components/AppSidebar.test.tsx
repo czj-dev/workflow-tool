@@ -1,14 +1,24 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 
 // mock bindings 与 runtime（hoisted 模式，便于引用）
-const { mockListActions, mockListWorkflows, mockRunAction, mockOn, listeners } = vi.hoisted(() => {
+const {
+  mockListActions,
+  mockListWorkflows,
+  mockListAiTasks,
+  mockRunAction,
+  mockRunAi,
+  mockOn,
+  listeners,
+} = vi.hoisted(() => {
   const listeners: Record<string, (e: unknown) => void> = {};
   return {
     mockListActions: vi.fn(),
     mockListWorkflows: vi.fn(),
+    mockListAiTasks: vi.fn(),
     mockRunAction: vi.fn(() => Promise.resolve()),
+    mockRunAi: vi.fn(() => Promise.resolve()),
     mockOn: vi.fn((name: string, cb: (e: unknown) => void) => {
       listeners[name] = cb;
       return () => {
@@ -30,6 +40,9 @@ vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   SetFragments: vi.fn().mockResolvedValue(undefined),
   PickDirectory: vi.fn().mockResolvedValue(""),
   ListWorkflows: mockListWorkflows,
+  ListAiTasks: mockListAiTasks,
+  RunAi: mockRunAi,
+  CancelAi: vi.fn(),
   RunWorkflow: vi.fn().mockResolvedValue(undefined),
   CancelWorkflow: vi.fn(),
   ListDevices: vi.fn().mockResolvedValue({ devices: [], active: "" }),
@@ -52,7 +65,9 @@ beforeEach(() => {
   Object.keys(listeners).forEach((k) => delete listeners[k]);
   mockListActions.mockReset();
   mockListWorkflows.mockReset().mockResolvedValue({ workflows: [], errors: [] });
+  mockListAiTasks.mockReset().mockResolvedValue({ tasks: [], errors: [] });
   mockRunAction.mockReset().mockResolvedValue(undefined);
+  mockRunAi.mockReset().mockResolvedValue(undefined);
   mockOn.mockClear();
   // 主题测试需要：jsdom 无 matchMedia，mock 之；清 storage 保证初始态
   vi.stubGlobal(
@@ -186,5 +201,148 @@ describe("AppSidebar", () => {
     const entry = await screen.findByText("全部工作流");
     await user.click(entry);
     expect(screen.getByTestId("view-probe")).toHaveTextContent("workflows-grid");
+  });
+
+  it("workflow 色块不常亮：跑过后切去非 workflow 页蓝组熄灭，在 workflow 视图才亮", async () => {
+    const user = userEvent.setup();
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    mockListWorkflows.mockResolvedValue({
+      workflows: [
+        { id: "w1", title: "W1", icon: "hi:workflow", description: "", params: [], steps: [{ action: "x" }] },
+      ],
+      errors: [],
+    });
+    render(wrap());
+    const blueLit = () =>
+      document.querySelector('.side-sec[data-amb="blue"]')?.hasAttribute("data-lit") ?? false;
+    // 单击无参 workflow → 前台运行：view=workflow，currentId=w1（单击有 250ms 双击窗口）
+    await user.click(await screen.findByText("W1"));
+    await waitFor(() =>
+      expect(screen.getByTestId("view-probe")).toHaveTextContent("workflow"),
+    );
+    expect(blueLit()).toBe(true); // 在 workflow 视图：蓝组亮（正控）
+    // 经底栏切去调度页：currentId 残留 w1 但无承接态 → 蓝组必须熄灭（回归：旧代码常亮）
+    await user.click(screen.getByRole("button", { name: "调度" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("view-probe")).toHaveTextContent("schedules"),
+    );
+    expect(blueLit()).toBe(false);
+    expect(
+      document.querySelector('.side-sec[data-amb="green"]')?.hasAttribute("data-lit"),
+    ).toBeFalsy();
+  });
+});
+
+// 后台起跑 AI 任务（等价于在网格卡上点「运行」：不切视图），用来观察侧栏的运行徽标。
+function AiRunProbe({ id }: { id: string }) {
+  const { runAi } = useActionRunner();
+  return (
+    <button data-testid="run-ai" onClick={() => void runAi(id, undefined, true)}>
+      run
+    </button>
+  );
+}
+
+function wrapAi() {
+  return (
+    <ThemeProvider defaultTheme="light" storageKey="theme-test">
+      <ActionRunnerProvider>
+        <SidebarProvider>
+          <AppSidebar />
+          <ViewProbe />
+          <AiRunProbe id="t1" />
+        </SidebarProvider>
+      </ActionRunnerProvider>
+    </ThemeProvider>
+  );
+}
+
+describe("AppSidebar — AI 任务组", () => {
+  const mkAi = (id: string, title: string) => ({
+    id,
+    title,
+    icon: "",
+    description: "",
+    params: [],
+    presets: [],
+    prompt: `p-${id}`,
+    system: "",
+  });
+
+  it("渲染 AI 任务分区，单击任务进会话页", async () => {
+    const user = userEvent.setup();
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    mockListAiTasks.mockResolvedValue({ tasks: [mkAi("t1", "问代码")], errors: [] });
+    render(wrap());
+    expect(await screen.findByText("问代码")).toBeInTheDocument();
+    expect(screen.getByText("AI 任务")).toBeInTheDocument();
+    expect(screen.getByText("全部 AI 任务")).toBeInTheDocument();
+    await user.click(screen.getByText("问代码"));
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("ai-chat");
+  });
+
+  it("AI 任务超过 3 个时侧栏只展示前 3 个 + 全部 AI 任务入口", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    mockListAiTasks.mockResolvedValue({
+      tasks: [mkAi("a1", "AI一"), mkAi("a2", "AI二"), mkAi("a3", "AI三"), mkAi("a4", "AI四")],
+      errors: [],
+    });
+    render(wrap());
+    expect(await screen.findByText("AI一")).toBeInTheDocument();
+    expect(screen.getByText("AI三")).toBeInTheDocument();
+    expect(screen.queryByText("AI四")).not.toBeInTheDocument();
+    expect(screen.getByText("全部 AI 任务")).toBeInTheDocument();
+  });
+
+  it("无 AI 任务且无加载错误时不渲染 AI 分区", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    render(wrap());
+    await screen.findByText(/无工作流/);
+    expect(screen.queryByText("AI 任务")).not.toBeInTheDocument();
+    expect(document.querySelector('.side-sec[data-amb="violet"]')).toBeNull();
+  });
+
+  it("AI 任务加载出错时分区保留，错误就地展示", async () => {
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    mockListAiTasks.mockResolvedValue({
+      tasks: [],
+      errors: ["ai/claude-ask.yaml: 第 3 行: 未知字段"],
+    });
+    render(wrap());
+    expect(await screen.findByText("ai/claude-ask.yaml: 第 3 行: 未知字段")).toBeInTheDocument();
+    expect(screen.getByText("AI 任务")).toBeInTheDocument();
+    // 没有可进的任务：入口行不出现
+    expect(screen.queryByText("全部 AI 任务")).not.toBeInTheDocument();
+  });
+
+  it("分组头整块可点：点「全部 AI 任务」行打开 ai-grid", async () => {
+    const user = userEvent.setup();
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    mockListAiTasks.mockResolvedValue({ tasks: [mkAi("t1", "问代码")], errors: [] });
+    render(wrap());
+    const entry = await screen.findByText("全部 AI 任务");
+    await user.click(entry);
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("ai-grid");
+  });
+
+  it("运行中的 AI 任务亮起条目徽标与分组头 LED，结束后熄灭", async () => {
+    const user = userEvent.setup();
+    mockListActions.mockResolvedValue({ actions: [], errors: [] });
+    mockListAiTasks.mockResolvedValue({ tasks: [mkAi("t1", "问代码")], errors: [] });
+    render(wrapAi());
+    await screen.findByText("问代码");
+    const violet = () => document.querySelector('.side-sec[data-amb="violet"]');
+    const badge = () => violet()?.querySelector(".live-pulse") != null;
+    const led = () => violet()?.querySelector(".side-led") != null;
+    expect(badge()).toBe(false);
+    expect(led()).toBe(false);
+    await user.click(screen.getByTestId("run-ai"));
+    await waitFor(() => expect(badge()).toBe(true));
+    expect(led()).toBe(true);
+    act(() => {
+      listeners["ai:t1:done"]({ data: { exitCode: 0, err: "", duration: "" } });
+    });
+    expect(badge()).toBe(false);
+    expect(led()).toBe(false);
   });
 });

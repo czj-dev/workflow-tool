@@ -1,22 +1,22 @@
 # Agent CLI 实现 Spec
 
-给外部 Agent 一个 **shell 可调的 CLI**，暴露本项目的 action / workflow，让 Agent 能**发现、描述、调用并拿到输出**。本文件是实现的唯一来源真相（single source of truth），驱动 `cli/` 包与 `main.go` 的改动。
+给外部 Agent 一个 **shell 可调的 CLI**，暴露本项目的 action / workflow（可发现、描述、调用并拿到输出）与 AI 任务（只能发现、描述），让 Agent 能**发现、描述、调用并拿到输出**。本文件是实现的唯一来源真相（single source of truth），驱动 `cli/` 包与 `main.go` 的改动。
 
-> 面向使用者的用法见 `internal/cli/SKILL.md`；字段级契约见 `docs/action.md`、`docs/workflow.md`；Windows 支持见 `specs/agent-cli-windows.md`（实现完成后补）。
+> 面向使用者的用法见 `internal/cli/SKILL.md`；字段级契约见 `docs/action.md`、`docs/workflow.md`、`docs/ai.md`；Windows 支持见 `specs/agent-cli-windows.md`（实现完成后补）。
 
 ## 设计决策总览
 
 | 维度 | 决策 |
 |------|------|
 | 消费者 | 外部 Agent，经 shell 调用 |
-| 范围 | action + workflow 都暴露 |
+| 范围 | action + workflow 可发现、描述、运行；AI 任务只暴露 list/describe |
 | 复用 | 薄层复用 `runner`/`actionrun`/`registry`/`workflow`（均 Wails 无关），只替换 `internal/api` 的 Wails 事件层 |
 | 二进制 | 同一二进制 + 子命令；`main()` 按 `os.Args` 分流 |
 | 命令 | `list` / `describe <id>` / `run <id>` |
 | 输出 | 默认原样透传；`--json` 切 NDJSON 流 |
 | 传参 | `--params` 只收 JSON（+ `@file` / `@-` stdin） |
 | baseDir | `--base-dir` + 环境变量，默认回退 `exeDir()` |
-| 可跑形态 | shell / adb / workflow；LLM 动作 v1 禁跑 |
+| 可跑形态 | shell / adb / workflow；AI 任务 v1 禁跑 |
 | 退出码 | 透传命令退出码；CLI 级错误保留码 `2` |
 | 取消 | SIGINT/SIGTERM → ctx cancel；可选 `--timeout` |
 | schema | A1 纯镜像：CLI 逐字镜像 emit，零解码、零状态 |
@@ -26,7 +26,7 @@
 
 `main()` 先看 `os.Args[1]`：命中保留词（`list`/`describe`/`run`）走 CLI 分支并在结束时 `os.Exit`；否则照旧创建并运行 Wails GUI。
 
-执行核心**不改**（唯一例外见「可跑形态」里 LLM guard，它在 `cli/` 层拦截，不动核心）。CLI 层自己提供原本 `api.Service` 做的事：
+执行核心**不改**（唯一例外见「可跑形态」里 AI guard，它在 `cli/` 层拦截，不动核心）。CLI 层自己提供原本 `api.Service` 做的事：
 
 - 落 stdout 的 `runner.EmitFunc`（替代 `internal/api/events.go` 的 Wails Emit）
 - params 合并（config.yaml 全局 + 传入）+ `runner.ExpandParams` + cwd `runner.Expand` 校验
@@ -37,12 +37,13 @@
 ## 命令面
 
 ### `list`
-枚举全部 action 与 workflow，输出**一次性 JSON 数组**：
+枚举全部 action、workflow 与 AI 任务，输出**一次性 JSON 数组**（按 id 排序）：
 ```json
-[{"id":"pkg-install","title":"安装 APK","kind":"action"},
+[{"id":"claude-ask","title":"问 LLM","kind":"ai"},
+ {"id":"pkg-install","title":"安装 APK","kind":"action"},
  {"id":"xdzs-package-and-verify-res","title":"打包并验收","kind":"workflow"}]
 ```
-数据源：`registry.Load(baseDir/actions, baseDir).Actions` + `workflow.Load(baseDir/workflows).Workflows`。
+数据源：`registry.Load(baseDir/actions, baseDir).Actions` + `workflow.Load(baseDir/workflows).Workflows` + `ai.Load(baseDir/ai, reg.Skills).Tasks`。
 
 ### `describe <id>`
 输出单个 id 的**一次性 JSON 对象**：params 契约 + presets + kind。
@@ -54,9 +55,16 @@
 ```
 字段取自 `registry.ParamSpec`（id/label/type/required/default/options/description）。`type ∈ text|bool|select|path|file|textarea`。
 
+AI 任务（`kind:"ai"`）的 params/presets 同形，另加三个键：`prompt`（定义里的模板原文；空串 = 提示词由调用方给入，该键必出）、`system`（模板原文，为空时省略）、`reservedRunParams`（固定 `["prompt","system","resume"]`，无需声明即接受的运行参数）。
+```json
+{"id":"claude-ask","kind":"ai","params":null,
+ "presets":[{"name":"打招呼","values":{"prompt":"用一句话介绍你自己"}}],
+ "prompt":"","reservedRunParams":["prompt","system","resume"]}
+```
+
 ### `run <id>`
-执行 action 或 workflow。靠 registry 查类型分发；action 与 workflow **撞名** → `error kind=ambiguous_id`，要求加 `--kind action|workflow`。
-Flags：`--json`、`--params <json>|@file|@-`、`--base-dir <path>`、`--device <serial>`、`--timeout <dur>`、`--kind action|workflow`。
+执行 action 或 workflow；AI 任务一律拒绝（见「可跑形态」）。靠 registry 查类型分发；id 同时是 action、workflow、AI 任务中的多个 → `error kind=ambiguous_id`，要求加 `--kind action|workflow|ai`。
+Flags：`--json`、`--params <json>|@file|@-`、`--base-dir <path>`、`--device <serial>`、`--timeout <dur>`、`--kind action|workflow|ai`。
 > id 必须紧跟 `run`（`run <id> [flags]`）——flag 一律放在 id 之后（Go `flag` 在首个非 flag 实参处停止解析）。
 
 ## Input：params
@@ -78,7 +86,7 @@ stdout/stderr 原样打到 CLI 的 stdout/stderr，透传命令退出码。等�
 每行一个 JSON 对象，`type` 判别。三分类 **output / result / error**：
 
 ```jsonc
-// 过程行：stream 原样透传（stdout|stderr|progress|tree|logcat|logcat-replace；LLM 禁故无 llm*）
+// 过程行：stream 原样透传（stdout|stderr|progress|tree|logcat|logcat-replace；AI 禁故无 ai*）
 {"type":"output","stream":"stdout","line":"building..."}
 
 // workflow step 边界也原样镜像、不解码，agent 自行重建结构
@@ -93,7 +101,7 @@ stdout/stderr 原样打到 CLI 的 stdout/stderr，透传命令退出码。等�
 {"type":"result","exit_code":0,"success":true,"duration_ms":5678,"error":null,"outputs":null}
 
 // CLI 级错误（非命令失败）；进程同时退出码 2
-{"type":"error","kind":"unknown_id|ambiguous_id|bad_params|validation|llm_blocked|no_device","message":"..."}
+{"type":"error","kind":"unknown_id|ambiguous_id|bad_params|validation|ai_blocked|no_device","message":"..."}
 ```
 
 关键语义：
@@ -104,7 +112,7 @@ stdout/stderr 原样打到 CLI 的 stdout/stderr，透传命令退出码。等�
 ## 退出码
 
 - 命令跑完：**透传** action/workflow 的退出码（`runner.Result.ExitCode`）。
-- CLI 级错误（未知 id / 撞名 / params 坏 / 校验失败 / LLM 禁跑 / 无设备）：保留码 **`2`** + stderr 人读消息；`--json` 下同时发 `{"type":"error",...}`。
+- CLI 级错误（未知 id / 撞名 / params 坏 / 校验失败 / AI 禁跑 / 无设备）：保留码 **`2`** + stderr 人读消息；`--json` 下同时发 `{"type":"error",...}`。
 - 取消/超时：`exit_code = -1`，`error = "context canceled"` / `"context deadline exceeded"`（对应 `runner.Result.Err` 的 `context.Canceled` / `context.DeadlineExceeded`）。
 
 Agent 据此分辨「命令失败了」（据输出可重试）与「我调错了」（改调用方式）。
@@ -118,17 +126,17 @@ Agent 据此分辨「命令失败了」（据输出可重试）与「我调错�
 
 优先级：`--base-dir <path>` > 环境变量 `WORKFLOW_TOOL_HOME` > 现有 `exeDir()` 约定。显式优于 `exeDir()` 的 cwd 回退——Agent 常在任意 cwd 下调用。
 
-## 可跑形态 / 设备 / LLM 禁跑
+## 可跑形态 / 设备 / AI 禁跑
 
 - **shell/script、adb、workflow** 可跑。
 - **adb** 动作需 `ADB_SERIAL`：走 `--device <serial>` 显式指定；未给时由 `device.ResolveActive` 自动解析（激活设备，或第一个 ready 的 adb 设备）；**仅在无任何 ready 设备时** → `error kind=no_device`。多设备下不强制指定（自动选激活/第一个），要精确控制就传 `--device`——不在 CLI 复制设备列表逻辑。
-- **LLM 动作 v1 禁跑**：`command.llm` 动作直接 `run`、以及作为 workflow step 被引用，都拦截 → `error kind=llm_blocked`。
-  - 原因：`command.llm` 拉起的 ducc 带 `--permission-mode bypassPermissions` 且无防递归；Agent 经 CLI 触发会 fork 出无人值守 bypass 子进程、可成环。
-  - guard 落在 `cli/` 层（执行前检查 `LoadedAction.Def.Command.LLM`），不动核心。日后要解禁再加 `--allow-llm`。
+- **AI 任务 v1 禁跑**：AI 任务（`ai/`，`kind: ai`）直接 `run`、以及含 `ai:` 步骤的 workflow，都拦截 → `error kind=ai_blocked`。`list`/`describe` 不受限。
+  - 原因：AI 任务拉起的 Agent CLI 带 `--permission-mode bypassPermissions` 且无防递归；Agent 经 CLI 触发会 fork 出无人值守 bypass 子进程、可成环。
+  - guard 落在 `cli/` 层（`runTarget` 对 `kind: ai` 直接拒；`runWorkflow` 执行前预扫 steps 的 `ai` 字段），不动核心；`cli` 也不组装 `airun` 依赖，构造不出 AI 运行器。M4 起以显式放行标志开放。
 
 ## id 撞名
 
-action 命名空间与 workflow 命名空间各自全局唯一，但二者间可能撞名。`run <id>` 撞名 → `error kind=ambiguous_id`，提示加 `--kind`。`describe <id>` 同理。
+action、workflow、AI 任务各自的命名空间内全局唯一，但彼此间可能撞名。`run <id>` 撞名 → `error kind=ambiguous_id`，提示加 `--kind action|workflow|ai`。`describe <id>` 同理。
 
 ## 实现落点与构建顺序
 
@@ -138,8 +146,8 @@ action 命名空间与 workflow 命名空间各自全局唯一，但二者间可
 2. `internal/cli/` 包：
    - `args.go`：子命令 + flag 解析（`--json`/`--params`/`--base-dir`/`--device`/`--timeout`/`--kind`）。
    - `resolve.go`：baseDir 解析；`binary`/`device`/`builtinvars` 组装（照搬 `api.go:69-78`）。
-   - `discover.go`：`list`/`describe`（遍历 registry/workflow）。
-   - `run.go`：params 合并校验 + LLM guard + `actionrun.Build` + ctx/signal/timeout + emit。
+   - `discover.go`：`list`/`describe`（遍历 registry/workflow/ai）。
+   - `run.go`：params 合并校验 + AI guard + `actionrun.Build` + ctx/signal/timeout + emit。
    - `emit.go`：序列化器——原样透传 与 `--json` NDJSON 两种 `runner.EmitFunc`；`result`/`error` 组装。
 3. 改 `api.Service` 签名无关，不需 `wails3 generate bindings`（CLI 不经 binding）。
 
@@ -148,7 +156,7 @@ action 命名空间与 workflow 命名空间各自全局唯一，但二者间可
 非平凡逻辑各留一个可跑检查（`internal/cli/*_test.go`，Go test，无框架）：
 - params JSON 解析 + 按 ParamSpec 类型归一（bool/select 校验）。
 - NDJSON 序列化器：给定一串 `emit(stream,line)` + Result，断言逐行 JSON 与末行 result 形状。
-- LLM guard：`command.llm` 动作被拒、workflow 引用 llm step 被拒。
+- AI guard：AI 任务被拒（`ai_blocked`）、workflow 含 `ai:` 步骤被拒。
 - id 撞名 → ambiguous_id。
 
 ## Windows（延后）

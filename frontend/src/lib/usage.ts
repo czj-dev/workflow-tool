@@ -11,7 +11,7 @@ const DEFAULT_TOP_N = 3;
 export const FOOTPRINT_SEGMENTS = 5;
 
 // 三个桶共享算法、数据隔离：localStorage key 即桶名。
-export const BUCKETS = ["action-usage", "workflow-usage", "llm-usage"] as const;
+export const BUCKETS = ["action-usage", "workflow-usage", "ai-usage"] as const;
 export type Bucket = (typeof BUCKETS)[number];
 
 export type UsageMap = Record<string, number>;
@@ -79,7 +79,7 @@ export function groupLabel(key: string): string {
 }
 
 // 按分数降序取前 n；分数相同（含全为 0 的首次启动）保持原顺序。
-// 泛型 <T extends { id: string }>：action / workflow / llm 三类复用同一排序。
+// 泛型 <T extends { id: string }>：action / workflow / ai 三类复用同一排序。
 export function topItems<T extends { id: string }>(
   items: T[],
   usage: UsageMap,

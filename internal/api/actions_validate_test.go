@@ -15,8 +15,7 @@ import (
 // （解析 + Validate 三选一互斥 + param type 校验）。新增 command.adb action 后尤其重要。
 func TestActionsDirectoryValidates(t *testing.T) {
 	// repo root = ../.. 相对于 internal/api；baseDir 传 repo 根，
-	// 与真实运行时布局（exe 目录下 actions/ 与 skills/ 同级）一致，
-	// 使 command.llm.skills 的引用校验能扫到仓库根 skills/
+	// 与真实运行时布局（exe 目录下 actions/ 与 skills/ 同级）一致
 	dir := filepath.Join("..", "..", "actions")
 	reg := registry.Load(dir, filepath.Join("..", ".."))
 	if len(reg.Errors) > 0 {

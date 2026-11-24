@@ -16,8 +16,7 @@ command:
   shell: bash                  # 可选修饰：解释器，默认 bash
   # script: ./scripts/foo.sh   # 形态 B：脚本文件（带扩展名）
   # adb: { operation: push }   # 形态 C：adb 域操作
-  # llm: { system: ROLE, prompt: TASK }   # 形态 D：LLM 调用
-  cwd: ${SOME_DIR}             # 可选，工作目录，默认用户主目录
+  cwd: ${SOME_DIR}             # 可选，工作目录；不写则继承应用进程的工作目录
   timeout: 60s                 # 可选，超时（Go duration），默认 60s
   stream: ""                   # 可选，"" 普通逐行 | "logcat" 结构化 logcat JSON
   env:                         # 可选，追加到进程环境变量
@@ -59,7 +58,7 @@ hmi:                           # 可选，声明动作输出的交互视图
 
 ### command
 
-`run`、`script`、`adb`、`llm` **四选一互斥**，必须指定其一。
+`run`、`script`、`adb` **三选一互斥**，必须指定其一。调用 Agent CLI 不属于动作的任何形态——那是独立的 AI 任务，见 [ai.md](ai.md)。
 
 | 字段 | 说明 |
 |------|------|
@@ -67,8 +66,7 @@ hmi:                           # 可选，声明动作输出的交互视图
 | `script` | 脚本文件路径（必须带扩展名），按扩展名路由解释器：`.sh`→bash、`.ps1`→pwsh、`.py`→python、`.js`→node；显式 `shell` 时不校验扩展名 |
 | `shell` | 可选修饰字段：解释器逻辑名，默认 `bash`。可选 `bash`/`sh`/`pwsh`/`powershell`/`python`/`node`/`cmd`，或含 `{0}` 的自定义模板（如 `"perl {0}"`，按空白分词）。只允许搭配 `run`/`script` 形态 |
 | `adb` | adb 域操作（详见下方「adb 域形态」章节） |
-| `llm` | LLM 调用（详见下方「LLM 域形态」章节） |
-| `cwd` | 工作目录，支持 `${VAR}` 替换，默认 `$HOME` |
+| `cwd` | 工作目录，支持 `${VAR}` 替换；不写则继承应用进程的工作目录 |
 | `timeout` | Go duration 格式（`30s` / `5m` / `1h`），默认 `60s` |
 | `stream` | 空 = 普通逐行输出；`"logcat"` = 结构化 logcat JSON（adb logcat-stream 域专用，前端切 logcat 视图） |
 | `env` | 键值对，追加到当前环境变量 |
@@ -85,7 +83,7 @@ hmi:                           # 可选，声明动作输出的交互视图
 | `select` | 下拉选择 | 必须提供 `options` 数组 |
 | `path` | 路径输入 + 选择按钮 | 调用系统**目录**对话框（选目录），支持拖拽（多选只取第一个） |
 | `file` | 路径输入 + 选择按钮 | 调用系统**文件**对话框（选单个文件），支持拖拽（多选只取第一个）。需选文件的参数（如 `adb-push` 的 LOCAL_PATH、`adb-install` 的 APK_PATH）用此类型 |
-| `textarea` | 多行文本域 | 自适应高度、等宽字体；用于 LLM prompt 模板、长脚本片段等多行内容 |
+| `textarea` | 多行文本域 | 自适应高度、等宽字体；用于长文本、多行命令片段等多行内容 |
 | `list` | 可增删、排序的字符串行 | 值为 JSON 字符串数组，如 `'["DVR_A","DVR_B"]'`；空值用 `'[]'` |
 | `arguments` | 可增删、排序的 flag/多值行 | 值为 JSON 数组字符串，如 `'[{"flag":"--es","values":["key","hello world"]},{"flag":"-W","values":[]}]'`；重复 flag 与行顺序保留 |
 
@@ -123,14 +121,19 @@ hmi:                           # 可选，声明动作输出的交互视图
 
 ## 变量替换
 
-运行时由 `runner.Expand` 处理，替换优先级：
+运行时由 `runner.Expand` 处理，替换优先级（同名时靠前的胜出）：
 
-1. **动作参数**（params 表单填入的值）
-2. **全局配置**（`config.yaml` 中的键值对）
-3. **内置变量**（见下表，无需声明即可直接使用）
-4. **环境变量**
+1. **`command.env`**（run / script 形态的 env 块）
+2. **动作参数**（params 表单填入的值）
+3. **全局配置**（`config.yaml` 中的键值对）
+4. **内置变量**（见下表，无需声明即可直接使用）
+5. **环境变量**
 
-四者都未定义则保留 `${VAR}` 原样 + 控制台 warning。
+都未定义则保留 `${VAR}` 原样 + 控制台 warning。
+
+`command.env` 排在最前是实现上的取舍：它的终值会被并进查找源，由 Go 侧统一展开 `${VAR}`，PowerShell 脚本里的 `${VAR}` 才能跨平台读到（PowerShell 把 `${VAR}` 当变量语法，读不到环境变量）。代价是动作参数覆盖不了同名的 `command.env`——想用参数控制一个值，就别在 `command.env` 里再定义同名键。
+
+`command.adb.operation` 形态没有 `command.env` 这一层：它的参数值在进入 runner 前已按「动作参数 > 全局配置 > 内置变量 > 环境变量」展开，`command.env` 与 workflow 的 `env` 都不参与查找。
 
 ### 内置变量
 
@@ -140,95 +143,22 @@ hmi:                           # 可选，声明动作输出的交互视图
 | `CURRENT_TIME` | 当前毫秒时间戳（如 `1755590400000`） | `${OUTPUT_DIR}${CURRENT_TIME}.png`，避免同名文件覆盖 |
 | `ADB_SERIAL` | 当前激活设备 serial（UI 设备选择器选中的设备） | shell/script 动作里 `adb -s "${ADB_SERIAL}" shell ...` |
 
-`ADB_SERIAL` 若在 `config.yaml` 里显式配置，或动作参数里已有同名值，则内置变量不生效（参数/配置优先级更高，见上）——这是给需要固定某台设备的场景保留的覆盖能力。`command.adb.operation` 形态本身有独立的在线校验与自动重连回退逻辑（详见下方"adb 域形态"），内置变量表里的 `ADB_SERIAL` 主要解决 `command.run`/`script` 形态里引用 `${ADB_SERIAL}` 时同样能取到当前激活设备。
+`ADB_SERIAL` 若在 `config.yaml` 里显式配置，或动作参数、`command.env` 里已有同名值，则内置变量不生效（参数/配置优先级更高，见上）——这是给需要固定某台设备的场景保留的覆盖能力。`command.adb.operation` 形态本身有独立的在线校验与自动重连回退逻辑（详见下方"adb 域形态"），内置变量表里的 `ADB_SERIAL` 主要解决 `command.run`/`script` 形态里引用 `${ADB_SERIAL}` 时同样能取到当前激活设备。
 
 ### workflow 中的变量优先级扩展
 
-当 action 被 workflow 引用时，变量优先级变为：
+当 action 被 workflow 引用时，step 的 `env` 与 workflow 的 `env` 也进入查找源，并且同样排在参数之前。变量优先级变为：
 
-params（step.params）> step.env > workflow.env > config.yaml > 内置变量 > 系统环境变量
+step.env > workflow.env > command.env > step.params > workflow.params > config.yaml > 内置变量 > 系统环境变量
 
-`stream: logcat` action 之外，`command.llm` action 在 workflow 中运行时，即使 `capture_output: false`，仍会提取结构化 outputs（text/thinking/session_id/cost_usd/total_tokens），因为这些来自 stream-json 语义解析而非原始 stdout 转储。
+- 内联 `run` step 没有 `command.env` 和 `step.params` 这两层：step.env > workflow.env > workflow.params > config.yaml > 内置变量 > 系统环境变量
+- `env` 的值本身也是模板：`command.env` 按完整的参数链展开；`step.env` / `workflow.env` 只按 workflow.params 及之后的链展开，引用不到 `step.params`
 
-## LLM 域形态（command.llm）
+## AI 调用不属于动作
 
-LLM 是与 `adb` 并列的一等执行形态：作者只声明「哪个 param 是系统提示（system），哪个是用户提示（prompt）」，CLI 拼装、stream-json 解析、system 的安全传参全部由内置 **LLMRunner** 兜住，不需要手写任何 CLI flag。
+需要调用 Agent CLI（`claude`、`ducc` 等）时不写动作，而是写一个 AI 任务：`ai/` 目录下的独立定义，有自己的会话页、输入参数、守则与产出，见 [AI 任务定义指南](ai.md)。
 
-```yaml
-command:
-  llm:
-    system: ROLE   # 可选，param id → 作为 --append-system-prompt 的独立参数传给 CLI
-    prompt: TASK   # 必填，param id → 写入子进程 stdin
-  timeout: 5m       # 仍适用，默认 60s（LLM 调用建议显式设更长超时）
-```
-
-#### `skills`（可选，string[]）
-
-绑定的 skill id 列表。运行前把 exe 同级 `skills/` 源目录中对应的 skill **整目录同步**到 Agent 目录（源为准：内容比对，不一致覆盖，目标多余文件删除；一致跳过），由 CLI 自行发现加载——**不在 prompt/system 层拼接任何内容**。
-
-- 源目录两级分区，**位置即作用域**：`skills/<id>/` = project 级 → 同步到 `<cwd>/.claude/skills/<id>/`（`cwd` 展开后为空则用 exe 目录）；`skills/user/<id>/` = user 级 → 同步到 `~/.claude/skills/<id>/`（全局一次生效）
-- 目标目录按 **CLI 路由表**（`config.yaml` 的 `LLM_CLI`）：`claude`/`ducc` → `.claude/skills`；`codex` → `.codex/skills` + `.agents/skills` 双根；未知 CLI 回退 `.claude/skills` 并输出警告
-- id 命名 `^[a-z0-9-]+$`，两级合并单一命名空间，跨级同名加载时报冲突；引用不存在的 id 该动作加载失败
-- 同步结果以 `[skill-sync]` 报告行出现在输出面板首行（如 `[skill-sync] demo-skill(project) → D:\proj\.claude\skills\demo-skill`）
-- 同步目标写失败 = 动作失败（skill 是声明的依赖）；同步足迹记录在 exe 同级 `skills.synced.json`
-
-### 工作机制
-
-- **CLI 名**：从全局配置 `config.yaml` 的 `LLM_CLI` 读取，缺省 `ducc`；一处改全局切换到 `claude` 等其他 CLI。
-- **固定拼装**：`<LLM_CLI> -p --output-format=stream-json --verbose --thinking enabled [--append-system-prompt <system值>]`。
-- **system 是独立 argv，不经 shell 字符串**：LLMRunner 直接 `exec.Command` 构造进程，`system` 作为 `--append-system-prompt` 的独立参数传入，多行、引号、`$`、`` ` `` 都零转义风险——这是它相对旧版「拼进 shell 字符串」方案的核心收益。
-- **prompt 走 stdin**：同样不经 shell 字符串，`prompt` 指向的 param 值直接写入子进程 stdin。
-- **输出**：解析 stdout 的 stream-json 格式，只提取 assistant 的 **thinking**（思考过程）和 **text**（回复）增量推送前端（`"llm-thinking"` / `"llm"` 事件）；stderr 原样转发不解析；system/hook/result 及无法解析的行静默跳过。
-- **前端**：`command.llm` 动作的表单（`LlmForm`）把 `prompt` 对应的 param 放在主位（大号 textarea，优先聚焦），`system` 对应的 param 折叠进「角色设定」（默认收起，偶尔调整）；运行后自动切换到 LLM 视图（可折叠思考块 + Markdown 流式渲染）。
-
-### 示例
-
-```yaml
-id: claude-ask
-title: 问 LLM
-icon: hi:ai
-params:
-  - id: QUESTION
-    label: 问题
-    type: textarea
-    required: true
-command:
-  llm:
-    prompt: QUESTION
-  timeout: 5m
-```
-
-**Prompt 场景封装成 action**：把「意图不变、只是动态参数不同」的分析任务（bug 卡片分析、日志根因定位……）做成一个 action，`system` 承载稳定的角色模板，`prompt` 承载含 `${OTHER_PARAM}` 引用的动态任务文本：
-
-```yaml
-id: claude-bug-analyze
-title: 分析 bug 卡片
-params:
-  - id: ROLE
-    label: 角色设定（系统提示）
-    type: textarea
-    required: true
-    default: 你是车载语音 bug 分析师，给出根因假设与验证命令。
-  - id: BUG_URL
-    label: iCafe 卡片链接
-    type: text
-    required: true
-  - id: TASK
-    label: 分析任务
-    type: textarea
-    required: true
-    default: |
-      根据 ${BUG_URL} 给出根因假设与验证命令。
-command:
-  llm:
-    system: ROLE
-    prompt: TASK
-  timeout: 5m
-```
-
-新增一个分析场景 = 复制一份 YAML 改 params + system/prompt 模板，前后端代码不需要再改。
-
-前置：本地须安装对应 CLI（`ducc` 或 `claude`）。
+动作曾经有第四种形态 `command.llm`，现已整体独立出去，不再被识别——留在 `actions/` 里的这类文件加载时报「command 必须指定 run/script/adb 之一」。迁移方法见 ai.md 的「从 command.llm 迁移」。
 
 ## 脚本形态（script）
 
@@ -536,15 +466,19 @@ command:
 
 - `id` 必须匹配 `^[a-z0-9-]+$`
 - `title` 必填
-- `run` 与 `script` 与 `adb.operation` 与 `llm.prompt` **四选一、互斥**
+- `run` 与 `script` 与 `adb.operation` **三选一、互斥**
 - `command.shell` 只允许搭配 `run`/`script` 形态；值必须是内置名（`bash`/`sh`/`pwsh`/`powershell`/`python`/`node`/`cmd`）或含 `{0}` 的自定义模板
 - `script` 必须带受支持的扩展名（`.sh` / `.ps1` / `.py` / `.js`）；显式写了 `command.shell` 时不校验扩展名
 - `params[].type` 只允许 `text` / `bool` / `select` / `path` / `file` / `textarea` / `list` / `arguments`
 - `select` 类型必须提供 `options`
 - `stream` 只允许空 或 `"logcat"`
-- `command.llm.prompt` 必填时对应 param 必须存在于 `params` 中；`command.llm.system` 非空时同样校验
 - 同一目录下 id 不可重复
 
 ## 生效方式
 
-新增/修改 YAML 后**重启 exe** 生效（启动时扫描 `actions/*.yaml`）。
+新增 YAML 文件，或在外部编辑器里改完后，需要**重启 exe** 生效（启动时扫描 `actions/*.yaml`）。在内置 YAML 编辑器里保存已有的动作会立即重载，不用重启。
+
+## 相关文档
+
+- [Workflow 工作流定义指南](workflow.md) — 动作被工作流引用时的编排层
+- [AI 任务定义指南](ai.md) — 调用 Agent CLI 的任务写在 `ai/`，不属于动作

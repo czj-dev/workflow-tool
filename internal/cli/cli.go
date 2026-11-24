@@ -1,6 +1,7 @@
 // Package cli 是 workflow-tool 的 headless 子命令入口（list/describe/run），
-// 供外部 Agent 从 shell 发现、描述、运行 action/workflow 并拿到输出。
-// 它逐字镜像执行核心的 emit（零解码、零状态），复用 registry/workflow/actionrun/runner，
+// 供外部 Agent 从 shell 发现、描述、运行 action/workflow 并拿到输出；AI 任务只可
+// 发现与描述（list/describe），运行一律 ai_blocked。
+// 它逐字镜像执行核心的 emit（零解码、零状态），复用 registry/workflow/ai/actionrun/runner，
 // 绝不 import Wails。
 package cli
 

@@ -36,13 +36,9 @@ export function ActionItem({ action }: { action: ActionItemType }) {
   // ponytail: 历史输出行不恢复——lines 是单缓冲，被其他 action 运行时清掉了；
   // scrcpy 这类只关心「在跑/能停」，够用。要留存历史需 per-id buffer，YAGNI。
   const backToRunning = () => {
-    // llm 形态（command.llm）→llm-chat、logcat→logcat、其余→output。
-    // 漏掉 logcat 会让「抓取日志」等后台运行时点击落入通用 output 视图（看不到实时日志）。
-    const target = action.llm
-      ? "llm-chat"
-      : action.stream === "logcat"
-        ? "logcat"
-        : "output";
+    // logcat→logcat、其余→output。漏掉 logcat 会让「抓取日志」等后台运行时点击落入通用
+    // output 视图（看不到实时日志）。AI 任务不在这里（它们不是动作，见 AppSidebar）。
+    const target = action.stream === "logcat" ? "logcat" : "output";
     focusRunning(action.id, target);
   };
 

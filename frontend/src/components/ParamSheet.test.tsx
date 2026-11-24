@@ -33,6 +33,7 @@ const {
 
 vi.mock("../../bindings/workflow-tool/internal/api/service.js", () => ({
   ListActions: mockListActions,
+  ListAiTasks: vi.fn().mockResolvedValue({ tasks: [], errors: [] }),
   RunAction: mockRunAction,
   CancelAction: vi.fn(),
   GetGlobalConfig: vi.fn().mockResolvedValue({}),

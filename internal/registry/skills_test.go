@@ -24,16 +24,12 @@ func writeSkill(t *testing.T, baseDir, id, scope, content string) {
 	}
 }
 
-// writeAction 写一个最小可加载的 llm 动作 YAML。
-// skillsYAML 非空时是已带缩进的列表项文本（6 空格 起），插在 llm 块内
-// prompt 之后——不能 append 到末尾，否则会挂到 params 列表项下。
-func writeAction(t *testing.T, dir, id, skillsYAML string) {
+// writeAction 写一个最小可加载的动作 YAML。skills 扫描由 registry.Load 顺带完成，
+// 这里只需要动作目录里有一个合法动作，确认加载不因 skills 分区而中断
+// （引用 skill 的是 AI 任务，校验在 internal/ai.Parse）。
+func writeAction(t *testing.T, dir, id string) {
 	t.Helper()
-	yaml := "id: " + id + "\ntitle: " + id + "\ncommand:\n  llm:\n    prompt: p\n"
-	if skillsYAML != "" {
-		yaml += "    skills:\n" + skillsYAML
-	}
-	yaml += "params:\n  - id: p\n    type: text\n"
+	yaml := "id: " + id + "\ntitle: " + id + "\ncommand:\n  run: echo\n"
 	if err := os.WriteFile(filepath.Join(dir, id+".yaml"), []byte(yaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +44,7 @@ func TestLoadSkillsScopes(t *testing.T) {
 	if err := os.MkdirAll(actDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeAction(t, actDir, "demo-a", "      - bug-analyze\n      - git-style\n")
+	writeAction(t, actDir, "demo-a")
 
 	reg := Load(actDir, base)
 
@@ -74,7 +70,7 @@ func TestLoadSkillsCrossScopeConflict(t *testing.T) {
 	if err := os.MkdirAll(actDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeAction(t, actDir, "demo-a", "")
+	writeAction(t, actDir, "demo-a")
 
 	reg := Load(actDir, base)
 
@@ -83,27 +79,28 @@ func TestLoadSkillsCrossScopeConflict(t *testing.T) {
 	}
 }
 
-func TestLoadSkillRefMissing(t *testing.T) {
+func TestLoadSkillsWithoutSkillsDir(t *testing.T) {
+	// 没有 skills/ 目录：空集合，不报错（全新工作区的常态）
 	base := t.TempDir()
 	actDir := filepath.Join(base, "actions")
 	if err := os.MkdirAll(actDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeAction(t, actDir, "demo-a", "      - ghost\n")
+	writeAction(t, actDir, "demo-a")
 
 	reg := Load(actDir, base)
-
-	if len(reg.Errors) == 0 {
-		t.Fatal("引用不存在的 skill 应报错")
-	}
-	if _, ok := reg.Actions["demo-a"]; ok {
-		t.Fatal("引用失败的动不应进入 Actions")
+	if len(reg.Errors) != 0 || len(reg.Skills) != 0 {
+		t.Fatalf("没有 skills/ 时应为空集合且无错误，got %+v %v", reg.Skills, reg.Errors)
 	}
 }
 
+// TestValidateSkillIDPattern 锁定 skill id 的格式约束（引用是否存在由 internal/ai
+// 按扫描结果校验，调用同一个 ValidateSkillRefs）。
 func TestValidateSkillIDPattern(t *testing.T) {
-	def := &ActionDef{ID: "x", Title: "x", Command: Command{LLM: LLMCommand{Prompt: "p", Skills: []string{"Bad_Name"}}}}
-	if err := Validate(def); err == nil {
+	if err := ValidateSkillRefs([]string{"Bad_Name"}, map[string]SkillMeta{}); err == nil {
 		t.Fatal("skill id 不匹配 ^[a-z0-9-]+$ 应报错")
+	}
+	if err := ValidateSkillRefs([]string{"ok-id"}, map[string]SkillMeta{"ok-id": {Scope: "project"}}); err != nil {
+		t.Fatalf("格式合法且存在的 skill 应通过: %v", err)
 	}
 }

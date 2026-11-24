@@ -17,9 +17,9 @@ export interface OutputEventData {
   stream:
     | "stdout"
     | "stderr"
-    | "llm"
-    | "llm-thinking"
-    | "llm-tool"
+    | "ai"
+    | "ai-thinking"
+    | "ai-tool"
     | "logcat"
     | "logcat-replace"
     | "step-start"
@@ -31,7 +31,7 @@ export interface OutputEventData {
   // workflow output 事件专有：该行归属的 step 索引（后端下发，见 api.executeWorkflow）。
   // 有它就按索引落桶，规避 Wails 事件乱序把 100% 折进下一个 step。action 事件无此字段。
   step?: string;
-  // action output 事件专有：后端 emit 时的自增序号（见 api.execute）。Wails Event.Emit
+  // action / AI 任务 output 事件专有：后端 emit 时的自增序号（见 api.execute / api.runAi）。Wails Event.Emit
   // 每次都各起一个 goroutine 投递，到达前端的顺序无保证；用 seq 在应用前重排还原真实产出顺序。
   seq?: number;
 }
@@ -92,8 +92,15 @@ export interface LogcatReplaceFrame {
   tagHistogram?: Record<string, number>;
 }
 
-// LLM 会话终点读数（done 事件附带，LLM 动作专有；后端 api.llmReadout 构造）
-export interface LlmReadoutData {
+// AI 运行期间 runner 的 stdout/stderr 行（ai:<id>:output 事件里 stream 为 stdout/stderr 的
+// 那些）。聊天页在运行失败或有 stderr 时展开作为诊断输出。
+export interface AiDiagLine {
+  stream: "stdout" | "stderr";
+  text: string;
+}
+
+// AI 会话终点读数（done 事件附带，AI 任务专有；后端 api.aiReadout 构造）
+export interface AiReadoutData {
   durationMs?: number;
   costUsd?: number;
   inputTokens?: number;
@@ -107,9 +114,9 @@ export interface DoneEventData {
   exitCode: number;
   err: string;
   duration: string;
-  readout?: LlmReadoutData;
-  // action done 事件专有：与 output 事件共享同一序号空间，但**独占**一个号
-  // （后端 api.actionEvents.Done），output 号段因此有一个永久空洞。
+  readout?: AiReadoutData;
+  // action / AI 任务 done 事件专有：与 output 事件共享同一序号空间，但**独占**一个号
+  // （后端 api.actionEvents.Done / aiEvents.Done），output 号段因此有一个永久空洞。
   // done 事件同样各起独立 goroutine 投递，可能抢跑在还没到达的 output 行前面；
   // 用它接入 outputFold 的重排队列，确保退出码行落在所有 output 行之后；
   // 同时必须把该号在帧门里登记为已消耗（见 ActionRunnerProvider 的 seqGate.consumed），
@@ -130,4 +137,7 @@ export interface WorkflowStepState {
   // 帧到达时间戳（前端打点，非后端下发）：running 起 / 终态止，供耗时读数
   startedAt?: number;
   endedAt?: number;
+  // AI 步骤专有：回复流式增量里尚未凑满一行的尾巴（见 lib/ai.ts 的 mergeAiReply）。
+  // 凑满一行才落一条 text 行；step-done 时 flushAiReply 把它落成最后一行并摘掉本字段。
+  aiPartial?: string;
 }

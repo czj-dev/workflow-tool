@@ -150,7 +150,7 @@ const chromeTheme = EditorView.theme({
 });
 
 export interface YamlEditorProps {
-  kind: "action" | "workflow";
+  kind: "action" | "workflow" | "ai";
   items: YamlEditorItem[];
   currentId: string | null;
   getYaml: (id: string) => Promise<string>;
@@ -158,9 +158,16 @@ export interface YamlEditorProps {
   onExit: () => void;
 }
 
-// Action / Workflow 共用的 YAML 原文编辑器（CodeMirror 6）：语法高亮 + 行号 + 折叠 +
+// 各入口的 i18n 文案键（标题 / 选择器占位 / 空态），按 kind 取。
+const TEXT_KEYS = {
+  action: { title: "edit.title", placeholder: "edit.placeholder", empty: "edit.empty" },
+  workflow: { title: "edit.wfTitle", placeholder: "edit.wfPlaceholder", empty: "edit.wfEmpty" },
+  ai: { title: "edit.aiTitle", placeholder: "edit.aiPlaceholder", empty: "edit.aiEmpty" },
+} as const;
+
+// Action / Workflow / AI 任务共用的 YAML 原文编辑器（CodeMirror 6）：语法高亮 + 行号 + 折叠 +
 // 当前行/括号高亮 + Tab 缩进 + 查找替换 + Cmd/Ctrl+S 保存 + 实时校验 + 状态栏 +
-// 未保存改动保护。两个入口仅在 kind（i18n 文案与空态）与 onExit 目标视图上不同。
+// 未保存改动保护。各入口仅在 kind（i18n 文案与空态）与 onExit 目标视图上不同。
 export function YamlEditor({
   kind,
   items,
@@ -172,9 +179,7 @@ export function YamlEditor({
   const { t } = useTranslation();
   const resolved = useResolvedTheme();
 
-  const titleKey = kind === "action" ? "edit.title" : "edit.wfTitle";
-  const placeholderKey = kind === "action" ? "edit.placeholder" : "edit.wfPlaceholder";
-  const emptyKey = kind === "action" ? "edit.empty" : "edit.wfEmpty";
+  const { title: titleKey, placeholder: placeholderKey, empty: emptyKey } = TEXT_KEYS[kind];
 
   const state = useYamlEditorState({
     items,
@@ -301,7 +306,11 @@ export function YamlEditor({
             }}
           >
             <SelectTrigger className="w-56">
-              <SelectValue placeholder={t(placeholderKey)} />
+              {/* Base UI 不像 Radix 那样从 SelectItem 取文字回填触发器：不给内容时回显原始
+                  value（即 id）。这里显式回填所选条目的标题。 */}
+              <SelectValue placeholder={t(placeholderKey)}>
+                {items.find((it) => it.id === state.editingId)?.title}
+              </SelectValue>
             </SelectTrigger>
             <SelectContent>
               {items.map((it) => (

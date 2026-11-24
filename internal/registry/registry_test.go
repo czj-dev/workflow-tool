@@ -237,60 +237,47 @@ command:
 	}
 }
 
-// TestLoadParsesLLM 验证 command.llm 一等形态：system 可选、prompt 必填，
-// 两者引用的 param 都存在时应合法加载。
-func TestLoadParsesLLM(t *testing.T) {
+// TestLoadRejectsCommandLLM 验证 command.llm 不再是合法形态：AI 任务已迁到 ai/ 目录
+// （internal/ai）。残留的 command.llm 动作得不到专门提示，只落入通用的必填校验报错。
+func TestLoadRejectsCommandLLM(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "a.yaml", `id: a
 title: A
 params:
-  - { id: ROLE, label: 角色, type: textarea }
-  - { id: QUESTION, label: 问题, type: textarea, required: true }
-command:
-  llm:
-    system: ROLE
-    prompt: QUESTION
-`)
-	reg := Load(dir, dir)
-	if len(reg.Errors) != 0 {
-		t.Fatalf("command.llm 应合法，got errors: %v", reg.Errors)
-	}
-	la := reg.Actions["a"]
-	if la.Def.Command.LLM.Prompt != "QUESTION" || la.Def.Command.LLM.System != "ROLE" {
-		t.Fatalf("want llm.prompt=QUESTION llm.system=ROLE，got %+v", la.Def.Command.LLM)
-	}
-}
-
-// TestValidateLLMRequiresPromptParam 验证 command.llm.prompt 引用不存在的 param 时报错。
-func TestValidateLLMRequiresPromptParam(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, "a.yaml", `id: a
-title: A
+  - { id: QUESTION, label: 问题, type: textarea }
 command:
   llm:
     prompt: QUESTION
 `)
 	reg := Load(dir, dir)
-	if len(reg.Errors) == 0 {
-		t.Fatal("command.llm.prompt 引用不存在的 param 应报错")
+	if len(reg.Errors) != 1 {
+		t.Fatalf("command.llm 不应是合法形态，got errors: %v", reg.Errors)
+	}
+	if _, ok := reg.Actions["a"]; ok {
+		t.Fatal("command.llm 动作不应进入 Actions")
+	}
+	if got := reg.Errors[0].Error; !strings.Contains(got, "command 必须指定 run/script/adb 之一") {
+		t.Fatalf("应落入通用的必填校验，got %q", got)
 	}
 }
 
-// TestValidateCommandFourWayExclusive 验证 shell/script/adb/llm 四选一互斥。
-func TestValidateCommandFourWayExclusive(t *testing.T) {
-	dir := t.TempDir()
-	writeFile(t, dir, "a.yaml", `id: a
-title: A
-params:
-  - { id: QUESTION, label: 问题, type: textarea, required: true }
-command:
-  run: echo hi
-  llm:
-    prompt: QUESTION
-`)
-	reg := Load(dir, dir)
-	if len(reg.Errors) == 0 {
-		t.Fatal("shell 与 llm 同时指定应报错")
+// TestValidateCommandThreeWayExclusive 验证 run/script/adb 三选一互斥。
+func TestValidateCommandThreeWayExclusive(t *testing.T) {
+	for name, cmd := range map[string]string{
+		"run+script": "  run: echo hi\n  script: s.sh\n",
+		"run+adb":    "  run: echo hi\n  adb:\n    operation: list-packages\n",
+		"script+adb": "  script: s.sh\n  adb:\n    operation: list-packages\n",
+	} {
+		def, err := ParseAction([]byte("id: a\ntitle: A\ncommand:\n" + cmd))
+		if err != nil {
+			t.Fatalf("%s: parse: %v", name, err)
+		}
+		if err := Validate(def); err == nil || !strings.Contains(err.Error(), "三选一互斥") {
+			t.Errorf("%s: 应报三选一互斥，got %v", name, err)
+		}
+	}
+	if err := Validate(&ActionDef{ID: "a", Title: "A"}); err == nil || !strings.Contains(err.Error(), "run/script/adb 之一") {
+		t.Errorf("未指定形态应报错，got %v", err)
 	}
 }
 
@@ -564,7 +551,7 @@ func TestAddPresetToYAML_PreservesComments(t *testing.T) {
 	}
 }
 
-// TestValidate_ShellModifier 校验 shell 修饰字段：非法值报错、配 adb/llm 形态报错。
+// TestValidate_ShellModifier 校验 shell 修饰字段：非法值报错、配 adb 形态报错。
 func TestValidate_ShellModifier(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -576,7 +563,6 @@ func TestValidate_ShellModifier(t *testing.T) {
 		{"非法工具名", "id: a\ntitle: A\ncommand:\n  run: echo\n  shell: zsh\n", "shell 非法"},
 		{"自定义模板缺占位符", "id: a\ntitle: A\ncommand:\n  run: echo\n  shell: perl\n", "shell 非法"},
 		{"shell 配 adb 形态", "id: a\ntitle: A\ncommand:\n  adb:\n    operation: list-packages\n  shell: bash\n", "只能搭配 run/script"},
-		{"shell 配 llm 形态", "id: a\ntitle: A\nparams:\n  - id: p\n    type: text\ncommand:\n  llm:\n    prompt: p\n  shell: bash\n", "只能搭配 run/script"},
 	}
 	for _, c := range cases {
 		def, err := ParseAction([]byte(c.yaml))
@@ -605,7 +591,7 @@ func TestValidate_ScriptExtension(t *testing.T) {
 	if err := Validate(bad); err == nil {
 		t.Fatal(".rb 扩展名应报错")
 	}
-override := &ActionDef{ID: "a", Title: "A", Command: Command{Script: "./s/hello.pl", Shell: "perl {0}"}}
+	override := &ActionDef{ID: "a", Title: "A", Command: Command{Script: "./s/hello.pl", Shell: "perl {0}"}}
 	if err := Validate(override); err != nil {
 		t.Fatalf("script + 显式 shell 应合法（校验不该比引擎更严）: %v", err)
 	}

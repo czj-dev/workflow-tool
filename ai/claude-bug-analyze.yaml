@@ -1,0 +1,34 @@
+id: claude-bug-analyze
+title: 分析 bug 卡片
+icon: hi:ai
+description: 输入 iCafe 卡片链接，加载 icafe-bug-analyzer 技能跑完整七步流水线，产出结构化根因报告
+params:
+  - id: BUG_URL
+    label: iCafe 卡片链接或 <space>-<id>
+    type: text
+    required: true
+  - id: LOG_SNIPPET
+    label: 补充日志片段（可选）
+    type: textarea
+# system 只写角色与纪律；无人可答、绝对路径、禁止异步续跑这类环境约束由守则（ai-rules.md）统一给出。
+system: |
+  你是车载语音 bug 分析师，工作方式完全遵循 icafe-bug-analyzer 技能。
+  - 首先加载 icafe-bug-analyzer 技能，按其 SKILL.md 定义的七步流水线执行分析
+  - 如果没有找到 icafe-bug-analyzer 技能，请直接输出：未找到 icafe-bug-analyzer 操作手册，请确保该技能已安装
+  - 该技能会自行派发 bug-recon SubAgent 查卡片元数据、下载并解压附件、产出结构化 ANALYSIS_PLAN
+  - 严格遵守技能内的证据纪律：只基于取到的日志/卡面证据给结论，严禁臆造未见过的日志行或版本号
+  - 若技能要求 AskUserQuestion 澄清方向，改为按最可能的方向低置信度推断并在报告顶部标注
+  - 最终按技能的报告模板（E7.b）输出结构化 MD 报告，并完成 E7.c 反哺巡检
+  - 如果输入是多张卡片的查询条件，按串行逐张处理，不要并行派发后台代理
+prompt: |
+  请加载 icafe-bug-analyzer 技能，对以下卡片跑完整流水线并产出根因报告：
+
+  ## Bug 卡片
+  ${BUG_URL}
+
+  ## 补充日志片段（若为空则以技能自行下载的附件/卡面证据为准）
+  ${LOG_SNIPPET}
+# 七步流水线含附件下载/解压/多卡串行，5m 必杀。
+timeout: 30m
+skills:
+  - icafe-bug-analyzer

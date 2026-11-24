@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # 前端构建：bindings（总是重新生成，确保与 api.go 同步）→ 依赖（总是 npm install，幂等）→ 产出 frontend/dist/
-# 用法：bash build/frontend.sh
+# 用法：bash deploy/frontend.sh
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 FRONTEND="$ROOT/frontend"
+
+# 确保 GOPATH/bin 在 PATH 中（wails3 等 go install 的工具在此；与 backend.sh 同款，全量构建先跑的是本脚本）
+export PATH="${PATH}:$(go env GOPATH)/bin"
 
 # 前端代码 import frontend/bindings（gitignored 产物）。
 # 总是重新生成：改 api.go 后 method ID 会变，前端必须用最新 bindings 构建，

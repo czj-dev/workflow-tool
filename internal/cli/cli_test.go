@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
+	"workflow-tool/internal/ai"
 	"workflow-tool/internal/registry"
 	"workflow-tool/internal/runner"
 	"workflow-tool/internal/workflow"
@@ -145,29 +147,116 @@ func TestResolveAmbiguous(t *testing.T) {
 	}
 }
 
-func TestLLMBlocked(t *testing.T) {
-	llmAction := registry.LoadedAction{Def: registry.ActionDef{
-		ID: "ai", Command: registry.Command{LLM: registry.LLMCommand{Prompt: "p"}},
-	}}
+func TestResolveAiTask(t *testing.T) {
+	// 不加 --kind：只有 AI 任务命中时直接解析为 ai
+	e := &env{
+		reg:   &registry.Registry{},
+		wfReg: &workflow.WorkflowRegistry{},
+		aiReg: &ai.Registry{Tasks: map[string]ai.LoadedTask{"t-ask": {Task: ai.Task{ID: "t-ask"}}}},
+	}
+	if tgt, cerr := e.resolve("t-ask", ""); cerr != nil || tgt.kind != "ai" {
+		t.Fatalf("AI 任务应解析为 ai: %v / %+v", cerr, tgt)
+	}
+	// --kind 指定到没有该种类的 id → unknown_id
+	if _, cerr := e.resolve("t-ask", "action"); cerr == nil || cerr.Kind != "unknown_id" {
+		t.Fatalf("期望 unknown_id，得到 %v", cerr)
+	}
+	// 与 action 撞名：无 --kind 报歧义，--kind ai 消歧
+	e.reg = &registry.Registry{Actions: map[string]registry.LoadedAction{"t-ask": {Def: registry.ActionDef{ID: "t-ask"}}}}
+	if _, cerr := e.resolve("t-ask", ""); cerr == nil || cerr.Kind != "ambiguous_id" {
+		t.Fatalf("期望 ambiguous_id，得到 %v", cerr)
+	}
+	if tgt, cerr := e.resolve("t-ask", "ai"); cerr != nil || tgt.kind != "ai" {
+		t.Fatalf("--kind ai 消歧失败: %v / %+v", cerr, tgt)
+	}
+	if _, cerr := e.resolve("t-ask", "nope"); cerr == nil || cerr.Kind != "bad_params" {
+		t.Fatalf("期望 bad_params，得到 %v", cerr)
+	}
+}
 
-	t.Run("直接 run llm 动作被拒", func(t *testing.T) {
-		e := &env{}
+func TestAiBlocked(t *testing.T) {
+	t.Run("直接 run AI 任务被拒", func(t *testing.T) {
 		var buf bytes.Buffer
-		enc := json.NewEncoder(&buf)
-		code := e.runAction(context.Background(), llmAction, map[string]any{}, "", true, enc)
+		tgt := target{kind: "ai", lt: ai.LoadedTask{Task: ai.Task{ID: "t-ask"}}}
+		code := (&env{}).runTarget(context.Background(), tgt, nil, "", true, json.NewEncoder(&buf))
 		assertBlocked(t, code, &buf)
 	})
 
-	t.Run("workflow 引用 llm step 被拒", func(t *testing.T) {
-		e := &env{reg: &registry.Registry{Actions: map[string]registry.LoadedAction{"ai": llmAction}}}
+	t.Run("workflow 含 ai step 被拒", func(t *testing.T) {
 		lw := workflow.LoadedWorkflow{Def: workflow.WorkflowDef{
-			ID: "wf", Steps: []workflow.Step{{Action: "ai"}},
+			ID: "wf", Steps: []workflow.Step{{Run: "echo hi"}, {ID: "analyze", AI: "t-ask"}},
 		}}
 		var buf bytes.Buffer
-		enc := json.NewEncoder(&buf)
-		code := e.runWorkflow(context.Background(), lw, map[string]any{}, "", true, enc)
+		code := (&env{}).runWorkflow(context.Background(), lw, map[string]any{}, "", true, json.NewEncoder(&buf))
 		assertBlocked(t, code, &buf)
 	})
+}
+
+func TestListAndDescribeAiTask(t *testing.T) {
+	prompt := "介绍一下 ${TOPIC}"
+	e := &env{
+		reg:   &registry.Registry{Actions: map[string]registry.LoadedAction{"z-act": {Def: registry.ActionDef{ID: "z-act", Title: "Act"}}}},
+		wfReg: &workflow.WorkflowRegistry{},
+		aiReg: &ai.Registry{Tasks: map[string]ai.LoadedTask{
+			"t-ask": {Task: ai.Task{
+				ID: "t-ask", Title: "Ask",
+				Params:  []registry.ParamSpec{{ID: "TOPIC", Type: "text", Required: true}},
+				Presets: []registry.Preset{{Name: "问 Go", Values: map[string]string{"TOPIC": "Go"}}},
+				Prompt:  &prompt,
+				System:  "你是助手",
+			}},
+		}},
+	}
+	// list：AI 任务以 kind: ai 入列，与 action/workflow 一起按 id 排序
+	want := []listItem{
+		{ID: "t-ask", Title: "Ask", Kind: "ai"},
+		{ID: "z-act", Title: "Act", Kind: "action"},
+	}
+	if items := listItems(e); !slices.Equal(items, want) {
+		t.Fatalf("list = %+v，want %+v", items, want)
+	}
+
+	// describe：参数契约之外多出 prompt/system 与保留运行参数
+	tgt, cerr := e.resolve("t-ask", "")
+	if cerr != nil {
+		t.Fatal(cerr)
+	}
+	m := describeJSON(t, describeOf("t-ask", tgt))
+	if m["kind"] != "ai" || m["prompt"] != "介绍一下 ${TOPIC}" || m["system"] != "你是助手" {
+		t.Fatalf("describe 输出不符: %v", m)
+	}
+	if rp, _ := m["reservedRunParams"].([]any); !slices.Equal(rp, []any{"prompt", "system", "resume"}) {
+		t.Fatalf("reservedRunParams = %v", m["reservedRunParams"])
+	}
+	if ps, _ := m["params"].([]any); len(ps) != 1 {
+		t.Fatalf("params 应原样带回: %v", m["params"])
+	}
+
+	// prompt 键必须出现（空串 = 提示词由调用方给入）；system 为空时省略
+	empty := ""
+	e.aiReg = &ai.Registry{Tasks: map[string]ai.LoadedTask{"t-ask": {Task: ai.Task{ID: "t-ask", Prompt: &empty}}}}
+	tgt, _ = e.resolve("t-ask", "")
+	m = describeJSON(t, describeOf("t-ask", tgt))
+	if v, ok := m["prompt"]; !ok || v != "" {
+		t.Fatalf("空 prompt 也应输出 prompt 键: %v", m)
+	}
+	if _, ok := m["system"]; ok {
+		t.Fatalf("system 为空时应省略: %v", m)
+	}
+}
+
+// describeJSON 把 describe 输出对象按 JSON 往返一遍：验证可编码，并便于按键断言。
+func describeJSON(t *testing.T, v any) map[string]any {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatal(err)
+	}
+	return m
 }
 
 func assertBlocked(t *testing.T, code int, buf *bytes.Buffer) {
@@ -179,7 +268,7 @@ func assertBlocked(t *testing.T, code int, buf *bytes.Buffer) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(buf.String())), &e); err != nil {
 		t.Fatalf("error 行解析失败: %v (%q)", err, buf.String())
 	}
-	if e.Type != "error" || e.Kind != "llm_blocked" {
-		t.Fatalf("期望 kind=llm_blocked，得到 %+v", e)
+	if e.Type != "error" || e.Kind != "ai_blocked" {
+		t.Fatalf("期望 kind=ai_blocked，得到 %+v", e)
 	}
 }

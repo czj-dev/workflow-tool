@@ -3,7 +3,7 @@ import { FOOTPRINT_SEGMENTS } from "../hooks/useActionUsage";
 
 /* eslint-disable react-refresh/only-export-components -- 双态卡零件库：组件与 amb/narrative 工具函数同文件共享，非 fast-refresh 边界文件 */
 
-// Grid 卡片共享零件：Actions / Workflows / Llm 三个 view 复用，避免样式复制漂移。
+// Grid 卡片共享零件：Actions / Workflows / Ai 三个 view 复用，避免样式复制漂移。
 // 双态卡骨架（ADR-0001）与氛围色（ADR-0003）在此下沉；token 表见 .design/workflow-card-mockup.html。
 
 // 分组头刻度尺：tick 数 = 该组条目数，lit 段 = 已用过的条目数（结构即信息）。
@@ -98,7 +98,7 @@ export function PresetDots({ count }: { count: number }) {
   );
 }
 
-// ❝ 叙述区：展开态的弹性文本区（Workflow=描述 / LLM=最近会话摘要；运行输出流是演进位）。
+// ❝ 叙述区：展开态的弹性文本区（Workflow=描述 / AI 任务=最近会话摘要；运行输出流是演进位）。
 export function NarrativeZone({ stamp, children }: { stamp?: ReactNode; children: ReactNode }) {
   return (
     <div className="flex min-h-0 gap-2.5 py-0.5">
@@ -121,7 +121,7 @@ export function NarrativeZone({ stamp, children }: { stamp?: ReactNode; children
   );
 }
 
-// 展开态预设 chips：预设双路径的「浏览」侧（沿用 LlmChatView composer 虚线 chip 语言，amb 化）。
+// 展开态预设 chips：预设双路径的「浏览」侧（沿用 AiChatView composer 虚线 chip 语言，amb 化）。
 export function PresetChips({
   presets, onChoose,
 }: {

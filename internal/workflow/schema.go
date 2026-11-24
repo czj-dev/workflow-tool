@@ -25,23 +25,24 @@ var reservedParamIDs = map[string]bool{
 // WorkflowDef 是 workflow YAML 的原始结构。
 // Params 由 workflow 自行声明（不从 step 引用的 action 聚合），运行时作为全局变量注入各 step。
 type WorkflowDef struct {
-	ID          string               `yaml:"id"`
-	Title       string               `yaml:"title"`
-	Icon        string               `yaml:"icon"`
-	Description string               `yaml:"description"`
+	ID          string `yaml:"id"`
+	Title       string `yaml:"title"`
+	Icon        string `yaml:"icon"`
+	Description string `yaml:"description"`
 	// Color 可选，卡片氛围色名（registry.ValidAmbColors）；空 = 缺省按分组序循环（ADR-0003）。
-	Color       string               `yaml:"color"`
-	Env         map[string]string    `yaml:"env"` // workflow 级默认环境变量
-	Params      []registry.ParamSpec `yaml:"params"`
-	Steps       []Step               `yaml:"steps"`
+	Color  string               `yaml:"color"`
+	Env    map[string]string    `yaml:"env"` // workflow 级默认环境变量
+	Params []registry.ParamSpec `yaml:"params"`
+	Steps  []Step               `yaml:"steps"`
 }
 
-// Step 是 workflow 中的一步。action / run / sleep 三者互斥。
+// Step 是 workflow 中的一步。action / run / sleep / ai 四者互斥。
 type Step struct {
 	ID              string            `yaml:"id"`                // 可选；未写用 steps[i] 索引兜底
 	Name            string            `yaml:"name"`              // 可选；Pipeline Spine 显示用
 	If              string            `yaml:"if"`                // 可选；expr 表达式，false → SKIPPED
 	Action          string            `yaml:"action"`            // 引用已有 action id
+	AI              string            `yaml:"ai"`                // 引用 ai/ 下的 AI 任务 id
 	Params          map[string]string `yaml:"params"`            // 覆盖 action 的参数
 	Sleep           int               `yaml:"sleep"`             // sleep N 秒
 	Run             string            `yaml:"run"`               // 直接执行的内联命令（GHA run）
@@ -104,11 +105,17 @@ func Validate(def *WorkflowDef) error {
 		if s.Run != "" {
 			count++
 		}
+		if s.AI != "" {
+			count++
+		}
 		if count == 0 {
-			return fmt.Errorf("steps[%d]: 必须指定 action、run 或 sleep 之一", i)
+			return fmt.Errorf("steps[%d]: 必须指定 action、run、sleep 或 ai 之一", i)
 		}
 		if count > 1 {
-			return fmt.Errorf("steps[%d]: action、run、sleep 三者互斥", i)
+			return fmt.Errorf("steps[%d]: action、run、sleep、ai 四者互斥", i)
+		}
+		if s.AI != "" && !registry.ValidID(s.AI) {
+			return fmt.Errorf("steps[%d].ai 必须匹配 ^[a-z0-9-]+$，got %q", i, s.AI)
 		}
 		if s.ID != "" {
 			if !idPattern.MatchString(s.ID) {

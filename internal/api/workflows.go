@@ -15,7 +15,7 @@ import (
 type WorkflowStepInfo struct {
 	// 改动 Kind 的取值集合时，必须同步前端 frontend/src/components/WorkflowStepsOverview.tsx
 	// 的 STEP_ICON 表：前端无编译期约束，缺键会落到 ?? FlashIcon 兜底、图标静默退化成 action 的闪电。
-	Kind  string `json:"kind"`  // "action" | "sleep" | "run"
+	Kind  string `json:"kind"`  // "action" | "sleep" | "run" | "ai"
 	Label string `json:"label"` // 显示文案，如 action id / "5s" / 截断 run
 	Name  string `json:"name"`  // step.name 人类可读标签（可为空）
 }
@@ -71,6 +71,9 @@ func buildStepInfos(steps []workflow.Step) []WorkflowStepInfo {
 		case s.Action != "":
 			info.Kind = "action"
 			info.Label = s.Action
+		case s.AI != "":
+			info.Kind = "ai"
+			info.Label = s.AI
 		case s.Sleep > 0:
 			info.Kind = "sleep"
 			info.Label = fmt.Sprintf("%ds", s.Sleep)
@@ -172,7 +175,9 @@ func (s *Service) executeWorkflow(ctx context.Context, id string, lw workflow.Lo
 	merged := s.mergeGlobalAndParams(params)
 	// 直跑与 cli 路径共用的 workflow step 回调构造（见 actionrun.WorkflowCallbacks）。
 	actionRun, shellRun := actionrun.WorkflowCallbacks(s.actionRegistry(), s.runDeps, merged)
-	res := (&workflow.Executor{}).Execute(ctx, lw, actionRun, shellRun, merged, ev.EmitFunc())
+	// AI 步骤的回调占目标锁、ctx 挂在本 workflow 的 ctx 之下（见 run.go 的 aiStepRun）。
+	aiRun := s.aiStepRun(ctx, merged)
+	res := (&workflow.Executor{}).Execute(ctx, lw, actionRun, shellRun, aiRun, merged, ev.EmitFunc())
 	ev.Done(res.ExitCode, errStr(res.Err), res.Duration)
 	if source != nil {
 		s.finishScheduleRun(source, source.token, res.ExitCode, res.Err, res.Duration)

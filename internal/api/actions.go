@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"runtime"
 
+	"workflow-tool/internal/ai"
 	"workflow-tool/internal/registry"
 )
 
@@ -22,17 +23,6 @@ type ActionItem struct {
 	Presets     []registry.Preset    `json:"presets"`
 	Stream      string               `json:"stream"`
 	HMI         *registry.HMI        `json:"hmi,omitempty"`
-	// LLM 非 nil 表示该动作是 command.llm 形态：前端据此走 LlmForm（system/prompt 主次布局）
-	// + LlmView（流式回答视图）；nil 走通用 ParamForm。
-	LLM *LLMInfo `json:"llm,omitempty"`
-}
-
-// LLMInfo 暴露给前端的 LLM 形态元信息：哪个 param 是 system、哪个是 prompt、哪个是 resume。
-// ResumeParam 供聊天页查看历史时把条目的 session id 回填到该输入（续接会话）。
-type LLMInfo struct {
-	SystemParam string `json:"systemParam"`
-	PromptParam string `json:"promptParam"`
-	ResumeParam string `json:"resumeParam"`
 }
 
 // ListResult 包装 ListActions 的多返回值，便于前端绑定。
@@ -61,7 +51,6 @@ func (s *Service) buildListResult() ListResult {
 			Presets:     la.Def.Presets,
 			Stream:      la.Def.Command.Stream,
 			HMI:         la.Def.HMI,
-			LLM:         llmInfoOf(la.Def.Command),
 		})
 	}
 	errs := make([]string, 0, len(reg.Errors))
@@ -71,22 +60,24 @@ func (s *Service) buildListResult() ListResult {
 	return ListResult{Actions: items, Errors: errs}
 }
 
-// llmInfoOf 若动作是 LLM 形态则返回 LLMInfo 供前端布局，否则 nil。
-func llmInfoOf(cmd registry.Command) *LLMInfo {
-	if cmd.LLM.Prompt == "" {
-		return nil
-	}
-	return &LLMInfo{SystemParam: cmd.LLM.System, PromptParam: cmd.LLM.Prompt, ResumeParam: cmd.LLM.Resume}
-}
-
-// Reload 重扫 actions 目录重建 registry（编辑保存后调用）。
+// Reload 重扫 actions 与 ai 目录重建 registry（编辑保存后调用）。
 // 低频操作：整体替换 reg 指针；正在运行的 action 持有旧 LoadedAction 副本，不受影响。
 func (s *Service) Reload() {
 	loaded := registry.Load(filepath.Join(s.baseDir, "actions"), s.baseDir)
 	s.regMu.Lock()
 	s.reg = loaded
 	s.regMu.Unlock()
+	s.reloadAi()
 	s.reconcileSchedules()
+}
+
+// reloadAi 重扫 ai/ 目录重建 aiReg。skills 取自刚换上的动作 registry；正在运行的
+// AI 任务持有旧 LoadedTask 副本，不受影响。
+func (s *Service) reloadAi() {
+	loaded := ai.Load(filepath.Join(s.baseDir, "ai"), s.actionRegistry().Skills)
+	s.aiMu.Lock()
+	s.aiReg = loaded
+	s.aiMu.Unlock()
 }
 
 // GetActionYaml 返回指定 action 源文件原文（含注释与格式）。
@@ -178,7 +169,8 @@ func (s *Service) OpenActionsDir() error {
 var varRefRe = regexp.MustCompile(`\$\{([A-Za-z0-9_]+)\}|\$env:([A-Za-z0-9_]+)`)
 
 // GetVarReferenceCounts 统计每个变量被多少处引用：
-// 所有 action 的 shell 命令 + script 脚本文件内容 + 指令片段。
+// 所有 action 的 shell 命令 + script 脚本文件内容 + AI 任务的 prompt/system/cwd/env
+// + 指令片段。
 // 同一处（一个 action 或一个片段）内重复引用只计一次，体现「是否被用到」。
 func (s *Service) GetVarReferenceCounts() map[string]int {
 	counts := map[string]int{}
@@ -206,6 +198,15 @@ func (s *Service) GetVarReferenceCounts() map[string]int {
 			if data, ok := readScriptBytes(la.Def.Command.Script, s.baseDir); ok {
 				add(string(data))
 			}
+		}
+	}
+	// ai tasks：prompt / system / cwd / env 值都是模板，运行时经 runner.Expand 展开
+	for _, lt := range s.aiRegistry().Tasks {
+		add(lt.Task.PromptText())
+		add(lt.Task.System)
+		add(lt.Task.Cwd)
+		for _, v := range lt.Task.Env {
+			add(v)
 		}
 	}
 	// workflows：workflow 级 env + 每个 step 的 shell / params / env 值

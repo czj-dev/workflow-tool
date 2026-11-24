@@ -16,6 +16,8 @@ import (
 )
 
 // cmdRun 执行 action 或 workflow。id 必须是 args[0]，flags 跟其后。
+// AI 任务与含 AI 步骤的 workflow 一律 ai_blocked（见 runTarget/runWorkflow）：无人值守
+// 的 AI 运行只走 GUI（目标锁、会话续接、流式视图都在那里）。
 func cmdRun(args []string) int {
 	if len(args) < 1 || args[0] == "" || args[0][0] == '-' {
 		fmt.Fprintln(os.Stderr, "用法: workflow-tool run <id> [--json] [--params <json>|@file|@-] [--kind ..] [--device ..] [--base-dir ..] [--timeout ..]")
@@ -28,7 +30,7 @@ func cmdRun(args []string) int {
 	paramsRaw := fs.String("params", "", "参数 JSON / @file / @-")
 	baseDir := fs.String("base-dir", "", "")
 	deviceSerial := fs.String("device", "", "adb 设备 serial")
-	kind := fs.String("kind", "", "action|workflow（撞名消歧）")
+	kind := fs.String("kind", "", "action|workflow|ai（撞名消歧）")
 	timeout := fs.Duration("timeout", 0, "整次运行超时，如 30s/5m，默认不限")
 	if err := fs.Parse(args[1:]); err != nil {
 		return exitCLIError
@@ -55,18 +57,23 @@ func cmdRun(args []string) int {
 		defer cancel()
 	}
 
-	if tgt.kind == "action" {
-		return e.runAction(ctx, tgt.la, rawParams, *deviceSerial, *jsonMode, enc)
-	}
-	return e.runWorkflow(ctx, tgt.lw, rawParams, *deviceSerial, *jsonMode, enc)
+	return e.runTarget(ctx, tgt, rawParams, *deviceSerial, *jsonMode, enc)
 }
 
-// runAction 跑单个 action：LLM 禁跑 guard → 参数校验 → 设备预检 → 展开 → cwd 校验 → Build → Run。
-// 镜像 api.execute，但无 readout、无 Wails。
-func (e *env) runAction(ctx context.Context, la registry.LoadedAction, rawParams map[string]any, deviceSerial string, jsonMode bool, enc *jsonEnc) int {
-	if la.Def.Command.LLM.Prompt != "" {
-		return fail(jsonMode, enc, &cliError{"llm_blocked", fmt.Sprintf("action %q 是 LLM 形态，CLI v1 不支持运行（用 GUI 跑）", la.Def.ID)})
+// runTarget 按解析结果的种类分发；AI 任务在 CLI 不可运行，直接 ai_blocked。
+func (e *env) runTarget(ctx context.Context, tgt target, rawParams map[string]any, deviceSerial string, jsonMode bool, enc *jsonEnc) int {
+	switch tgt.kind {
+	case "action":
+		return e.runAction(ctx, tgt.la, rawParams, deviceSerial, jsonMode, enc)
+	case "ai":
+		return fail(jsonMode, enc, &cliError{"ai_blocked", fmt.Sprintf("AI 任务 %q 不能在 CLI 里运行（用 GUI 跑）", tgt.lt.Task.ID)})
 	}
+	return e.runWorkflow(ctx, tgt.lw, rawParams, deviceSerial, jsonMode, enc)
+}
+
+// runAction 跑单个 action：参数校验 → 设备预检 → 展开 → cwd 校验 → Build → Run。
+// 镜像 api.execute，但无 Wails。
+func (e *env) runAction(ctx context.Context, la registry.LoadedAction, rawParams map[string]any, deviceSerial string, jsonMode bool, enc *jsonEnc) int {
 	params, cerr := coerceParams(la.Def.Params, rawParams)
 	if cerr != nil {
 		return fail(jsonMode, enc, cerr)
@@ -98,14 +105,12 @@ func (e *env) runAction(ctx context.Context, la registry.LoadedAction, rawParams
 	return finish(jsonMode, enc, res)
 }
 
-// runWorkflow 跑 workflow：预扫 steps 挡掉 LLM 动作 → 参数校验 → 复用 actionrun.WorkflowCallbacks。
+// runWorkflow 跑 workflow：预扫 steps 挡掉 AI 步骤 → 参数校验 → 复用 actionrun.WorkflowCallbacks。
+// AI 步骤的回调传 nil：预扫已保证执行器走不到 AI 步骤（nil 只是兜底，走到即该步失败）。
 func (e *env) runWorkflow(ctx context.Context, lw workflow.LoadedWorkflow, rawParams map[string]any, deviceSerial string, jsonMode bool, enc *jsonEnc) int {
 	for _, step := range lw.Def.Steps {
-		if step.Action == "" {
-			continue
-		}
-		if la, ok := e.reg.Actions[step.Action]; ok && la.Def.Command.LLM.Prompt != "" {
-			return fail(jsonMode, enc, &cliError{"llm_blocked", fmt.Sprintf("workflow 引用了 LLM 动作 %q，CLI v1 不支持运行（用 GUI 跑）", step.Action)})
+		if step.AI != "" {
+			return fail(jsonMode, enc, &cliError{"ai_blocked", fmt.Sprintf("workflow 含 AI 步骤（任务 %q），CLI 不支持运行（用 GUI 跑）", step.AI)})
 		}
 	}
 	params, cerr := coerceParams(lw.Def.Params, rawParams)
@@ -118,6 +123,6 @@ func (e *env) runWorkflow(ctx context.Context, lw workflow.LoadedWorkflow, rawPa
 	}
 
 	actionRun, shellRun := actionrun.WorkflowCallbacks(e.reg, e.deps, merged)
-	res := (&workflow.Executor{}).Execute(ctx, lw, actionRun, shellRun, merged, pickEmit(jsonMode, enc))
+	res := (&workflow.Executor{}).Execute(ctx, lw, actionRun, shellRun, nil, merged, pickEmit(jsonMode, enc))
 	return finish(jsonMode, enc, res)
 }

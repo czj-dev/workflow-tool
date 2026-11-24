@@ -11,11 +11,12 @@ import (
 	"workflow-tool/internal/runner"
 )
 
-// 本文件是 action:<id>:* / workflow:<id>:* 事件契约的唯一权威定义：
+// 本文件是 action:<id>:* / ai:<id>:* / workflow:<id>:* 事件契约的唯一权威定义：
 // 事件名、payload 形状、到达顺序协议（seq 排序 / step 归桶）全部集中在这里，
 // 改事件协议只需改本文件（+前端对应处理）。
 
-// actionEvents 封装单个 action 的事件通道（action:<id>:output / action:<id>:done）。
+// actionEvents 封装单个目标（action 或 AI 任务）的事件通道
+// （<prefix>:<id>:output / <prefix>:<id>:done），prefix 为 action 或 ai。
 //
 // 顺序协议（前端契约）：Wails 的 Event.Emit 每次调用都各自起一个 goroutine 投递
 // （application/events.go），事件到达前端的顺序无保证。action 是单一输出桶，
@@ -29,13 +30,26 @@ import (
 //   - 序号是「每次 run 一个实例」的，run 中途重置消费侧队列不能打回 1（后端序号已到
 //     几千），必须以首个到达的 seq 为基线重新对齐。
 type actionEvents struct {
-	app *application.App
-	id  string
-	seq atomic.Int64
+	app    *application.App
+	prefix string // "action" | "ai"
+	id     string
+	seq    atomic.Int64
 }
 
 func newActionEvents(app *application.App, id string) *actionEvents {
-	return &actionEvents{app: app, id: id}
+	return &actionEvents{app: app, prefix: "action", id: id}
+}
+
+// newAiEvents 封装单个 AI 任务的事件通道（ai:<id>:output / ai:<id>:done）：payload 形状与
+// 排序协议和 action:<id>:* 完全相同。workflow 里的 AI 步骤不用它——输出带步骤归属落在
+// workflow:<wf-id>:output 上。
+func newAiEvents(app *application.App, id string) *actionEvents {
+	return &actionEvents{app: app, prefix: "ai", id: id}
+}
+
+// name 返回该通道某类事件的事件名。
+func (e *actionEvents) name(suffix string) string {
+	return eventName(e.prefix, e.id, suffix)
 }
 
 // nextSeq 取下一个事件序号。必须原子：emit 并非总是串行回调——logcat-stream 从
@@ -46,6 +60,8 @@ func (e *actionEvents) nextSeq() int64 { return e.seq.Add(1) }
 
 // EmitFunc 返回 runner 用的 emit：每行 output 自带递增 seq。
 // stream 契约：stdout/stderr=文本行；progress=单行进度（前端原地覆盖上一条）；
+// ai/ai-thinking/ai-tool=AI 回复增量/思考增量/工具调用对（前两者 line 为增量文本，
+// ai-tool 为 JSON 原文）；
 // tree=树帧（line=树 JSON 原文，前端 JSON.parse 后原地渲染内联树块；Go 域经
 // adb.OpContext.EmitTree 直发，script 动作经 runner.parseTreeLine 的 ##[tree ...]
 // 协议行转入同一流）。
@@ -54,7 +70,7 @@ func (e *actionEvents) EmitFunc() runner.EmitFunc {
 		if e.app == nil || e.app.Event == nil {
 			return
 		}
-		e.app.Event.Emit(eventName(e.id, "output"), map[string]any{
+		e.app.Event.Emit(e.name("output"), map[string]any{
 			"stream": stream, "line": line, "seq": e.nextSeq(),
 		})
 	}
@@ -90,7 +106,7 @@ func (e *actionEvents) emitDone(exitCode int, errMsg string, d time.Duration, re
 	if seq > 0 {
 		payload["seq"] = seq
 	}
-	e.app.Event.Emit(eventName(e.id, "done"), payload)
+	e.app.Event.Emit(e.name("done"), payload)
 }
 
 // workflowEvents 封装单个 workflow 的事件通道（workflow:<id>:output / workflow:<id>:done）。
@@ -138,8 +154,9 @@ func (e *workflowEvents) Done(exitCode int, errMsg string, d time.Duration) {
 	})
 }
 
-func eventName(id, suffix string) string {
-	return fmt.Sprintf("action:%s:%s", id, suffix)
+// eventName 拼目标事件名：<prefix>:<id>:<suffix>。
+func eventName(prefix, id, suffix string) string {
+	return fmt.Sprintf("%s:%s:%s", prefix, id, suffix)
 }
 
 func workflowEventName(id, suffix string) string {
@@ -153,12 +170,12 @@ func errStr(err error) string {
 	return err.Error()
 }
 
-// llmReadout 从 LLM Result.Outputs 挑出终点读数字段（数值化）与会话 id；无可读字段时返回 nil。
+// aiReadout 从 AI Result.Outputs 挑出终点读数字段（数值化）与会话 id；无可读字段时返回 nil。
 // cost/tokens 来自 stream-json 的 result 事件（runner.recordStructuredFields 写入 Outputs），
 // duration 用后端精确计时；读数行随 done 事件下发（聊天页终点展示）。
 // sessionId 单独也撑起 readout：失败/超时杀进程时 result 事件不会到达（无 cost/tokens），
 // 但 system/init 的 session_id 已写入——此刻恰恰是用户最需要会话 id（查现场/--resume）的时候。
-func llmReadout(outputs map[string]string, d time.Duration) map[string]any {
+func aiReadout(outputs map[string]string, d time.Duration) map[string]any {
 	r := map[string]any{"durationMs": d.Milliseconds()}
 	// 会话 id（system/init 事件由 runner.recordStructuredFields 写入）：聊天页历史查看态顶部展示
 	if sid := outputs["session_id"]; sid != "" {

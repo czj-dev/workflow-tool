@@ -266,7 +266,9 @@
   line-height: 1.8;
   /* 输出区的 <pre> 不换行白上下文里自己恢复换行 */
   white-space: normal;
-  overflow: hidden;
+  /* clip 而非 hidden：同样裁圆角，但不建 scrollport——head/foot 的 sticky 才能绑到
+     外层 ScrollArea 视口（hidden 会让 sticky 以本块为参照，钉不住窗口上下沿） */
+  overflow: clip;
 }
 .treeblock-head {
   display: flex;
@@ -274,7 +276,12 @@
   gap: 10px;
   padding: 6px 12px;
   border-bottom: 1px solid var(--border);
-  background: color-mix(in oklab, var(--foreground) 4%, transparent);
+  /* 长树钉在滚动视口顶沿一直可达（树块整体在屏期间生效）；底色必须不透明，
+     否则滚动到下面的行会从工具栏底下透出来 */
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  background: color-mix(in oklab, var(--background) 92%, var(--foreground) 8%);
 }
 .treeblock-title {
   flex: 1;
@@ -516,7 +523,11 @@
   gap: 10px;
   padding: 5px 12px;
   border-top: 1px solid var(--border);
-  background: color-mix(in oklab, var(--foreground) 3%, transparent);
+  /* 长树钉在滚动视口底沿（勾选模式下批量按钮一直可达）；不透明底色同 head */
+  position: sticky;
+  bottom: 0;
+  z-index: 3;
+  background: color-mix(in oklab, var(--background) 95%, var(--foreground) 5%);
 }
 .tree-select-count {
   font-size: 11px;

@@ -1,0 +1,12 @@
+id: demo-llm-skill
+title: LLM Skill 同步演示
+icon: hi:ai
+description: 默认问题用于验证技能装载：回复应先复述 demo-skill 名字
+# E2E 验证闭环：技能靠目录同步由 CLI 自行发现（零 prompt 拼接是机制设计），
+# 但是发现需要引导——默认问题显式要求按 demo-skill 指示回应，技能本体规定
+# 「先复述技能名再作答」，回复首句即装载证据。
+prompt: |
+  请先加载 demo-skill 技能，严格按其指示回应（先复述技能名确认已加载，再作答），
+  然后回答：用一句话说明 skill 同步机制解决了什么问题。
+skills:
+  - demo-skill

@@ -38,8 +38,13 @@ echo "→ 拷贝二进制 + 运行时文件到 Contents/MacOS（exeDir 读二进
 cp "$BIN" "$MACOS/workflow-tool"
 cp -R "$ROOT/actions"   "$MACOS/actions"
 cp -R "$ROOT/workflows" "$MACOS/workflows"
+cp -R "$ROOT/ai"        "$MACOS/ai"
 cp "$ROOT/config.yaml"    "$MACOS/config.yaml"
 cp "$ROOT/fragments.yaml" "$MACOS/fragments.yaml"
+# schedules.yaml：调度定义，须与二进制同级才被加载；旧检出可能没有该文件，存在才拷
+if [ -f "$ROOT/schedules.yaml" ]; then
+  cp "$ROOT/schedules.yaml" "$MACOS/schedules.yaml"
+fi
 
 # 自动扫描 actions/*.yaml 里 script: 字段引用的目录，保证全部拷进 bundle。
 # 这样新增 action 引用新脚本目录时不需要手动改打包脚本。

@@ -2,6 +2,7 @@ package workflow
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -34,7 +35,7 @@ func TestExecutor_RunsStepsSequentially(t *testing.T) {
 	}
 
 	exec := &Executor{}
-	res := exec.Execute(context.Background(), wf, actionRun, shellRun, nil, emit)
+	res := exec.Execute(context.Background(), wf, actionRun, shellRun, nil, nil, emit)
 
 	if res.ExitCode != 0 {
 		t.Fatalf("expected exit 0, got %d (err=%v)", res.ExitCode, res.Err)
@@ -79,7 +80,7 @@ func TestExecutor_StopsOnFailure(t *testing.T) {
 	}
 
 	exec := &Executor{}
-	res := exec.Execute(context.Background(), wf, actionRun, shellRun, nil, emit)
+	res := exec.Execute(context.Background(), wf, actionRun, shellRun, nil, nil, emit)
 
 	if res.ExitCode != 1 {
 		t.Fatalf("expected exit 1, got %d", res.ExitCode)
@@ -107,7 +108,7 @@ func TestExecutor_ShellStep(t *testing.T) {
 	}}
 
 	exec := &Executor{}
-	res := exec.Execute(context.Background(), wf, actionRun, shellRun, nil, func(_, _ string) {})
+	res := exec.Execute(context.Background(), wf, actionRun, shellRun, nil, nil, func(_, _ string) {})
 
 	if res.ExitCode != 0 {
 		t.Fatalf("expected exit 0, got %d", res.ExitCode)
@@ -137,7 +138,7 @@ func TestExecutor_RetrySucceedsEventually(t *testing.T) {
 	}}
 
 	exec := &Executor{}
-	res := exec.Execute(context.Background(), wf, actionRun, shellRun, nil, func(_, _ string) {})
+	res := exec.Execute(context.Background(), wf, actionRun, shellRun, nil, nil, func(_, _ string) {})
 
 	if res.ExitCode != 0 {
 		t.Fatalf("expected exit 0 after retry, got %d", res.ExitCode)
@@ -170,7 +171,7 @@ func TestExecutor_ContinueOnError(t *testing.T) {
 	}}
 
 	exec := &Executor{}
-	res := exec.Execute(context.Background(), wf, actionRun, shellRun, nil, func(_, _ string) {})
+	res := exec.Execute(context.Background(), wf, actionRun, shellRun, nil, nil, func(_, _ string) {})
 
 	if res.ExitCode != 0 {
 		t.Fatalf("expected exit 0, got %d", res.ExitCode)
@@ -202,7 +203,7 @@ func TestExecutor_StepOutputsAccumulate(t *testing.T) {
 		t.Fatal("no action step")
 		return runner.Result{}
 	}
-	res := (&Executor{}).Execute(context.Background(), wf, actionRun, shellRun, nil, func(string, string) {})
+	res := (&Executor{}).Execute(context.Background(), wf, actionRun, shellRun, nil, nil, func(string, string) {})
 	if res.ExitCode != 0 {
 		t.Fatalf("exit = %d, want 0", res.ExitCode)
 	}
@@ -233,7 +234,7 @@ func TestExecutor_IfFalseSkips(t *testing.T) {
 	}
 	res := (&Executor{}).Execute(context.Background(), wf,
 		func(ActionRequest) runner.Result { return runner.Result{} },
-		shellRun, nil, emit)
+		shellRun, nil, nil, emit)
 	if res.ExitCode != 0 {
 		t.Fatalf("exit = %d, want 0", res.ExitCode)
 	}
@@ -262,7 +263,7 @@ func TestExecutor_IndexFallbackID(t *testing.T) {
 	}
 	res := (&Executor{}).Execute(context.Background(), wf,
 		func(ActionRequest) runner.Result { return runner.Result{} },
-		shellRun, nil, func(string, string) {})
+		shellRun, nil, nil, func(string, string) {})
 	if res.ExitCode != 0 {
 		t.Fatalf("exit = %d, want 0", res.ExitCode)
 	}
@@ -290,7 +291,7 @@ func TestExecutor_SubstituteActionParamsExpr(t *testing.T) {
 	shellRun := func(ShellRequest) runner.Result {
 		return runner.Result{ExitCode: 0, Outputs: map[string]string{"apk_path": "/tmp/voice.apk", "exit_code": "0"}}
 	}
-	res := (&Executor{}).Execute(context.Background(), wf, actionRun, shellRun, nil, func(string, string) {})
+	res := (&Executor{}).Execute(context.Background(), wf, actionRun, shellRun, nil, nil, func(string, string) {})
 	if res.ExitCode != 0 {
 		t.Fatalf("exit = %d, want 0", res.ExitCode)
 	}
@@ -317,7 +318,7 @@ func TestExecutor_SubstituteEnvExpr(t *testing.T) {
 	}
 	res := (&Executor{}).Execute(context.Background(), wf,
 		func(ActionRequest) runner.Result { return runner.Result{} },
-		shellRun, nil, func(string, string) {})
+		shellRun, nil, nil, func(string, string) {})
 	if res.ExitCode != 0 {
 		t.Fatalf("exit = %d, want 0", res.ExitCode)
 	}
@@ -344,7 +345,7 @@ func TestExecutor_SubstituteShellExpr(t *testing.T) {
 	}
 	(&Executor{}).Execute(context.Background(), wf,
 		func(ActionRequest) runner.Result { return runner.Result{} },
-		shellRun, nil, func(string, string) {})
+		shellRun, nil, nil, func(string, string) {})
 	if seen != "use abc123" {
 		t.Fatalf("shell substituted = %q, want %q", seen, "use abc123")
 	}
@@ -370,11 +371,143 @@ func TestExecutor_PassesContextToCallbacks(t *testing.T) {
 		gotShell, _ = req.Ctx.Value(ctxKey{}).(string)
 		return runner.Result{ExitCode: 0}
 	}
-	res := (&Executor{}).Execute(ctx, wf, actionRun, shellRun, nil, func(string, string) {})
+	res := (&Executor{}).Execute(ctx, wf, actionRun, shellRun, nil, nil, func(string, string) {})
 	if res.ExitCode != 0 {
 		t.Fatalf("exit = %d, want 0", res.ExitCode)
 	}
 	if gotAction != "v" || gotShell != "v" {
 		t.Fatalf("ctx 未透传: action=%q shell=%q", gotAction, gotShell)
+	}
+}
+
+// TestExecutor_AIStep 校验 ai step 的分发：回调拿到任务 id、只做过 ${{ }} 替换的 params
+// 与 env、同一个 ctx 与 emit；返回值的 Outputs 落到 steps.<id>.outputs，后续步骤可引用。
+func TestExecutor_AIStep(t *testing.T) {
+	type ctxKey struct{}
+	wf := LoadedWorkflow{Def: WorkflowDef{
+		ID: "wf-ai", Title: "t",
+		Env: map[string]string{"WF": "w"},
+		Steps: []Step{
+			{ID: "find", Run: "produce"},
+			{ID: "analyze", AI: "claude-bug-analyze", Params: map[string]string{
+				"BUG_URL": "${{ steps.find.outputs.apk_path }}",
+				"prompt":  "只分析崩溃线程，卡片：${{ steps.find.outputs.apk_path }}；原样保留 ${BUG_URL} 与 $HOME",
+			}, Env: map[string]string{"TOKEN": "${{ steps.find.outputs.token }}", "BASE": "${ROOT}/x"}},
+			{ID: "after", Run: "use ${{ steps.analyze.outputs.text }}"},
+		},
+	}}
+	ctx := context.WithValue(context.Background(), ctxKey{}, "v")
+	var events []string
+	emit := func(stream, line string) { events = append(events, stream+":"+line) }
+
+	var seen string
+	shellRun := func(req ShellRequest) runner.Result {
+		if req.Run == "produce" {
+			return runner.Result{ExitCode: 0, Outputs: map[string]string{
+				"apk_path": "/tmp/a.apk", "token": "abc123", "exit_code": "0",
+			}}
+		}
+		seen = req.Run
+		return runner.Result{ExitCode: 0, Outputs: map[string]string{"exit_code": "0"}}
+	}
+	aiCalls := 0
+	aiRun := func(req AIRequest) runner.Result {
+		aiCalls++
+		if req.TaskID != "claude-bug-analyze" {
+			t.Errorf("TaskID = %q", req.TaskID)
+		}
+		if got, _ := req.Ctx.Value(ctxKey{}).(string); got != "v" {
+			t.Errorf("ctx 未透传: %q", got)
+		}
+		if req.Params["BUG_URL"] != "/tmp/a.apk" {
+			t.Errorf("BUG_URL 应经 ${{ }} 替换: %v", req.Params["BUG_URL"])
+		}
+		if want := "只分析崩溃线程，卡片：/tmp/a.apk；原样保留 ${BUG_URL} 与 $HOME"; req.Params["prompt"] != want {
+			t.Errorf("prompt = %q want %q（${VAR} 不展开）", req.Params["prompt"], want)
+		}
+		if req.Env["TOKEN"] != "abc123" || req.Env["BASE"] != "${ROOT}/x" || req.Env["WF"] != "w" {
+			t.Errorf("env = %v", req.Env)
+		}
+		req.Emit("ai", "增量")
+		return runner.Result{ExitCode: 0, Outputs: map[string]string{
+			"text": "崩溃在渲染线程", "session_id": "s-1", "exit_code": "0",
+		}}
+	}
+	actionRun := func(ActionRequest) runner.Result {
+		t.Fatal("no action step")
+		return runner.Result{}
+	}
+
+	res := (&Executor{}).Execute(ctx, wf, actionRun, shellRun, aiRun, nil, emit)
+	if res.ExitCode != 0 {
+		t.Fatalf("exit = %d (err=%v)", res.ExitCode, res.Err)
+	}
+	if aiCalls != 1 {
+		t.Fatalf("aiRun 调用 %d 次，want 1", aiCalls)
+	}
+	if seen != "use 崩溃在渲染线程" {
+		t.Fatalf("后续步骤 = %q，未引用到 ai step 的 text 产出", seen)
+	}
+	if !slices.Contains(events, "ai:增量") {
+		t.Fatalf("回调的 emit 未接到 workflow 事件流: %v", events)
+	}
+}
+
+// TestExecutor_AIStepRetryAndContinueOnError 校验 retry / continue_on_error 对 ai 步骤
+// 同样生效（与其他 step 共用一条 runStep 路径）。
+func TestExecutor_AIStepRetryAndContinueOnError(t *testing.T) {
+	wf := LoadedWorkflow{Def: WorkflowDef{
+		ID: "wf-ai-retry", Title: "t",
+		Steps: []Step{
+			{ID: "analyze", AI: "claude-ask", Retry: 2, ContinueOnError: true},
+			{ID: "after", Run: "echo next"},
+		},
+	}}
+	aiCalls, shellCalls := 0, 0
+	res := (&Executor{}).Execute(context.Background(), wf,
+		func(ActionRequest) runner.Result { return runner.Result{} },
+		func(ShellRequest) runner.Result { shellCalls++; return runner.Result{ExitCode: 0} },
+		func(AIRequest) runner.Result { aiCalls++; return runner.Result{ExitCode: 1} },
+		nil, func(string, string) {})
+	if res.ExitCode != 0 {
+		t.Fatalf("continue_on_error 应让 workflow 成功结束，exit = %d err = %v", res.ExitCode, res.Err)
+	}
+	if aiCalls != 3 {
+		t.Fatalf("ai step 应重试到 3 次（1 次 + retry 2），got %d", aiCalls)
+	}
+	if shellCalls != 1 {
+		t.Fatalf("失败后续步骤应照常执行，shell 调用 %d 次", shellCalls)
+	}
+}
+
+// TestExecutor_AIStepWithoutCallbackFails 校验未注入 AIRunFunc 时 ai 步骤立即失败、后续步骤
+// 不再执行（CLI 路径在进入执行器前就已拒绝，这里是兜底，不 panic）。
+func TestExecutor_AIStepWithoutCallbackFails(t *testing.T) {
+	wf := LoadedWorkflow{Def: WorkflowDef{
+		ID: "wf-ai-nil", Title: "t",
+		Steps: []Step{
+			{ID: "analyze", AI: "claude-ask"},
+			{ID: "after", Run: "echo never"},
+		},
+	}}
+	var ran []string
+	var stderr []string
+	res := (&Executor{}).Execute(context.Background(), wf,
+		func(ActionRequest) runner.Result { return runner.Result{} },
+		func(req ShellRequest) runner.Result { ran = append(ran, req.Run); return runner.Result{ExitCode: 0} },
+		nil, nil,
+		func(stream, line string) {
+			if stream == "stderr" {
+				stderr = append(stderr, line)
+			}
+		})
+	if res.ExitCode != -1 || res.Err == nil || !strings.Contains(res.Err.Error(), "claude-ask") {
+		t.Fatalf("应报未注入回调并指向任务: %+v", res)
+	}
+	if len(ran) != 0 {
+		t.Fatalf("后续步骤不应执行: %v", ran)
+	}
+	if len(stderr) != 1 {
+		t.Fatalf("应向 stderr 推一行原因: %q", stderr)
 	}
 }
