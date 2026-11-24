@@ -305,6 +305,57 @@ describe("TreeBlock", () => {
     expect(onLeafClick).toHaveBeenCalledWith(multiNodes[0].children![0]);
   });
 
+  it("点击热区层(含外扩 padding)勾选且不触发行点击", async () => {
+    const user = userEvent.setup();
+    const onLeafClick = vi.fn().mockResolvedValue(undefined);
+    render(
+      <TreeBlock
+        frame={{ nodes: multiNodes }}
+        multi
+        onLeafClick={onLeafClick}
+        onSelectionSubmit={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+    // .tree-check-hit 是 ≥24px 热区层：点它等价点 checkbox，不得落到行点击(单下载)
+    const hit = rowOf("a.txt").querySelector(".tree-check-hit")!;
+    await user.click(hit);
+    expect(onLeafClick).not.toHaveBeenCalled();
+    expect(screen.getByText("已选 1 个")).toBeInTheDocument();
+  });
+
+  it("checkbox 上按空格只切勾选，不触发行点击(叶子下载)", async () => {
+    const onLeafClick = vi.fn().mockResolvedValue(undefined);
+    render(
+      <TreeBlock
+        frame={{ nodes: multiNodes }}
+        multi
+        onLeafClick={onLeafClick}
+        onSelectionSubmit={vi.fn().mockResolvedValue(undefined)}
+      />,
+    );
+    screen.getByRole("checkbox", { name: "勾选 a.txt" }).focus();
+    await userEvent.keyboard(" ");
+    expect(onLeafClick).not.toHaveBeenCalled();
+    expect(screen.getByText("已选 1 个")).toBeInTheDocument();
+  });
+
+  it("批量提交成功后清空勾选；失败保留并 toast 提示", async () => {
+    const user = userEvent.setup();
+    const submit = vi.fn()
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new Error("正在运行"));
+    render(<TreeBlock frame={{ nodes: multiNodes }} multi onSelectionSubmit={submit} />);
+    await user.click(screen.getByRole("checkbox", { name: "勾选 a.txt" }));
+    await user.click(screen.getByRole("button", { name: "下载选中 (1)" }));
+    // 启动成功：这批意图已消费，勾选清空
+    expect(await screen.findByText("已选 0 个")).toBeInTheDocument();
+    // 第二轮：启动失败 → 勾选保留便于重试，错误走块内 toast
+    await user.click(screen.getByRole("checkbox", { name: "勾选 b.txt" }));
+    await user.click(screen.getByRole("button", { name: "下载选中 (1)" }));
+    expect(await screen.findByRole("status")).toHaveTextContent("正在运行");
+    expect(screen.getByText("已选 1 个")).toBeInTheDocument();
+  });
+
   it("解析失败帧（单错误节点）原样渲染 detail 原文片段", () => {
     render(
       <TreeBlock

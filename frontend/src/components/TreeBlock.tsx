@@ -49,7 +49,10 @@ async function writeClipboard(text: string): Promise<boolean> {
   }
 }
 
-// 行首勾选框：indeterminate 只能经 DOM property 设置（React 不认该 attribute）
+// 行首勾选框：自绘主题化样式 + ≥24px 热区（外层 .tree-check-hit 用 padding 外扩、
+// 负 margin 抵消布局占位，样式见 index.css）。input 本体 pointer-events:none（CSS），
+// 鼠标点击全落在热区层；键盘聚焦仍在 input 上，Space 走原生 change。
+// indeterminate 只能经 DOM property 设置（React 不认该 attribute）。
 function TreeCheck(props: {
   checked: boolean;
   indeterminate?: boolean;
@@ -62,16 +65,26 @@ function TreeCheck(props: {
     if (ref.current) ref.current.indeterminate = !!props.indeterminate;
   }, [props.indeterminate]);
   return (
-    <input
-      ref={ref}
-      type="checkbox"
-      className="tree-check"
-      checked={props.checked}
-      disabled={props.disabled}
-      aria-label={props.label}
-      onChange={props.onChange}
-      onClick={(e) => e.stopPropagation()} // 勾选不得触发行点击（叶子下载/目录折叠）
-    />
+    <span
+      className={cn("tree-check-hit", props.disabled && "is-disabled")}
+      onClick={(e) => {
+        // input 自身的点击走它的 onChange（键盘 Space 也走这条路），热区层只接管 padding 命中，避免双切
+        if (e.target !== e.currentTarget) return;
+        e.stopPropagation(); // 勾选不得触发行点击（叶子下载/目录折叠）
+        if (!props.disabled) props.onChange();
+      }}
+    >
+      <input
+        ref={ref}
+        type="checkbox"
+        className="tree-check"
+        checked={props.checked}
+        disabled={props.disabled}
+        aria-label={props.label}
+        onChange={props.onChange}
+        onClick={(e) => e.stopPropagation()}
+      />
+    </span>
   );
 }
 
@@ -114,6 +127,8 @@ export function TreeBlock({ frame, onLeafClick, multi, onSelectionSubmit }: Tree
     const nodes = flat.filter((f) => selected.has(f.key) && isLeafNode(f)).map((f) => f.node);
     try {
       await onSelectionSubmit?.(nodes);
+      // 启动成功即清空：这批意图已消费，防同批误触重复下载；失败保留便于重试
+      setSelected(new Set());
     } catch (error) {
       showToast(String(error));
     }
@@ -262,6 +277,8 @@ export function TreeBlock({ frame, onLeafClick, multi, onSelectionSubmit }: Tree
                 title={isLeaf && !onLeafClick ? t("tree.copyHint", { path: f.copyText }) : undefined}
                 onClick={() => void onRowClick(f)}
                 onKeyDown={(e) => {
+                  // 焦点在内嵌控件（如勾选框）上时不代理行行为：Space 切勾选而不触发叶子下载
+                  if (e.target !== e.currentTarget) return;
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
                     void onRowClick(f);

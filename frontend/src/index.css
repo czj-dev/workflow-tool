@@ -458,14 +458,56 @@
   color: var(--foreground);
   overflow-wrap: anywhere;
 }
-/* 勾选模式（hmi.tree.click.multi）：行首 checkbox，底栏计数 + 批量按钮 */
-.tree-check {
+/* 勾选模式（hmi.tree.click.multi）：行首自绘 checkbox（主题化）+ ≥24px 热区，底栏计数 + 批量按钮 */
+.tree-check-hit {
   flex: none;
-  width: 12px;
-  height: 12px;
-  margin: 0 6px 0 0;
-  accent-color: var(--primary);
+  display: inline-flex;
+  align-items: center;
+  /* 热区外扩：14px 视觉 + 上下左右 5px padding = 24px 目标；负 margin 抵消布局占位（行高/缩进不变） */
+  padding: 5px;
+  margin: -5px 1px -5px -5px;
   cursor: pointer;
+}
+.tree-check-hit.is-disabled {
+  cursor: default;
+}
+.tree-check {
+  appearance: none;
+  -webkit-appearance: none;
+  /* 视觉指针事件让给热区层（键盘聚焦不受影响） */
+  pointer-events: none;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  border: 1px solid color-mix(in oklab, var(--muted-foreground) 45%, transparent);
+  border-radius: 4px;
+  background-color: transparent;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 12px 12px;
+  transition: border-color 0.12s ease, background-color 0.12s ease;
+}
+.tree-check-hit:not(.is-disabled):hover .tree-check {
+  border-color: color-mix(in oklab, var(--primary) 55%, transparent);
+}
+.tree-check:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--primary) 40%, transparent);
+  outline-offset: 1px;
+}
+.tree-check:disabled {
+  opacity: 0.4;
+}
+.tree-check:checked,
+.tree-check:indeterminate {
+  border-color: var(--primary);
+  background-color: var(--primary);
+}
+.tree-check:checked {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.4l2.4 2.4L9.5 3.6' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+}
+.tree-check:indeterminate {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6h7' fill='none' stroke='%23fff' stroke-width='1.8' stroke-linecap='round'/%3E%3C/svg%3E");
 }
 .treeblock-foot {
   display: flex;
