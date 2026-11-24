@@ -140,10 +140,11 @@ function LlmCard({
       aria-label={action.title}
       aria-expanded={expanded}
       title={expanded ? undefined : action.description || action.title}
-      onClick={onToggleExpand}
+      // 运行中：点卡身=回聊天页（onOpen → focusRunning，会话仍在流式输出）；闲时照旧展开
+      onClick={running ? onOpen : onToggleExpand}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget) return;
-        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onToggleExpand(); }
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (running) onOpen(); else onToggleExpand(); }
         if (e.key === "Escape" && expanded) { e.preventDefault(); onCollapse(); }
       }}
       data-running={running || undefined}

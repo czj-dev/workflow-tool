@@ -29,12 +29,14 @@ import { useActionRunner } from "../hooks/useActionRunner";
 import { LlmGridView } from "./LlmGridView";
 
 // ViewProbe：暴露 provider 内部 view / formValues，断言「带预设进对话」的路由与预填。
+// run-bg：后台启动 llm 动作（不切视图），模拟「grid 里看到运行中的卡」。
 function ViewProbe() {
-  const { view, formValues } = useActionRunner();
+  const { view, formValues, runAction } = useActionRunner();
   return (
     <>
       <div data-testid="view-probe">{view}</div>
       <div data-testid="form-values-probe">{JSON.stringify(formValues)}</div>
+      <button data-testid="run-bg" onClick={() => void runAction("llm-x", { PROMPT: "hi" }, true)}>run</button>
     </>
   );
 }
@@ -116,6 +118,18 @@ describe("LlmGridView", () => {
     const card = await screen.findByRole("button", { name: "翻译助手" });
     await user.click(card);
     await user.click(within(card).getByRole("button", { name: /对话/ }));
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("llm-chat");
+  });
+
+  it("运行中的卡：卡身点击回跳聊天页(不展开)", async () => {
+    const user = userEvent.setup();
+    mockListActions.mockResolvedValue({ actions: [mkLlmAction()], errors: [] });
+    render(wrap());
+    const card = await screen.findByRole("button", { name: "翻译助手" });
+    // 后台启动：grid 不切走，卡面转对话中读数
+    await user.click(screen.getByTestId("run-bg"));
+    await user.click(card);
+    expect(card).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByTestId("view-probe")).toHaveTextContent("llm-chat");
   });
 

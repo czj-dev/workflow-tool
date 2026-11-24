@@ -29,13 +29,14 @@ import { ActionRunnerProvider } from "../context/ActionRunnerProvider";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { WorkflowsGridView } from "./WorkflowsGridView";
 
-// ViewProbe：暴露 provider 内部 view / formSheetOpen 状态，让用例可断言点击后的路由与抽屉开合。
+// ViewProbe：暴露 provider 内部 view / formSheetOpen / status 状态，让用例可断言点击后的路由、抽屉开合与运行态。
 function ViewProbe() {
-  const { view, formSheetOpen } = useActionRunner();
+  const { view, formSheetOpen, status } = useActionRunner();
   return (
     <>
       <div data-testid="view-probe">{view}</div>
       <div data-testid="form-open-probe">{String(formSheetOpen)}</div>
+      <div data-testid="status-probe">{status}</div>
     </>
   );
 }
@@ -231,6 +232,28 @@ describe("WorkflowsGridView", () => {
     const card = await expand(user, "全可选");
     await user.click(runPill(card));
     expect(mockRunWorkflow).toHaveBeenCalledWith("demo-opt", {});
+  });
+
+  it("后台静默运行的卡：卡身点击回跳 workflow 视图并补订阅(不展开不重跑)", async () => {
+    const user = userEvent.setup();
+    mockListWorkflows.mockResolvedValue({ workflows: [mkWf("demo-bg", "后台跑")], errors: [] });
+    render(wrap());
+    const card = await screen.findByRole("button", { name: "后台跑" });
+    // hover 快捷入口 = 后台运行：不切视图，卡面转运行中读数
+    await user.click(within(card).getByRole("button", { name: /运行/ }));
+    expect(mockRunWorkflow).toHaveBeenCalledWith("demo-bg", {});
+    // 后台运行不切视图（用例里 view 维持初始 output，grid 未被切走）
+    expect(screen.getByTestId("view-probe")).toHaveTextContent("output");
+    mockOn.mockClear();
+    // 运行中：卡身点击=回跳 workflow 视图（focusWorkflow），不再就地展开
+    await user.click(card);
+    expect(card).toHaveAttribute("aria-expanded", "false");
+    expect(mockRunWorkflow).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("view-probe")).toHaveTextContent(/^workflow$/);
+    // 后台路径只订了持久 done：focusWorkflow 必须补建 output/done 订阅并置 running 态
+    expect(mockOn).toHaveBeenCalledWith("workflow:demo-bg:output", expect.anything());
+    expect(mockOn).toHaveBeenCalledWith("workflow:demo-bg:done", expect.anything());
+    expect(screen.getByTestId("status-probe")).toHaveTextContent("running");
   });
 
   it("YAML color 字段优先于组序循环注入 --amb", async () => {

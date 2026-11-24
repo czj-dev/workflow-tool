@@ -30,13 +30,15 @@ import { useActionRunner } from "../hooks/useActionRunner";
 import { ActionsGridView } from "./ActionsGridView";
 
 // ViewProbe：暴露 provider 内部 view / formSheetOpen 状态，让用例可断言点击后的路由与抽屉开合。
+// back-to-grid：模拟「运行中切回 grid」的操作路径（前台点火会切走视图，grid 卸载重挂）。
 function ViewProbe() {
-  const { view, formSheetOpen, formValues } = useActionRunner();
+  const { view, formSheetOpen, formValues, setView } = useActionRunner();
   return (
     <>
       <div data-testid="view-probe">{view}</div>
       <div data-testid="form-open-probe">{String(formSheetOpen)}</div>
       <div data-testid="form-values-probe">{JSON.stringify(formValues)}</div>
+      <button data-testid="back-to-grid" onClick={() => setView("actions-grid")}>back</button>
     </>
   );
 }
@@ -179,6 +181,25 @@ describe("ActionsGridView", () => {
     await user.click(card); // 单击=就地展开
     await user.click(within(card).getByRole("button", { name: "编辑配置" }));
     expect(screen.getByTestId("view-probe")).toHaveTextContent("edit");
+  });
+
+  it("运行中的卡：卡身点击回跳输出视图(不展开不重跑)", async () => {
+    const user = userEvent.setup();
+    mockListActions.mockResolvedValue({
+      actions: [mkAction("demo-run", "直跑")],
+      errors: [],
+    });
+    render(wrap());
+    const card = await screen.findByRole("button", { name: "直跑" });
+    await user.click(quickRun(card)); // 前台运行：切到 output，done 未发 → 仍在运行
+    expect(mockRunAction).toHaveBeenCalledTimes(1);
+    // 切回 grid：卡面显示运行中读数，卡身点击应回跳输出而不是展开
+    await user.click(screen.getByTestId("back-to-grid"));
+    const card2 = screen.getByRole("button", { name: "直跑" });
+    await user.click(card2);
+    expect(mockRunAction).toHaveBeenCalledTimes(1);
+    expect(card2).toHaveAttribute("aria-expanded", "false");
+    expect(screen.getByTestId("view-probe").textContent).toMatch(/output/);
   });
 
   it("点运行中的读数回到输出视图(不重复启动)", async () => {

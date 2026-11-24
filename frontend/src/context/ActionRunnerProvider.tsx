@@ -1138,12 +1138,22 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   };
 
   // focusWorkflow：切回仍在运行的 workflow，不清 steps（保留已跑到的进度）。
-  // 与 focusRunning（action）语义类似，但不重置 status：workflow 的 status 由 done 事件更新，
-  // 切回时若仍在跑，status 已是 "running"；若已完成，保留 done/error 徽标。
+  // 与 focusRunning（action）语义类似；已完成时不动 status/exitInfo（保留 done/error 徽标）。
+  // 仍在运行（含 grid 静默后台跑）：后台路径只注册了持久 done（registerWorkflowDone），
+  // 没订 output——必须补建 subscribeWorkflow 否则 spine 看不到任何步骤推进；
+  // 同时登记 workflowIdRef（停止按钮可用）并置 running 态/起点（spine 仪表带依赖）。
+  // 起点后端不提供，用回跳时刻近似（总耗时低估，但不至于拿上一轮的起点倒挂）。
   const focusWorkflow = (id: string) => {
     setFormSheetOpen(false); // 导航去 workflow 视图：表单抽屉随之关闭
     setCurrentId(id);
     setSelectedPreset(null);
+    if (runningWorkflowId === id) {
+      workflowIdRef.current = id;
+      subscribeWorkflow(id);
+      setStatus("running");
+      setExitInfo(null);
+      setWfStartedAt(Date.now());
+    }
     setView("workflow");
   };
 

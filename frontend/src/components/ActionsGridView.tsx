@@ -375,6 +375,8 @@ function ActionCard({
       onClick={() => {
         if (suppressClickRef.current) { suppressClickRef.current = false; return; }
         if (liveRing) { closeRing(); return; }
+        // 运行中：点卡身=回运行面板（点正在跑的东西意图几乎总是看进度，展开让位）
+        if (running) { onFocus(); return; }
         onToggleExpand();
       }}
       onKeyDown={(event) => {
@@ -396,7 +398,10 @@ function ActionCard({
           }
         }
         if (event.key === "Escape" && expanded) { event.preventDefault(); onCollapse(); return; }
-        if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onToggleExpand(); }
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          if (running) onFocus(); else onToggleExpand();
+        }
       }}
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}

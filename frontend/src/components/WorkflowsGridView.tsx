@@ -34,7 +34,7 @@ const EYEBROW =
 // steps/params 读数已按渐进披露原则移出卡面。
 export function WorkflowsGridView() {
   const { t } = useTranslation();
-  const { workflows, runWorkflow, selectWorkflow, runningWorkflowId, openYamlEditor } =
+  const { workflows, runWorkflow, selectWorkflow, runningWorkflowId, focusWorkflow, openYamlEditor } =
     useActionRunner();
   const { groupByPrefix, footprintLevel, getScore, topActions } =
     useActionUsage("workflow-usage");
@@ -93,6 +93,7 @@ export function WorkflowsGridView() {
                     onRun={(params, background) => {
                       runWorkflow(wf.id, params, background);
                     }}
+                    onFocus={() => focusWorkflow(wf.id)}
                     onEdit={() => selectWorkflow(wf.id)}
                     onEditYaml={() => openYamlEditor(wf.id, "workflow")}
                   />
@@ -119,6 +120,8 @@ interface WorkflowCardProps {
   onToggleExpand: () => void;
   onCollapse: () => void;
   onRun: (params: Record<string, string>, background?: boolean) => void;
+  // 运行中卡身点击的回跳（focusWorkflow → workflow 视图）
+  onFocus: () => void;
   onEdit: () => void;
   onEditYaml: () => void;
 }
@@ -134,6 +137,7 @@ function WorkflowCard({
   onToggleExpand,
   onCollapse,
   onRun,
+  onFocus,
   onEdit,
   onEditYaml,
 }: WorkflowCardProps) {
@@ -155,10 +159,11 @@ function WorkflowCard({
       aria-expanded={expanded}
       aria-label={workflow.title}
       title={expanded ? undefined : workflow.description || workflow.title}
-      onClick={toggle}
+      // 运行中：点卡身=回运行面板（focusWorkflow）；闲时照旧就地展开
+      onClick={running ? onFocus : toggle}
       onKeyDown={(e) => {
         if (e.target !== e.currentTarget) return;
-        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+        if (e.key === "Enter" || e.key === " ") { e.preventDefault(); if (running) onFocus(); else toggle(); }
         if (e.key === "Escape" && expanded) { e.preventDefault(); onCollapse(); }
       }}
       data-running={running || undefined}
