@@ -740,14 +740,32 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   // 运行记录抽屉各自重拉，不在 Provider 里另存一份运行记录。
   useEffect(() => {
     const unsubscribe = Events.On("runs:changed", (e: unknown) => {
-      const d = (((e as { data?: unknown })?.data) || {}) as { status?: string };
+      const d = (((e as { data?: unknown })?.data) || {}) as {
+        status?: string;
+        target_kind?: string;
+        target_id?: string;
+      };
       if (runsBumpRef.current) clearTimeout(runsBumpRef.current);
       runsBumpRef.current = setTimeout(() => {
         runsBumpRef.current = null;
         setRunsRevision((n) => n + 1);
       }, 80);
+      // 后端发起的运行（调度到点 / 立即运行）不经前端 runAi/runAction，前端内存运行态只能
+      // 从 runs:changed 对齐：running 点亮侧栏/网格卡呼吸灯与徽标，终态熄灭。
+      // setAiRunning/setRunningIds 幂等，手动路径已置位时不受影响（目标锁保证同目标单运行）。
+      const { status, target_kind: kind, target_id: id } = d;
+      if (id && kind === "ai") {
+        setAiRunning(id, status === "running");
+      } else if (id && kind === "action") {
+        setRunningIds((prev) => {
+          const next = new Set(prev);
+          if (status === "running") next.add(id);
+          else next.delete(id);
+          return next;
+        });
+      }
       // 运行结束才有新的「最近一次运行」
-      if (d.status && d.status !== "running") scheduleAiRefresh();
+      if (status && status !== "running") scheduleAiRefresh();
     });
     return () => {
       unsubscribe();

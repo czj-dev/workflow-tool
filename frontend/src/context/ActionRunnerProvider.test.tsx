@@ -1855,6 +1855,19 @@ describe("AI 任务运行", () => {
     expect(mockListAiTasks).toHaveBeenCalledTimes(1);
   });
 
+  it("后端发起的运行（调度到点/立即运行，前端未调 runAi）也点亮 AI 运行态：runs:changed running → isAiRunning", async () => {
+    const { result } = await mountAi();
+    expect(result.current.isAiRunning("t1")).toBe(false);
+    act(() => {
+      listeners["runs:changed"]?.({ data: { run_id: "r1", status: "running", target_kind: "ai", target_id: "t1" } });
+    });
+    expect(result.current.isAiRunning("t1")).toBe(true);
+    act(() => {
+      listeners["runs:changed"]?.({ data: { run_id: "r1", status: "succeeded", target_kind: "ai", target_id: "t1" } });
+    });
+    expect(result.current.isAiRunning("t1")).toBe(false);
+  });
+
   it("一次运行「开始 + 结束」连发两条 runs:changed：合并成一次失效通知", async () => {
     const { result } = await mountAi();
     const before = result.current.runsRevision;
