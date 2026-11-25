@@ -1,7 +1,7 @@
 id: adb-scrcpy
 title: 投屏
 icon: hi:play
-description: 使用 scrcpy 投屏 Android 设备（结构化选项，手动停止）
+description: 使用 scrcpy 投屏 Android 设备（结构化选项，手动停止；可同步录制）
 params:
   - id: MAX_SIZE
     label: 最大尺寸（可空）
@@ -31,6 +31,15 @@ params:
     label: 显示触摸
     type: bool
     default: "false"
+  - id: RECORD_PATH
+    label: 录制保存路径（留空不录制）
+    type: path
+    description: 投屏的同时录制视音频流，关窗/停止即自动完成文件（支持 .mp4/.mkv 等扩展名）
+  - id: RECORD_FORMAT
+    label: 录制容器格式（可空）
+    type: select
+    description: 路径带已知扩展名时不必填；扩展名无法识别时用它指定
+    options: ["mp4", "mkv", "m4a", "mka", "aac", "opus", "flac", "wav"]
 command:
   adb:
     operation: scrcpy-start

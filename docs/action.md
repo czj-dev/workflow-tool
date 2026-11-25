@@ -339,7 +339,7 @@ command:
 
 | operation | params | 说明 |
 |---|---|---|
-| `scrcpy-start` | 见下方选项表 | 前台投屏，关窗即停；手动停止 kill 进程组 |
+| `scrcpy-start` | 见下方选项表 | 前台投屏，关窗即停；手动停止 kill 进程组；传 `RECORD_PATH` 时投屏同步录制，关窗/停止自动 finalize 文件 |
 | `scrcpy-record-start` | `RECORD_PATH`(path,必填) + 见下方选项表 | 无头录屏（`--no-playback`），后台进行，可独立停止 |
 | `scrcpy-record-stop` | 无 | 停止当前设备的录制，校验输出文件非空 |
 | `clipboard-set` | `TEXT`(text,必填) | 设置设备剪贴板 |
@@ -370,6 +370,8 @@ command:
 | `AUDIO_CODEC` | text | `--audio-codec`（opus 默认不传） |
 | `SHOW_TOUCHES` / `NO_AUDIO` / `NO_CONTROL` / `STAY_AWAKE` / `TURN_SCREEN_OFF` / `POWER_OFF_ON_CLOSE` / `FULLSCREEN` / `ALWAYS_ON_TOP` / `DISABLE_SCREENSAVER` | bool | 对应同名 scrcpy flag |
 | `ROTATION` / `DISPLAY_ID` / `TIME_LIMIT` | int | `--display-orientation` / `--display-id` / `--time-limit` |
+| `RECORD_PATH` | path | `--record`（仅 `scrcpy-start`）：投屏同时录制视音频流并写入该文件，关窗/停止即完成；容器格式默认按扩展名推断 |
+| `RECORD_FORMAT` | text | `--record-format`（仅 `scrcpy-start`）：路径无已知扩展名时显式指定容器（`mp4`/`mkv`/`m4a`/`mka`/`aac`/`opus`/`flac`/`wav`）；留空则按 `RECORD_PATH` 扩展名推断 |
 
 ### 示例
 

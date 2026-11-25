@@ -29,6 +29,8 @@ type Options struct {
 	Rotation           int
 	DisplayID          int
 	TimeLimit          int
+	RecordPath         string // 非空时投屏同时录制（--record），关窗/停止自动 finalize
+	RecordFormat       string // 非空时显式指定容器格式（--record-format），路径无已知扩展名时用
 }
 
 // ToArgs translates Options into scrcpy CLI arguments for a foreground session.
@@ -89,6 +91,12 @@ func (o Options) ToArgs() []string {
 	if o.TimeLimit > 0 {
 		args = append(args, "--time-limit", strconv.Itoa(o.TimeLimit))
 	}
+	if o.RecordPath != "" {
+		args = append(args, "--record="+o.RecordPath)
+	}
+	if o.RecordFormat != "" {
+		args = append(args, "--record-format="+o.RecordFormat)
+	}
 	return args
 }
 
@@ -138,6 +146,8 @@ func optionsFromParams(op *adb.OpContext) Options {
 		Rotation:           paramInt(op.Params, "ROTATION"),
 		DisplayID:          paramInt(op.Params, "DISPLAY_ID"),
 		TimeLimit:          paramInt(op.Params, "TIME_LIMIT"),
+		RecordPath:         op.ParamStr("RECORD_PATH"),
+		RecordFormat:       op.ParamStr("RECORD_FORMAT"),
 	}
 }
 
