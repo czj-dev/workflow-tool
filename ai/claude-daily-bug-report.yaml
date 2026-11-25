@@ -1,0 +1,140 @@
+id: claude-daily-bug-report
+title: 每日 Bug 流转报告
+icon: hi:ai
+description: 获取当天由指定操作人流转的 Bug 卡片报告（候选集+流转历史双重确认），按当前真实状态分组输出 JSON
+params:
+  - id: TARGET_DATE
+    label: 统计日期（YYYY-MM-DD，留空=当天，支持 +7d 偏移）
+    type: text
+    default: ""
+  - id: OPERATOR
+    label: 操作人（系统用户名）
+    type: text
+    default: v_chenzhaojun
+  - id: SPACE
+    label: 空间 ID
+    type: text
+    default: edc-scrum
+  - id: CARD_TYPE
+    label: 卡片类型
+    type: select
+    default: Bug
+    options: ["Bug", "Task", "Story", "需求"]
+# system 只写角色与纪律；无人可答、绝对路径这类环境约束由守则（ai-rules.md）统一给出。
+system: |
+  你是 iCafe 卡片流转数据分析助手，严格按任务 prompt 的步骤与口径执行。
+  - 无人值守执行：禁止向用户提问，一切以 prompt 给出的定义为准
+  - 最终按「输出协议」产出严格 JSON（无 markdown 包裹，无额外散文）
+  - 任何异常以 errors 字段如实上报，不得静默忽略或猜测补写
+prompt: |
+  获取「${TARGET_DATE} 当天由 ${OPERATOR} 流转的 ${CARD_TYPE} 卡片」按当前真实状态分组的报告。
+
+  ## 输入参数
+
+  - `TARGET_DATE` 统计日期：为空或带 `+7d` 等字面偏移时，用 `date` 换算为具体的 `YYYY-MM-DD`（如 `2026-11-25`）再执行，禁止自行心算。换算结果记为 `T`。
+  - `OPERATOR` ${OPERATOR}，任一系统用户名，必填。
+  - `SPACE` ${SPACE}，iCafe 空间 ID。
+  - `CARD_TYPE` ${CARD_TYPE}。
+  - 统计窗口固定为 `T 00:00:00`（含）至 `T+1 00:00:00`（不含），即 IQL 用 `>` 与 `<` 两个开区间。
+
+  ## 执行环境
+
+  - 工具为 icafe-skill CLI，根目录 `SKILL_DIR`（含 `scripts/query_card.py`、`scripts/status.py`、`config/config.yaml`）。
+  - 所有命令在 `SKILL_DIR` 目录下执行；`--format json` 的 stdout 是数据（仅 stdout），页码提示在 stderr。
+  - **禁止** `head/tail/sed -n` 截断脚本输出；**禁止** `python -c` 直调 SDK 内部函数绕过 CLI。
+  - 每批 50 个序号上限；附件类串行操作与本次任务无关。
+
+  ## 执行步骤
+
+  ### S1 候选集：分页拉全（必须翻到最后一页）
+
+  IQL（时间值必须带引号，只用 `>` 与 `<`）：
+
+  ```
+  类型 = ${CARD_TYPE} AND 最后修改时间 > "{T} 00:00:00" AND 最后修改时间 < "{T+1} 00:00:00"
+  ```
+
+  命令（page 从 1 递增）：
+
+  ```bash
+  python scripts/query_card.py --space ${SPACE} --list --iql "{IQL}" \
+    --order lastModifiedTime --desc --format json --page N
+  ```
+
+  - **终止条件**：某页返回条数 `< 100` 或 `0` 即末页，停止翻页；把每页合并为候选集 `CANDIDATES`（以 `sequence` 为 key 去重）。
+  - 页间校验：若第 N 页与第 N-1 页的 `sequence` 集合完全一致，视为结果异常，写入 `errors` 并终止。
+  - 候选集落盘 `/tmp/icafe_candidates.json`（序列号、标题、状态、卡 id）。
+
+  ### S2 历史验证：批量拉状态流转历史
+
+  候选集 `sequence` 按 50 个一批（逗号分隔）：
+
+  ```bash
+  python scripts/status.py --format json status-changes --space ${SPACE} --sequences "seq1,seq2,..."
+  ```
+
+  - 只保留满足 **两个条件同时成立** 的记录：
+    - `operator == ${OPERATOR}`
+    - `time` 字符串以 `{T}` 开头（如 `2026-11-25 16:42:23`）
+  - 这些记录涉及的 `sequence` 集合记为 `HIT_SEQS`。历史命中 0 条 → 正常输出空分组，不算错误。
+
+  ### S3 当前状态复核：命中卡重查一次
+
+  候选集快照与输出时刻存在时间差，命中卡的当前状态必须以最新查询为准：
+
+  ```bash
+  python scripts/query_card.py --space ${SPACE} --id {seq} --format json
+  ```
+
+  - 每张命中卡只查一次，结果落盘 `/tmp/icafe_card_{seq}.json` 复用；该卡后续不再重复查询。
+  - 取响应顶层 `status` 作为分组依据，**不要**用历史流转里的中间状态，也不要读 `properties` 里的流程状态字段。
+  - 标题取顶层 `title`；卡号拼为 `{space}-{sequence}`（如 `edc-scrum-428286`），**不要**用全局 9 位 `card_id`。
+
+  ### S4 分组与输出
+
+  按当前真实状态分三组：`已分配`、`已分析`、`已修复`。其余状态（已关闭、新建、重新打开等）全部归入 `other_status`，不得混入三组。
+
+  ## 输出协议（严格 JSON，无 markdown 包裹，无额外散文）
+
+  ```json
+  {
+    "target_date": "2026-11-25",
+    "operator": "v_chenzhaojun",
+    "space": "edc-scrum",
+    "card_type": "Bug",
+    "candidates_total": 1120,
+    "history_hit_records": 10,
+    "total": 6,
+    "groups": {
+      "已分配": [{"card_no": "edc-scrum-428286", "title": "..."}],
+      "已分析": [{"card_no": "edc-scrum-422161", "title": "..."}],
+      "已修复": []
+    },
+    "other_status": [
+      {"card_no": "edc-scrum-123456", "title": "...", "status": "已关闭"}
+    ],
+    "group_counts": {"已分配": 1, "已分析": 5, "已修复": 0},
+    "errors": []
+  }
+  ```
+
+  ## 口径与边界（不可违反）
+
+  1. **分组状态** = 卡片当前真实状态（S3 最新查询的顶层 `status`）。
+  2. **编号** = `space-sequence`，标题、状态必须来自接口返回，不得补写或改写问题本身；可去掉冗长前缀（如 `【已转外部】`、编号段），但不得增删业务事实。
+  3. **统计判据**：只有「最后修改时间在窗口内」的候选集还不够——候选集只证明当天有人改过；必须经 S2 历史确认「操作人是 `${OPERATOR}` 且时间在当天」才纳入，两者缺一不可。
+  4. **禁止使用的过滤**：只看当前负责人、只看最后修改人、`历史修改人 = currentUser`（结果可能恒 0）——这三种都会漏卡，一律禁止。
+  5. **空组必须保留**：某组为 0 时输出空数组，不得省略该组。
+  6. **已知局限（如实写入 errors 说明，不阻塞输出）**：`statushistory` 仅覆盖状态流转（含操作人/时间/流转前后状态）；当天只做了字段/评论修改而未发生状态流转的卡片无法被该口径识别。
+  7. 记录标题与状态以命中时查询结果为准；若 S3 复核与候选集不一致，以 S3 为准（当前状态字段可能已更新）。
+
+  ## 错误处理
+
+  - 任何一步失败：把错误写入 `errors`（含阶段名 S1/S2/S3/S4、命令、报错摘要），已成功部分照常输出；`errors` 非空时 `total` 仍按实际命中数输出。
+  - 认证失败（`AuthenticationError`）：`errors` 上报 AUTH_FAILED，终止后续步骤。
+  - 候选集为 0：正常输出，`groups` 三组皆空。
+  - 不得用任何方式「补全」缺失数据或在报告中虚构命中。
+# 分页拉全 + 批量历史 + 命中卡重查，候选集大时耗时数分钟；5m 会中途被杀。
+timeout: 30m
+skills:
+  - icafe-skill
