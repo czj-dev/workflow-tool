@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -176,19 +177,17 @@ func TestResolveAiTask(t *testing.T) {
 
 func TestAiBlocked(t *testing.T) {
 	t.Run("直接 run AI 任务被拒", func(t *testing.T) {
-		var buf bytes.Buffer
 		tgt := target{kind: "ai", lt: ai.LoadedTask{Task: ai.Task{ID: "t-ask"}}}
-		code := (&env{}).runTarget(context.Background(), tgt, nil, "", true, json.NewEncoder(&buf))
-		assertBlocked(t, code, &buf)
+		blocked, _ := (&env{}).runTarget(context.Background(), tgt, nil, "", func(string, string) {})
+		assertBlocked(t, blocked)
 	})
 
 	t.Run("workflow 含 ai step 被拒", func(t *testing.T) {
 		lw := workflow.LoadedWorkflow{Def: workflow.WorkflowDef{
 			ID: "wf", Steps: []workflow.Step{{Run: "echo hi"}, {ID: "analyze", AI: "t-ask"}},
 		}}
-		var buf bytes.Buffer
-		code := (&env{}).runWorkflow(context.Background(), lw, map[string]any{}, "", true, json.NewEncoder(&buf))
-		assertBlocked(t, code, &buf)
+		blocked, _ := (&env{}).runTarget(context.Background(), target{kind: "workflow", lw: lw}, nil, "", func(string, string) {})
+		assertBlocked(t, blocked)
 	})
 }
 
@@ -259,16 +258,10 @@ func describeJSON(t *testing.T, v any) map[string]any {
 	return m
 }
 
-func assertBlocked(t *testing.T, code int, buf *bytes.Buffer) {
+func assertBlocked(t *testing.T, res runner.Result) {
 	t.Helper()
-	if code != exitCLIError {
-		t.Fatalf("期望退出码 %d，得到 %d", exitCLIError, code)
-	}
-	var e errorLine
-	if err := json.Unmarshal([]byte(strings.TrimSpace(buf.String())), &e); err != nil {
-		t.Fatalf("error 行解析失败: %v (%q)", err, buf.String())
-	}
-	if e.Type != "error" || e.Kind != "ai_blocked" {
-		t.Fatalf("期望 kind=ai_blocked，得到 %+v", e)
+	var cliErr *cliError
+	if !errors.As(res.Err, &cliErr) || cliErr.Kind != "ai_blocked" {
+		t.Fatalf("期望 ai_blocked 的 CLI 错误，得到 %+v", res.Err)
 	}
 }

@@ -15,6 +15,8 @@ const { mockRunner, listeners, mockOn } = vi.hoisted(() => {
       closeRun: vi.fn(),
       getRun: vi.fn(),
       getRunEvents: vi.fn(),
+      resumeRun: vi.fn(),
+      stopRun: vi.fn(),
       runsRevision: 0,
       actions: [{ id: "build", title: "构建", icon: "" }],
       workflows: [] as Array<{ id: string; title: string; icon: string; steps: Array<{ name: string; kind: string; label: string }> }>,
@@ -350,5 +352,90 @@ describe("RunDetailView", () => {
     renderView();
     expect(screen.queryByText("过程")).not.toBeInTheDocument();
     expect(mockRunner.getRun).not.toHaveBeenCalled();
+  });
+});
+
+describe("executor runs, stopping and resuming", () => {
+  const running = (extra: Partial<RunDetail> = {}) => detail({
+    status: "running", finishedAt: "", exitCode: -1, processMode: "executor", ...extra,
+  });
+
+  // 执行器跑在另一个进程里，没有实时事件可订阅：运行期间定期重读运行日志。
+  it("an executor run keeps re-reading the run log while it runs, and stops polling once it ends", async () => {
+    vi.useFakeTimers();
+    try {
+      mockRunner.getRun.mockResolvedValue(running());
+      mockRunner.getRunEvents.mockResolvedValue([out(100, 1, "stdout", "first")]);
+      const view = renderView();
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      expect(screen.getByText("first")).toBeInTheDocument();
+      expect(mockRunner.getRunEvents).toHaveBeenCalledTimes(1);
+
+      mockRunner.getRunEvents.mockResolvedValue([out(100, 1, "stdout", "first"), out(2100, 2, "stdout", "second")]);
+      await act(() => vi.advanceTimersByTimeAsync(2000));
+      expect(screen.getByText("second")).toBeInTheDocument();
+
+      // 跑完：后端发 runs:changed，详情重拉为终态，轮询随之停下
+      mockRunner.getRun.mockResolvedValue(detail({ status: "succeeded", processMode: "executor" }));
+      mockRunner.runsRevision += 1;
+      view.rerender(
+        <SidebarProvider>
+          <RunDetailView />
+        </SidebarProvider>,
+      );
+      await act(() => vi.advanceTimersByTimeAsync(0));
+      const readsAfterEnd = mockRunner.getRunEvents.mock.calls.length;
+      await act(() => vi.advanceTimersByTimeAsync(6000));
+      expect(mockRunner.getRunEvents.mock.calls.length).toBe(readsAfterEnd);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // 应用内的运行有自己的实时事件，不轮询。
+  it("an in-app run is not polled", async () => {
+    vi.useFakeTimers();
+    try {
+      mockRunner.getRun.mockResolvedValue(running({ processMode: "in-app" }));
+      renderView();
+      await act(() => vi.advanceTimersByTimeAsync(6000));
+      expect(mockRunner.getRunEvents).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // 运行中的记录可以停：调度发起的运行由执行器承担，这里是唯一能停它的地方。
+  it("a running run offers a stop button that stops its target", async () => {
+    mockRunner.getRun.mockResolvedValue(running({ targetKind: "action", targetId: "patrol" }));
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "停止" }));
+    expect(mockRunner.stopRun).toHaveBeenCalledWith({ targetKind: "action", targetId: "patrol" });
+  });
+
+  // 续跑：以同一份输入加会话 id 发起新运行，并进入新运行的详情。
+  it("an AI run that left a session id can be resumed", async () => {
+    mockRunner.resumeRun.mockResolvedValue("r2");
+    renderView();
+    fireEvent.click(await screen.findByRole("button", { name: "续跑" }));
+    await waitFor(() => expect(mockRunner.resumeRun).toHaveBeenCalledWith("r1"));
+  });
+
+  it("resume is only offered for a finished AI run with a session id", async () => {
+    const withoutSession = detail({ outputs: { text: "你好" } });
+    const actionRun = detail({ targetKind: "action", targetId: "build" });
+    for (const variant of [withoutSession, actionRun, running()]) {
+      mockRunner.getRun.mockResolvedValue(variant);
+      const view = renderView();
+      await screen.findByText("r1");
+      expect(screen.queryByRole("button", { name: "续跑" })).not.toBeInTheDocument();
+      view.unmount();
+    }
+  });
+
+  it("a finished run has no stop button", async () => {
+    renderView();
+    await screen.findByText("r1");
+    expect(screen.queryByRole("button", { name: "停止" })).not.toBeInTheDocument();
   });
 });

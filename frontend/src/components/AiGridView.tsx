@@ -131,6 +131,7 @@ export function AiGridView() {
                       openScheduleForm({
                         id: schedule.id, name: schedule.name, enabled: schedule.enabled, cron: schedule.cron,
                         targetKind: "ai", targetId: task.id, params: schedule.params ?? {},
+                        catchUp: schedule.catchUp,
                       }, false);
                     }}
                     onViewRun={openRun}

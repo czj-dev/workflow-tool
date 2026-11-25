@@ -874,6 +874,7 @@ describe("ActionRunnerProvider", () => {
       targetKind: "action",
       targetId: "check",
       params: { DEVICE: "emulator" },
+      catchUp: false,
       nextRun: "2026-11-12T10:07:00Z",
       running: false,
     };

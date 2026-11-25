@@ -55,6 +55,7 @@ type Schedule = {
   targetKind: string;
   targetId: string;
   params: Record<string, unknown>;
+  catchUp?: boolean;
   nextRun: string;
   running: boolean;
   lastRun?: {
@@ -165,8 +166,10 @@ function ScheduleCard({
 
       {expanded ? (
         <>
-          {/* 叙事区：原始 cron stamp + 人读句子 */}
-          <NarrativeZone stamp={schedule.cron}>{sentence}</NarrativeZone>
+          {/* 叙事区：原始 cron stamp（开了补跑的在旁标出）+ 人读句子 */}
+          <NarrativeZone stamp={schedule.catchUp ? `${schedule.cron} · ${t("scheduler.catchUp")}` : schedule.cron}>
+            {sentence}
+          </NarrativeZone>
 
           <div className="grid gap-1.5">
             <InfoRow label={t("scheduler.nextTriggers")}>
@@ -397,6 +400,7 @@ export function SchedulerView({ active = true }: SchedulerViewProps) {
       name: schedule.name,
       enabled: schedule.enabled,
       cron: schedule.cron,
+      catchUp: schedule.catchUp,
       targetKind: schedule.targetKind === "workflow" || schedule.targetKind === "ai" ? schedule.targetKind : "action",
       targetId: schedule.targetId,
       params: schedule.params ?? {},

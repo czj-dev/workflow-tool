@@ -27,6 +27,8 @@ type Definition struct {
 	Workflow string         `yaml:"workflow,omitempty"`
 	AI       string         `yaml:"ai,omitempty"`
 	Params   map[string]any `yaml:"params,omitempty"`
+	// CatchUp 为 true 时，应用恢复后为最近一个错过的调度时刻补跑一次；默认关闭。
+	CatchUp bool `yaml:"catch_up,omitempty"`
 }
 
 // Target 返回目标种类与 id；没有目标或多于一个目标都是错误。

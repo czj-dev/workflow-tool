@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"workflow-tool/internal/applog"
+	"workflow-tool/internal/procinfo"
 )
 
 func newStore(t *testing.T) (*Store, string, *applog.Logger) {
@@ -113,8 +114,8 @@ func TestStartWritesRunningRecordAndEventsLog(t *testing.T) {
 		t.Fatalf("params/process not persisted: %+v", rec)
 	}
 	// 进程启动时刻随每条记录落档（认领时与 pid 一起核对进程身份）；同一进程内恒定
-	if started, err := time.Parse(time.RFC3339Nano, rec.Process.StartedAt); err != nil || !started.Equal(ProcessStartedAt()) {
-		t.Fatalf("process start time not archived: %+v (err %v)", rec.Process, err)
+	if _, startedAt := procinfo.Self(); rec.Process.StartedAt != startedAt {
+		t.Fatalf("process start time not archived: %+v", rec.Process)
 	}
 
 	s.Output(map[string]any{"stream": "ai", "line": "你好", "seq": 1})

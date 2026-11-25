@@ -2,11 +2,14 @@ package actionrun
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"workflow-tool/internal/registry"
 	"workflow-tool/internal/runner"
+	"workflow-tool/internal/target"
+	"workflow-tool/internal/targetlock"
 	"workflow-tool/internal/workflow"
 )
 
@@ -50,6 +53,30 @@ func makeActionRun(reg *registry.Registry, deps Deps, merged map[string]any) wor
 		}
 		return r.Run(req.Ctx, runParams, emit)
 	}
+}
+
+// LockActionStep 给工作流的动作步骤包一层目标锁（见 LockStep）。api 与 cli 两条 workflow
+// 路径共用。
+func LockActionStep(next workflow.ActionRunFunc, locks *targetlock.Locks) workflow.ActionRunFunc {
+	return func(req workflow.ActionRequest) runner.Result {
+		return LockStep(req.ActionID, req.Emit, locks, target.Action, func() runner.Result { return next(req) })
+	}
+}
+
+// LockStep 在占住目标（kind + id）的锁之后执行 run，跑完释放。工作流的动作步骤与 AI 步骤
+// 经它占各自的目标锁，与直接运行该目标、别的进程里的运行互斥。撞上运行中的目标立即失败、
+// 不等待（规格：目标锁与冲突）——原因推到 stderr，步骤以 -1 退出。
+func LockStep(id string, emit runner.EmitFunc, locks *targetlock.Locks, kind target.Kind, run func() runner.Result) runner.Result {
+	release, err := locks.Acquire(kind, id)
+	if err != nil {
+		if errors.Is(err, targetlock.ErrBusy) {
+			err = fmt.Errorf("目标 %q 正在运行，步骤不等待", id)
+		}
+		emit("stderr", err.Error())
+		return runner.Result{ExitCode: -1, Err: err, Outputs: map[string]string{"exit_code": "-1", "success": "false"}}
+	}
+	defer release()
+	return run()
 }
 
 // withActionDefaults 与直接运行动作的表单默认值语义一致，同时保留空值参数。

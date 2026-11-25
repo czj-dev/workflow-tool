@@ -2,7 +2,6 @@ package api
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -162,7 +161,7 @@ func (s *Service) execute(ctx context.Context, id string, la registry.LoadedActi
 	defer s.settleRun(ctx, sess, source, started, &finished, func() { s.running.end(id) })()
 
 	ev := newActionEvents(s.app, id)
-	ev.sink = sess
+	ev.Sink = sess
 	// 早退（发生在任何 output 之前）：done 不带 seq（前端直接应用），运行记录落 failed。
 	failEarly := func(err error) {
 		ev.DoneUnordered(-1, err.Error(), 0)
@@ -249,8 +248,8 @@ func (s *Service) executeAi(ctx context.Context, id string, lt ai.LoadedTask, pa
 	defer s.settleRun(ctx, sess, source, started, &finished, func() { s.aiRunning.end(id) })()
 
 	ev := newAiEvents(s.app, id)
-	ev.sink = sess
-	res, rules := runAiOnce(ctx, lt, s.aiDeps, airun.Options{
+	ev.Sink = sess
+	res, rules := airun.Run(ctx, lt, s.aiDeps, airun.Options{
 		Params: params,
 		Global: s.GetGlobalConfig(),
 	}, ev.EmitFunc())
@@ -259,7 +258,7 @@ func (s *Service) executeAi(ctx context.Context, id string, lt ai.LoadedTask, pa
 	// 终点读数（cost/tokens/session_id）随 done 事件下发，聊天页终点展示。
 	var readout map[string]any
 	if len(res.Outputs) > 0 {
-		readout = aiReadout(res.Outputs, res.Duration)
+		readout = airun.Readout(res.Outputs, res.Duration)
 	}
 	ev.Done(res.ExitCode, errStr(res.Err), res.Duration, readout)
 	finished = true
@@ -269,44 +268,10 @@ func (s *Service) executeAi(ctx context.Context, id string, lt ai.LoadedTask, pa
 	}
 }
 
-// runAiOnce 是手动运行与 workflow ai step 的共用执行段：构造 AIRunner → 运行。
-// 输入原样交给 airun.Build，模板展开、必填与未知参数校验都在那里完成；早于进程
-// 启动的失败也向 stderr 推一行原因，让两种调用方的事件流里都看得到。
-// 第二个返回值是本次注入的无人值守守则全文（构造失败时为空），运行记录据此留档。
-func runAiOnce(ctx context.Context, lt ai.LoadedTask, deps airun.Deps, opts airun.Options, emit runner.EmitFunc) (runner.Result, string) {
-	r, err := airun.Build(ctx, lt, deps, opts)
-	if err != nil {
-		emit("stderr", err.Error())
-		return runner.Result{ExitCode: -1, Err: err,
-			Outputs: map[string]string{"exit_code": "-1", "success": "false"}}, ""
-	}
-	res := r.Run(ctx, nil, emit)
-	// 超时被杀时把裸的 context deadline exceeded 换成可行动的提示：会话 id 已在
-	// outputs 里（session_id），后续运行用保留参数 resume 续接，不必从头再来。
-	if errors.Is(res.Err, context.DeadlineExceeded) {
-		res.Err = &aiTimeoutError{limit: lt.Timeout, cause: res.Err}
-	}
-	return res, r.Cfg.Rules
-}
-
-// aiTimeoutError 是 AI 运行超时的对外错误：文案给出续接办法，Unwrap 仍指向底层原因
-// （簿记与调用方继续用 errors.Is 判定 context.DeadlineExceeded）。
-type aiTimeoutError struct {
-	limit time.Duration
-	cause error
-}
-
-func (e *aiTimeoutError) Error() string {
-	return fmt.Sprintf("AI 运行超时（上限 %s），进程已终止；可用 resume 续接该会话重跑", e.limit)
-}
-
-func (e *aiTimeoutError) Unwrap() error { return e.cause }
-
 // aiStepRun 构造 workflow 中 ai step 的执行回调（对标 actionrun.WorkflowCallbacks）。
 //   - 占目标锁：与手动运行共用 aiRunning。撞锁立即失败、不等待。
 //   - ctx 派生自工作流 ctx：取消工作流或 CancelAi 都会终止该步骤。
-//   - 输入原样交给 airun.Build，与手动运行同一条构造路径；step 的 workflow+step env
-//     先用 merged 展开 ${VAR}（executor 只做了 ${{ }} 替换），再作为 ExtraEnv 覆盖任务定义。
+//   - 执行段是 airun.Step，与 CLI / 执行器路径同一份；step 的 workflow+step env 在那里展开。
 //   - 不发 ai:<id>:*：输出带步骤归属落在 workflow:<wf-id>:output 上。
 func (s *Service) aiStepRun(wfCtx context.Context, merged map[string]any) workflow.AIRunFunc {
 	return func(req workflow.AIRequest) runner.Result {
@@ -325,17 +290,8 @@ func (s *Service) aiStepRun(wfCtx context.Context, merged map[string]any) workfl
 		}
 		defer s.aiRunning.end(req.TaskID)
 
-		env := make(map[string]string, len(req.Env))
-		for k, v := range req.Env {
-			env[k] = runner.Expand(req.Ctx, v, merged, s.aiDeps.Builtins)
-		}
 		// AI 步骤不单独留运行记录：它是工作流这次运行的一步，输出带步骤归属落在
 		// 父工作流的运行日志里。
-		res, _ := runAiOnce(ctx, lt, s.aiDeps, airun.Options{
-			Params:   req.Params,
-			Global:   s.GetGlobalConfig(),
-			ExtraEnv: env,
-		}, req.Emit)
-		return res
+		return airun.Step(ctx, lt, s.aiDeps, airun.Options{Global: s.GetGlobalConfig()}, req, merged, req.Emit)
 	}
 }

@@ -41,7 +41,7 @@ description: 用本项目构建出的 workflow-tool 二进制从 shell 发现、
 - **默认**：stdout/stderr 原样透传、退出码透传——当成直接跑了那条命令。
 - **`--json`**：NDJSON，每行一个对象，`type ∈ output|result|error`：
   ```jsonc
-  {"type":"output","stream":"stdout","line":"..."}   // stream: stdout|stderr|progress|tree|logcat|logcat-replace
+  {"type":"output","stream":"stdout","line":"..."}   // stream: stdout|stderr|progress|tree|logcat|logcat-replace|ai|ai-thinking|ai-tool
   {"type":"result","exit_code":0,"success":true,"duration_ms":1234,"outputs":{"myKey":"..."}}
   {"type":"error","kind":"...","message":"..."}
   ```
@@ -59,14 +59,16 @@ description: 用本项目构建出的 workflow-tool 二进制从 shell 发现、
 | `--kind action\|workflow\|ai` | id 在 action/workflow/AI 任务间撞名时消歧 |
 | `--base-dir <path>` | actions/ai/workflows/config.yaml 所在目录（默认二进制同级或 `WORKFLOW_TOOL_HOME`） |
 | `--timeout <dur>` | 整次运行封顶，如 `30s`/`5m`，默认不限 |
+| `--allow-ai` | 放行 AI 任务与含 AI 步骤的 workflow（默认 `ai_blocked`）。无人值守、权限固定 bypass，只在明确要它无人值守地跑时加 |
 
 ## 退出码与错误
 
 - 命令跑完：**透传**其退出码。`exit_code≠0` 是**命令失败**（可据输出重试），不是调用错误。
-- 退出码 `2` + `{"type":"error","kind":...}`：**调用错误**（改调用方式）。`kind`：`unknown_id`、`ambiguous_id`（加 `--kind`）、`bad_params`（JSON 坏）、`validation`（值不合契约）、`no_device`（多设备未指定）、`ai_blocked`（AI 禁跑）。
+- 退出码 `2` + `{"type":"error","kind":...}`：**调用错误**（改调用方式）。`kind`：`unknown_id`、`ambiguous_id`（加 `--kind`）、`bad_params`（JSON 坏）、`validation`（值不合契约）、`no_device`（多设备未指定）、`ai_blocked`（AI 未放行）、`target_locked`（目标正被另一个运行占着）。
 - 取消/超时：`exit_code=-1`，`error` 为 `context canceled` / `context deadline exceeded`。
 
 ## 跑不了的
 
-- **AI 任务（`ai/`，`kind: ai`）禁跑** → `ai_blocked`：直接 run、以及含 `ai:` 步骤的 workflow 都拒。`list`/`describe` 仍可用。用 GUI 跑。
+- **AI 任务（`ai/`，`kind: ai`）默认禁跑** → `ai_blocked`：直接 run、以及含 `ai:` 步骤的 workflow 都拒。`list`/`describe` 仍可用。要跑就加 `--allow-ai`，或用 GUI。
+- **目标锁跨进程**：目标正被应用里的运行或调度执行器占着时 → `target_locked`，不并发跑；跑完后锁即释放。
 - adb 动作需设备：无任何 ready 设备时 → `no_device`；多设备时自动选激活/第一个，要精确控制就传 `--device <serial>`。

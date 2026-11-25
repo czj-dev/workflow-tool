@@ -584,6 +584,8 @@ func TestScheduledRunStartIsAnnouncedWithItsRunRecord(t *testing.T) {
 		t.Fatalf("in-flight result is not linked to its run record: %+v", start.LastRun)
 	}
 	svc.CancelAi("t-block")
+	// 运行由执行器承担：停掉它要等执行器看到停止标记并收尾，否则它会往本用例的临时目录里写
+	waitRegistered(t, svc.aiRunning, "t-block", false)
 }
 
 // 「已跳过」的提示是给发起人看的完整一句话，不带内部标记的尾巴。

@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Events } from "@wailsio/runtime";
-import { ArrowLeft01Icon } from "@hugeicons/core-free-icons";
+import { ArrowLeft01Icon, RefreshIcon, StopIcon } from "@hugeicons/core-free-icons";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Button } from "@/components/ui/button";
 import { SidebarTrigger } from "@/components/ui/sidebar";
 import { AiDiagBlock } from "@/components/ai/AiDiagBlock";
 import { AiOutputPanel } from "@/components/ai/AiOutputPanel";
@@ -27,6 +29,12 @@ import type { RunDetail, RunEvent, RunTargetKind } from "../types/events";
 // spine（AI 步骤同样是工序段）。加载分两步：先拉详情（结论与产出随即显示），再回放日志；
 // 仍在运行的记录在回放之上订阅该目标的实时事件继续应用——订阅先于读盘建立，读盘之前
 // 的输出重送一遍也无妨（按 seq 去重），运行结束触发重拉，换成完整回放。
+//
+// 执行器承担的运行（调度到点、立即运行）没有实时事件可订阅：它跑在另一个进程里。
+// 这类记录在运行期间定期重读运行日志，跑完后同样由 runs:changed 触发重拉。
+
+// 执行器运行的运行日志重读间隔
+const EXECUTOR_POLL_MS = 2000;
 
 // 正文类产出已在「过程」里完整呈现，产出表里不再重复
 const BODY_OUTPUTS = new Set(["stdout", "stderr", "text", "thinking"]);
@@ -36,7 +44,7 @@ const FOLD_AT = 160;
 export function RunDetailView() {
   const { t } = useTranslation();
   const {
-    currentRunId, closeRun, getRun, getRunEvents, runsRevision,
+    currentRunId, closeRun, getRun, getRunEvents, resumeRun, stopRun, runsRevision,
     actions, workflows, aiTasks,
   } = useActionRunner();
   const [detail, setDetail] = useState<RunDetail | null>(null);
@@ -119,6 +127,32 @@ export function RunDetailView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [detail, opts]);
 
+  // 执行器承担的运行：没有实时事件，运行期间定期重读运行日志
+  const executorLive = running && detail?.processMode === "executor";
+  useEffect(() => {
+    if (!detail || !executorLive) return;
+    let cancelled = false;
+    const reread = () => getRunEvents(detail.id)
+      .then((events) => {
+        if (!cancelled) setPlayer(replayRun(kindOf(detail), events, opts));
+      })
+      .catch(() => undefined); // 一次重读失败不打断跟踪，下一轮再来
+    const timer = setInterval(reread, EXECUTOR_POLL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+    // 与上面两个 effect 同理：只由「换了一条记录 / 运行记录有变化 / 是否执行器运行」触发
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [detail, executorLive, opts]);
+
+  // 续跑：只有 AI 运行留下会话 id 才续得了；运行中的记录不续
+  const resumable = detail !== null && detail.targetKind === "ai" && !running && !!detail.outputs?.session_id;
+  const resume = () => {
+    if (!detail) return;
+    resumeRun(detail.id).catch((e: unknown) => setError(e instanceof Error ? e.message : String(e)));
+  };
+
   // 工作流运行中：步骤耗时 live 递增（每秒刷新 ticker；不在 effect 里同步写 state）
   const [now, setNow] = useState(() => Date.now());
   const liveWorkflow = running && detail?.targetKind === "workflow";
@@ -149,6 +183,16 @@ export function RunDetailView() {
           </span>
         )}
         <span className="ml-auto flex shrink-0 items-center gap-2.5">
+          {detail && running && (
+            <IconButton icon={StopIcon} label={t("main.stop")}
+              onClick={() => stopRun({ targetKind: detail.targetKind, targetId: detail.targetId })} />
+          )}
+          {resumable && (
+            <Button variant="outline" size="sm" title={t("run.resumeHint")} onClick={resume}>
+              <HugeiconsIcon icon={RefreshIcon} className="size-3.5" aria-hidden="true" />
+              {t("run.resume")}
+            </Button>
+          )}
           {detail && <RunStatusBadge status={detail.status} label={t(`runs.status.${detail.status}`, detail.status)} />}
           {detail && <span className="font-mono text-[11px] text-muted-foreground" title={detail.id}>{detail.id}</span>}
         </span>

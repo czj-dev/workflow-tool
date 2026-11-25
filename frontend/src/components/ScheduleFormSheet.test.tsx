@@ -130,6 +130,31 @@ describe("ScheduleFormSheet", () => {
     }));
   });
 
+  // 补跑默认关；表单里打开后随调度保存。
+  it("catch-up is off unless switched on, and is saved once switched on", async () => {
+    const user = userEvent.setup();
+    const { openWith } = renderEditor();
+    openWith(EDIT, false);
+    await openEditor(user);
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(mockSaveSchedule).toHaveBeenLastCalledWith(expect.objectContaining({ catchUp: false }));
+
+    await user.click(screen.getByRole("switch", { name: /补跑/ }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(mockSaveSchedule).toHaveBeenLastCalledWith(expect.objectContaining({ catchUp: true }));
+  });
+
+  // 编辑一条开了补跑的调度：开关如实反映现值，保存时保留。
+  it("editing a schedule that catches up keeps it on", async () => {
+    const user = userEvent.setup();
+    const { openWith } = renderEditor();
+    openWith({ ...EDIT, catchUp: true }, false);
+    await openEditor(user);
+    expect(screen.getByRole("switch", { name: /补跑/ })).toHaveAttribute("aria-checked", "true");
+    await user.click(screen.getByRole("button", { name: "保存" }));
+    expect(mockSaveSchedule).toHaveBeenLastCalledWith(expect.objectContaining({ catchUp: true }));
+  });
+
   it("serializes edited dial tokens without changing other cron fields", async () => {
     const user = userEvent.setup();
     const { openWith } = renderEditor();

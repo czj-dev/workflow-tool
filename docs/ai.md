@@ -328,7 +328,7 @@ steps:
 
 ## 目标锁与冲突
 
-同一任务同一时刻只允许一个运行，不论来自手动运行、调度还是工作流步骤（[ADR-0006](adr/0006-process-and-mutex-model.md)）。撞上不等待：
+同一任务同一时刻只允许一个运行，不论来自手动运行、调度还是工作流步骤（[ADR-0006](adr/0006-process-and-mutex-model.md)）。这把锁是落盘的，跨进程成立：应用内的运行、独立执行器、从 shell 发起的 `workflow-tool run` 对同一个任务互斥。撞上不等待：
 
 | 场景 | 结果 |
 |------|------|
@@ -362,16 +362,21 @@ schedules:
 - 调度编辑器里 AI 目标的参数区是结构化输入（每个已声明参数一个框，外加 `prompt` / `system` 两个多行框），不是 JSON 文本框；留空 = 不传
 - 到点后与其他目标一样留运行记录（`origin: schedule`），撞上运行中的任务则跳过（见上表）。所有 AI 运行固定 bypass 权限，所以一条指向 AI 任务的调度等同于定时执行有当前用户权限的代码
 - 调度运行没有交互通道：任务的 `cwd` 指向哪里、`prompt` 让它做什么，要在定义里把好关
-- 调度发起的运行一开始，任务卡就进入运行态（最近结果变为「运行中」并连着运行记录）；此时点卡身去那条运行的详情实时跟踪。动作与工作流的调度同理，参数校验规则见各自的文档
+- 调度发起的运行一开始，任务卡就进入运行态（最近结果变为「运行中」并连着运行记录）；此时点卡身去那条运行的详情跟踪。动作与工作流的调度同理，参数校验规则见各自的文档
+- **调度到点与「立即运行」不跑在应用进程里**，而是交给独立执行器：应用退出后它照常跑完，重启后应用按心跳认领它（见 [runs.md](runs.md)「进程模型」）。手动运行仍留在应用进程内
+- 应用没在运行时溜走的到点留一条 `missed` 记录；调度写了 `catch_up: true` 时，应用恢复后为最近一个错过的时刻补跑一次（见 [runs.md](runs.md)「错过与补跑」）
+- 一次 AI 运行结束后只要留下了会话 id，运行详情里有「续跑」：以同一份输入加 `resume: <session_id>` 发起一次新的手动运行
 
 ## CLI
 
-CLI（`workflow-tool list` / `describe` / `run`）能看不能跑：
+CLI（`workflow-tool list` / `describe` / `run`）：
 
 - `list`：AI 任务以 `kind: "ai"` 列出
 - `describe <id> --kind ai`：输出 `id`、`kind`、`params`、`presets`（为空时省略）、`prompt`（总是输出）、`system`（为空时省略）和 `reservedRunParams`
-- `run <id>`：拒绝运行 AI 任务，结果 `ai_blocked`，退出码 2——「AI 任务 "…" 不能在 CLI 里运行（用 GUI 跑）」
-- `run <workflow>`：工作流含 AI 步骤时同样 `ai_blocked`——「workflow 含 AI 步骤（任务 "…"），CLI 不支持运行（用 GUI 跑）」
+- `run <id>`：**默认拒绝**运行 AI 任务，结果 `ai_blocked`，退出码 2——「AI 任务 "…" 不能在 CLI 里运行（用 GUI 跑，或加 --allow-ai 放行）」
+- `run <workflow>`：工作流含 AI 步骤时同样 `ai_blocked`
+- 加 `--allow-ai` 即放行：`run <id> --kind ai --allow-ai`、含 AI 步骤的 workflow 都能跑。放行是显式的，因为 AI 运行固定 `bypassPermissions`、没有交互通道——从 shell 发起它等同于定时执行有当前用户权限的代码
+- CLI 运行同样占目标锁：任务正被应用或执行器占着时返回 `target_locked`，不并发跑
 
 id 与动作、工作流重名时加 `--kind ai`。完整用法见 [internal/cli/SKILL.md](../internal/cli/SKILL.md)。
 

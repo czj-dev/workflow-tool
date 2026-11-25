@@ -71,7 +71,18 @@ func Run(ctx context.Context, req ExecRequest, onLine OnLine) ExecOutcome {
 	select {
 	case <-timeoutCtx.Done():
 		killGroup(cmd)
-		<-waitCh
+		// 组长恰好正在 fork 时被杀：SIGKILL 打断不了进行中的 fork，刚出世的孩子诞生在内核
+		// 遍历进程组之后，躲过这一次组杀，握着管道不松手——Run 就永远等不到扫描结束。
+		// 管道没在 killSettleDelay 内关闭就按进程组再补杀一次（组长已死无妨，孤儿进程仍在
+		// 原来的组里）。
+		timer := time.NewTimer(killSettleDelay)
+		select {
+		case <-waitCh:
+			timer.Stop()
+		case <-timer.C:
+			killGroup(cmd)
+			<-waitCh
+		}
 		return ExecOutcome{ExitCode: -1, Err: timeoutCtx.Err(), Duration: time.Since(start)}
 	case werr := <-waitCh:
 		exitCode := 0
@@ -85,6 +96,10 @@ func Run(ctx context.Context, req ExecRequest, onLine OnLine) ExecOutcome {
 		return ExecOutcome{ExitCode: exitCode, Duration: time.Since(start)}
 	}
 }
+
+// killSettleDelay 是组杀之后等管道关闭的时长：正常情况下进程一死扫描立刻结束，
+// 只有躲过组杀的孤儿子进程才会让这里等到头，触发补杀。
+const killSettleDelay = 500 * time.Millisecond
 
 // maxScanLine 是 bufio.Scanner 单行上限。默认 64KB 会截断脚本的大协议行：
 // SPM 浏览模式的 ##[tree 树帧随条目数增长（实测 8676 条目 ≈1.2MB），

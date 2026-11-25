@@ -26,8 +26,13 @@ import (
 	"workflow-tool/internal/registry"
 	"workflow-tool/internal/runstore"
 	"workflow-tool/internal/schedule"
+	"workflow-tool/internal/target"
+	"workflow-tool/internal/targetlock"
 	"workflow-tool/internal/workflow"
 )
+
+// scheduleStateFile 是调度器「上次评估到的时刻」的持久化文件（可执行文件同级，不入仓库）。
+const scheduleStateFile = "schedules.state.json"
 
 // Service 是暴露给前端的 Wails 服务。
 type Service struct {
@@ -40,7 +45,10 @@ type Service struct {
 	global    map[string]string
 	gMu       sync.Mutex // 保护 global 的读写
 	fragments []registry.Fragment
-	fMu       sync.Mutex   // 保护 fragments 的读写
+	fMu       sync.Mutex // 保护 fragments 的读写
+	// locks 是落盘的目标锁：应用内的运行、独立执行器与 CLI 运行对同一目标互斥（跨进程）。
+	// 三个 runRegistry 经它占锁；执行器发起时也在这里探测目标是否被占。
+	locks     *targetlock.Locks
 	running   *runRegistry // action 运行簿记（拒绝并发/结束清理/取消）
 	wfReg     *workflow.WorkflowRegistry
 	wfMu      sync.RWMutex // registry 指针由 ReloadWorkflows 原子替换
@@ -91,18 +99,20 @@ func New(reg *registry.Registry, wfReg *workflow.WorkflowRegistry, baseDir, cfgP
 	if wfReg == nil {
 		wfReg = &workflow.WorkflowRegistry{Workflows: map[string]workflow.LoadedWorkflow{}}
 	}
+	locks := targetlock.New(baseDir)
 	svc := &Service{
+		locks:        locks,
 		reg:          reg,
 		baseDir:      baseDir,
 		cfgPath:      cfgPath,
 		fragPath:     fragPath,
 		global:       g,
 		fragments:    frags,
-		running:      newRunRegistry(),
+		running:      newRunRegistry(target.Action, locks),
 		wfReg:        wfReg,
-		wfRunning:    newRunRegistry(),
+		wfRunning:    newRunRegistry(target.Workflow, locks),
 		aiReg:        ai.Load(filepath.Join(baseDir, "ai"), reg.Skills),
-		aiRunning:    newRunRegistry(),
+		aiRunning:    newRunRegistry(target.AI, locks),
 		schedulePath: filepath.Join(baseDir, "schedules.yaml"),
 		scheduleRuns: make(map[string]*scheduleRunState),
 	}
@@ -112,6 +122,10 @@ func New(reg *registry.Registry, wfReg *workflow.WorkflowRegistry, baseDir, cfgP
 	// 「立即运行」与到点指向同一目标、用同一份参数，但撞上运行中的目标时处置不同：
 	// 前者把错误返回给发起人，后者留档为跳过。
 	svc.scheduler.SetTriggerNow(svc.launchScheduleNow)
+	// 追踪每条调度上次评估到的时刻：应用恢复后把其间溜走的到点逐个留档，按 catch_up 补跑。
+	svc.scheduler.TrackMissed(filepath.Join(baseDir, scheduleStateFile), schedule.MissedHandlers{
+		Missed: svc.missedInstant, CatchUp: svc.catchUp,
+	})
 	// 应用日志与运行记录都在可执行文件同级；打不开只是失去留档，不该挡住应用启动。
 	if logger, err := applog.Open(baseDir); err != nil {
 		log.Printf("app log unavailable: %v", err)
@@ -123,6 +137,9 @@ func New(reg *registry.Registry, wfReg *workflow.WorkflowRegistry, baseDir, cfgP
 	} else {
 		svc.runs = runs
 	}
+	// 上次遗留的执行器运行若还在跑（Open 已按心跳与进程身份认领），登记进进程内簿记：
+	// 调度卡知道它们在跑，界面上也能停它们。
+	svc.adoptExecutorRuns()
 	svc.bin = binary.NewService()
 	svc.dev = device.NewService(svc.binPaths)
 	svc.builtins = builtinvars.New(svc.dev)
@@ -189,6 +206,8 @@ func (s *Service) ServiceStartup(ctx context.Context, _ application.ServiceOptio
 		defer ticker.Stop()
 		s.scheduler.Run(runCtx, time.Now, ticker.C)
 	}()
+	// 持续核对在途的执行器运行（认领本身在 New 里，紧跟打开运行记录）。
+	go s.watchExecutorRuns(runCtx)
 	return nil
 }
 

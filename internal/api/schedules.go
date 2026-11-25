@@ -27,6 +27,7 @@ type ScheduleInput struct {
 	TargetKind string         `json:"targetKind"`
 	TargetID   string         `json:"targetId"`
 	Params     map[string]any `json:"params"`
+	CatchUp    bool           `json:"catchUp"`
 }
 
 // LastRun 是一条调度最近一次真实运行的结论。跳过不进这里（见 LastSkip）。
@@ -58,10 +59,12 @@ type ScheduleItem struct {
 	TargetKind string         `json:"targetKind"`
 	TargetID   string         `json:"targetId"`
 	Params     map[string]any `json:"params"`
-	NextRun    string         `json:"nextRun"`
-	Running    bool           `json:"running"`
-	LastRun    *LastRun       `json:"lastRun,omitempty"`
-	LastSkip   *LastSkip      `json:"lastSkip,omitempty"`
+	// CatchUp 为 true 时，应用恢复后为最近一个错过的调度时刻补跑一次。
+	CatchUp  bool      `json:"catchUp"`
+	NextRun  string    `json:"nextRun"`
+	Running  bool      `json:"running"`
+	LastRun  *LastRun  `json:"lastRun,omitempty"`
+	LastSkip *LastSkip `json:"lastSkip,omitempty"`
 }
 
 type ScheduleListResult struct {
@@ -98,7 +101,7 @@ type scheduleRunState struct {
 // 卡片据此进入运行态、能进运行详情实时跟踪——调度发起的运行前端没有它的输出捕获，只能
 // 靠这次通知得知。source 为 nil（手动运行）时空操作。
 func (s *Service) beginScheduledRun(source *runSource) {
-	if source == nil {
+	if source == nil || source.scheduleID == "" {
 		return
 	}
 	started := s.startScheduleRunWithID(source.scheduleID, source.runID)
@@ -290,7 +293,8 @@ func (s *Service) projectSchedules(defs []schedule.Definition, scheduleErrors []
 	now := time.Now()
 	for _, def := range defs {
 		kind, target, _ := def.Target()
-		item := ScheduleItem{ID: def.ID, Name: def.Name, Enabled: def.Enabled, Cron: def.Cron, TargetKind: string(kind), TargetID: target, Params: def.Params}
+		item := ScheduleItem{ID: def.ID, Name: def.Name, Enabled: def.Enabled, Cron: def.Cron, TargetKind: string(kind), TargetID: target,
+			Params: def.Params, CatchUp: def.CatchUp}
 		if cron, err := schedule.Parse(def.Cron); err == nil {
 			if next, ok := cron.NextAfter(now); ok {
 				item.NextRun = next.Format(time.RFC3339)
@@ -300,10 +304,12 @@ func (s *Service) projectSchedules(defs []schedule.Definition, scheduleErrors []
 			item.Running = state.Running
 			item.LastRun, item.LastSkip = state.LastRun, state.LastSkip
 		}
-		// 最近结果排除 skipped：跳过不覆盖上一次真实运行的结果。
+		// 最近结果排除 skipped / missed：它们不覆盖上一次真实运行的结果。
+		// 应用重启后仍有执行器在跑时，回填回来的就是那条 running 的记录——卡片据此仍是运行态。
 		if item.LastRun == nil {
 			if rec, ok := s.runs.Latest(kind, target, def.ID, true); ok {
 				item.LastRun = lastRunFromRecord(rec)
+				item.Running = rec.Status == runstore.StatusRunning
 			}
 		}
 		// 「上次到点已跳过」只说明最近一次到点：该调度最新一条记录是被跳过的才显示，
@@ -624,7 +630,7 @@ func (s *Service) SaveSchedule(input ScheduleInput) (ScheduleListResult, error) 
 		s.scheduleMu.Unlock()
 		return ScheduleListResult{}, err
 	}
-	def := schedule.Definition{ID: input.ID, Name: input.Name, Enabled: input.Enabled, Cron: input.Cron, Params: input.Params}
+	def := schedule.Definition{ID: input.ID, Name: input.Name, Enabled: input.Enabled, Cron: input.Cron, Params: input.Params, CatchUp: input.CatchUp}
 	switch schedule.TargetKind(input.TargetKind) {
 	case schedule.TargetAction:
 		def.Action = input.TargetID
@@ -726,6 +732,31 @@ func (s *Service) RunScheduleNow(id string) error {
 	return s.scheduler.TriggerNow(context.Background(), id)
 }
 
+// missedInstant 是调度器的「错过」回调：应用没在运行时溜走的一个调度时刻。留一条
+// missed 运行记录（没有过程），不覆盖上一次真实运行的结果。
+func (s *Service) missedInstant(_ context.Context, def schedule.Definition, instant time.Time) error {
+	kind, id, err := def.Target()
+	if err != nil {
+		return err
+	}
+	reason := fmt.Sprintf("应用未在运行，错过 %s 的到点", instant.Format("2006-01-02 15:04"))
+	runID := s.noteRun(kind, id, def.Params, &runSource{scheduleID: def.ID, origin: runstore.OriginSchedule}, runstore.StatusMissed, reason)
+	s.appLog.Log("schedule.missed", map[string]any{
+		"schedule_id": def.ID, "target_kind": kind, "target_id": id, "run_id": runID, "at": instant.Format(time.RFC3339),
+	})
+	return nil
+}
+
+// catchUp 是调度器的「补跑」回调：为最近一个错过的时刻以调度自带的参数发起一次运行，
+// 发起来源仍是到点（schedule）。
+func (s *Service) catchUp(_ context.Context, def schedule.Definition, instant time.Time) error {
+	kind, id, _ := def.Target()
+	s.appLog.Log("schedule.catch_up", map[string]any{
+		"schedule_id": def.ID, "target_kind": kind, "target_id": id, "at": instant.Format(time.RFC3339),
+	})
+	return s.launch(def, runstore.OriginSchedule)
+}
+
 // launchSchedule 是调度到点的回调（Scheduler 的 trigger）：以调度自带的 params 发起运行，
 // 发起来源为 schedule。
 func (s *Service) launchSchedule(_ context.Context, def schedule.Definition) error {
@@ -737,45 +768,66 @@ func (s *Service) launchScheduleNow(_ context.Context, def schedule.Definition) 
 	return s.launch(def, runstore.OriginRunNow)
 }
 
-// launch 按调度定义发起一次运行并归类结果：
+// launch 按调度定义发起一次运行并归类结果。调度到点与立即运行都交给独立执行器
+// （见 executor.go）：
 //   - 发起成功：记一条到点行迹；
 //   - 撞上运行中的目标（targetBusyError）：到点已留档为跳过，不算错误；立即运行把原因返回；
-//   - 其他启动失败：留一条 failed 运行记录并更新调度卡的最近结果。
+//   - 目标已不存在：留一条 failed 运行记录并更新调度卡的最近结果；
+//   - 执行器没能拉起：运行记录与调度卡已在 launchExecutor 里落成 failed，把原因返回。
 func (s *Service) launch(def schedule.Definition, origin string) error {
-	kind, target, err := def.Target()
+	kind, targetID, err := def.Target()
 	if err != nil {
 		return err
 	}
 	source := &runSource{scheduleID: def.ID, origin: origin}
-	err = s.launchTarget(kind, target, def.Params, source)
+	err = s.launchScheduled(kind, targetID, def.Params, source)
 	var busy *targetBusyError
 	switch {
 	case err == nil:
 		s.appLog.Log("schedule.trigger", map[string]any{
-			"schedule_id": def.ID, "origin": origin, "target_kind": kind, "target_id": target, "run_id": source.runID,
+			"schedule_id": def.ID, "origin": origin, "target_kind": kind, "target_id": targetID, "run_id": source.runID,
 		})
 		return nil
-	case errors.As(err, &busy) && busy.skipped:
-		return nil // 到点撞上运行中的目标：已留档为跳过，不算错误
 	case errors.As(err, &busy):
+		if busy.skipped {
+			return nil // 到点撞上运行中的目标：已留档为跳过，不算错误
+		}
 		return err // 立即运行撞上：把「已在运行，已跳过」返回给发起人
+	case source.runID != "":
+		// 执行器没能拉起：运行记录与调度卡已在 launchExecutor 里交代过，这里只记行迹
+		s.appLog.Log("schedule.executor_failed", map[string]any{
+			"schedule_id": def.ID, "origin": origin, "target_kind": kind, "target_id": targetID,
+			"run_id": source.runID, "error": err.Error(),
+		})
+		return err
 	}
 	s.appLog.Log("schedule.launch_failed", map[string]any{
-		"schedule_id": def.ID, "origin": origin, "target_kind": kind, "target_id": target, "error": err.Error(),
+		"schedule_id": def.ID, "origin": origin, "target_kind": kind, "target_id": targetID, "error": err.Error(),
 	})
 	s.failScheduleStart(def, origin, err)
 	return err
 }
 
-// launchTarget 按目标种类分派到对应的执行路径；三条路径共用 source 的簿记语义。
-func (s *Service) launchTarget(kind target.Kind, target string, params map[string]any, source *runSource) error {
-	switch kind {
-	case runstore.KindAction:
-		return s.runAction(target, params, source)
-	case runstore.KindWorkflow:
-		return s.runWorkflow(target, params, source)
-	case runstore.KindAI:
-		return s.runAi(target, params, source)
+// launchScheduled 发起一次调度运行；目标已被卸载时不拉执行器，直接报启动失败。
+func (s *Service) launchScheduled(kind target.Kind, id string, params map[string]any, source *runSource) error {
+	if !s.knownTarget(kind, id) {
+		return fmt.Errorf("unknown %s %q", kind, id)
 	}
-	return fmt.Errorf("schedule %q: unsupported target %q", source.scheduleID, kind)
+	return s.launchExecutor(kind, id, params, source)
+}
+
+// knownTarget 报告某种类的目标当前是否已加载。
+func (s *Service) knownTarget(kind target.Kind, id string) bool {
+	switch kind {
+	case target.Action:
+		_, ok := s.actionRegistry().Actions[id]
+		return ok
+	case target.Workflow:
+		_, ok := s.workflowRegistry().Workflows[id]
+		return ok
+	case target.AI:
+		_, ok := s.aiRegistry().Get(id)
+		return ok
+	}
+	return false
 }

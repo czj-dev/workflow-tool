@@ -152,7 +152,7 @@ export interface WorkflowStepState {
 }
 
 /** 运行记录的状态词汇（与后端 internal/runstore 对齐）。 */
-export const RUN_STATUSES = ["running", "succeeded", "failed", "cancelled", "interrupted", "skipped"] as const;
+export const RUN_STATUSES = ["running", "succeeded", "failed", "cancelled", "interrupted", "skipped", "missed"] as const;
 export type RunStatus = (typeof RUN_STATUSES)[number];
 
 /** 运行记录的发起来源：调度到点 / 立即运行 / 手动运行。 */
@@ -197,6 +197,8 @@ export interface ScheduleFormValue {
   targetKind: RunTargetKind;
   targetId: string;
   params: Record<string, unknown>;
+  /** 补跑：应用恢复后为最近一个错过的时刻补跑一次；缺省为关。 */
+  catchUp?: boolean;
 }
 
 /**

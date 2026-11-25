@@ -84,7 +84,7 @@ func validateDefinition(def Definition, catalog *TargetCatalog) (Definition, err
 		return Definition{}, fmt.Errorf("schedule %q: params are not JSON encodable: %w", def.ID, err)
 	}
 	return Definition{ID: def.ID, Name: strings.TrimSpace(def.Name), Enabled: def.Enabled, Cron: def.Cron,
-		Action: def.Action, Workflow: def.Workflow, AI: def.AI, Params: params}, nil
+		Action: def.Action, Workflow: def.Workflow, AI: def.AI, Params: params, CatchUp: def.CatchUp}, nil
 }
 
 func cloneParams(params map[string]any) (map[string]any, error) {
@@ -196,6 +196,7 @@ type yamlDefinition struct {
 	Workflow string         `yaml:"workflow"`
 	AI       string         `yaml:"ai"`
 	Params   map[string]any `yaml:"params"`
+	CatchUp  bool           `yaml:"catch_up"`
 }
 
 // LoadFile returns valid entries and diagnostics for any entries it skips.
@@ -305,6 +306,8 @@ func decodeScheduleEntry(entry *yaml.Node) (Definition, error) {
 			target = &raw.AI
 		case "params":
 			target = &raw.Params
+		case "catch_up":
+			target = &raw.CatchUp
 		default:
 			return Definition{}, fmt.Errorf("unknown field %q", key)
 		}
@@ -320,7 +323,7 @@ func decodeScheduleEntry(entry *yaml.Node) (Definition, error) {
 		enabled = *raw.Enabled
 	}
 	return Definition{ID: raw.ID, Name: raw.Name, Enabled: enabled, Cron: raw.Cron,
-		Action: raw.Action, Workflow: raw.Workflow, AI: raw.AI, Params: raw.Params}, nil
+		Action: raw.Action, Workflow: raw.Workflow, AI: raw.AI, Params: raw.Params, CatchUp: raw.CatchUp}, nil
 }
 
 func entryID(entry *yaml.Node) string {

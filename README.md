@@ -8,8 +8,8 @@
 - **卡片网格**：动作、工作流、AI 任务三类双态卡（紧凑态 / 展开态），悬停看描述，长按卡头图标展开预设环快选，带使用留痕与卡片氛围色
 - **表单装配台**：声明 `params`（text / bool / select / path）自动渲染装配式表单；presets 一键填入或直跑
 - **多步骤工作流**：`workflows/` 定义串行 step（引用 action / 内联 shell / sleep / AI 任务），支持 retry、continue_on_error、`if` 条件跳过与步骤 outputs（`${{ }}`）引用
-- **定时调度**：`schedules.yaml` 用 5 段 cron（分钟粒度）定时运行动作、工作流或 AI 任务，调度面板可增删、启停、立即运行；目标正忙时到点记为跳过而不是失败；调度器跑在应用进程内，应用运行期间到点自动触发
-- **运行记录**：每次运行（手动、调度、立即运行）都在 `runs/` 留下结论与可回放的输出日志，运行记录列表可按目标、状态、来源筛选，运行详情回放过程（AI 运行还原成工序段）
+- **定时调度**：`schedules.yaml` 用 5 段 cron（分钟粒度）定时运行动作、工作流或 AI 任务，调度面板可增删、启停、立即运行；目标正忙时到点记为跳过而不是失败；调度器跑在应用进程内，应用须在到点时运行，到点后把运行交给独立执行器（应用退出后照常跑完，重启后认领）；应用没在运行时溜走的到点记为错过，可选 `catch_up` 补跑
+- **运行记录**：每次运行（手动、调度、立即运行）都在 `runs/` 留下结论与可回放的输出日志，运行记录列表可按目标、状态、来源筛选，运行详情回放过程（AI 运行还原成工序段）、停止运行中的记录，AI 运行可一键续跑
 - **AI 任务**：`ai/` 下的 YAML 把「意图 + 输入」交给本机 Agent CLI（`config.yaml` 的 `AI_CLI` 指定）执行；聊天式会话页 + 工序轨道面板透出思考与工具调用，历次运行留档可查，支持 `resume` 续接会话，也可作为工作流的一步或被调度定时运行
 - **设备选择器**：adb 设备下拉选择，展开即刷新列表
 - **内置 YAML 编辑器**：CodeMirror 6，Action / Workflow / AI 任务卡片标题直达编辑
@@ -145,7 +145,7 @@ params:
 timeout: 30m               # 默认 30m
 ```
 
-工作流用 `ai: <任务 id>` 调用 AI 任务；CLI（`workflow-tool list|describe|run`）能列出、描述 AI 任务，但不能运行。
+工作流用 `ai: <任务 id>` 调用 AI 任务；CLI（`workflow-tool list|describe|run`）能列出、描述 AI 任务，运行默认被拒（`ai_blocked`），加 `--allow-ai` 显式放行。
 
 > 完整字段说明见 [AI 任务定义指南](docs/ai.md)。
 
@@ -186,10 +186,12 @@ workflow-tool/
 │   ├── builtinvars/    内置变量（CURRENT_DATE / CURRENT_TIME / ADB_SERIAL）
 │   ├── registry/       actions + config + fragments 加载校验
 │   ├── workflow/       workflow 加载、校验、串行执行 + 表达式
-│   ├── schedule/        调度：schedules.yaml 加载、cron 解析、进程内 Scheduler（目标三选一）
-│   ├── runstore/        运行记录：runs/<run-id>/ 的写入、查询与保留策略
+│   ├── schedule/        调度：schedules.yaml 加载、cron 解析、进程内 Scheduler（目标三选一）、错过与补跑
+│   ├── runstore/        运行记录：runs/<run-id>/ 的写入、查询与保留策略；执行器运行的认领与心跳
+│   ├── procinfo/        进程身份核对（pid + 启动时刻）
+│   ├── targetlock/      落盘的目标锁（同一目标跨进程只有一个运行）
 │   ├── applog/          应用日志：logs/app.log（NDJSON，轮转）
-│   ├── cli/            headless 子命令 list / describe / run
+│   ├── cli/            headless 子命令 list / describe / run，兼独立执行器
 │   ├── apphome/         exe 目录约定与 baseDir 解析（main 与 cli 共用）
 │   └── api/            Wails Service 绑定 + 事件推送（按域拆文件）
 ├── frontend/

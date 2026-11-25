@@ -21,10 +21,14 @@ type Scheduler struct {
 	// 指向同一目标，但撞上运行中的目标时处置不同：前者记为跳过，后者返回错误——
 	// 调用方据此区分发起来源。
 	nowTrigger TriggerFunc
+	// 错过与补跑（见 missed.go）：statePath 非空时追踪每条调度上次被评估到的时刻。
+	statePath string
+	seen      map[string]seenMark
+	handlers  MissedHandlers
 }
 
 func NewScheduler(defs []Definition, trigger TriggerFunc) *Scheduler {
-	s := &Scheduler{trigger: trigger, triggered: make(map[string]map[int64]struct{})}
+	s := &Scheduler{trigger: trigger, triggered: make(map[string]map[int64]struct{}), seen: map[string]seenMark{}}
 	s.Replace(defs)
 	return s
 }
@@ -67,10 +71,21 @@ func (s *Scheduler) Replace(defs []Definition) {
 	defer s.mu.Unlock()
 	s.definitions = snapshot
 	s.generation++
+	dropped := false
 	for id := range s.triggered {
 		if _, exists := ids[id]; !exists {
 			delete(s.triggered, id)
 		}
+	}
+	// 被删掉的调度不再有「上次评估时刻」：同一个 id 日后重建时不继承旧历史。
+	for id := range s.seen {
+		if _, exists := ids[id]; !exists {
+			delete(s.seen, id)
+			dropped = true
+		}
+	}
+	if dropped {
+		s.saveSeenLocked()
 	}
 }
 
@@ -92,6 +107,9 @@ func (s *Scheduler) Run(ctx context.Context, now func() time.Time, tick <-chan t
 			return
 		}
 		minute := scheduleMinute(now())
+		// 每个 tick 先对账：应用恢复后的第一个 tick 在这里补报停机期间溜走的调度时刻，
+		// 之后是系统睡眠之类的 tick 断档。
+		s.reconcileMissed(ctx, minute)
 		s.mu.Lock()
 		generation := s.generation
 		var due []Definition

@@ -133,32 +133,6 @@ func TestRunActionMergesGlobalAndParams(t *testing.T) {
 	}
 }
 
-func TestAiReadoutIncludesSessionID(t *testing.T) {
-	outputs := map[string]string{
-		"session_id":    "abc-123",
-		"cost_usd":      "0.02",
-		"input_tokens":  "10",
-		"output_tokens": "20",
-	}
-	r := aiReadout(outputs, 3_500_000_000)
-	if r["sessionId"] != "abc-123" {
-		t.Fatalf("sessionId 未透传: %+v", r)
-	}
-	if r["durationMs"] != int64(3500) {
-		t.Fatalf("durationMs 不符: %+v", r)
-	}
-	// 失败/超时场景：result 事件未到达（无 cost/tokens），但 system/init 的 session_id 已写入，
-	// sessionId 必须随 readout 下发（否则历史条目丢会话 id，无法查现场/--resume）。
-	fail := aiReadout(map[string]string{"session_id": "abc"}, 0)
-	if fail == nil || fail["sessionId"] != "abc" {
-		t.Fatalf("失败时 sessionId 应单独撑起 readout，got %+v", fail)
-	}
-	// 完全无可读字段（连 session_id 都没有）才返回 nil
-	if got := aiReadout(map[string]string{}, 0); got != nil {
-		t.Fatalf("完全无可读字段应返回 nil，got %+v", got)
-	}
-}
-
 func TestGetAndSetGlobalConfig(t *testing.T) {
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.yaml")

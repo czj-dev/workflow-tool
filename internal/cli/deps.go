@@ -1,14 +1,19 @@
 package cli
 
 import (
+	"os"
 	"path/filepath"
+	"time"
 
 	"workflow-tool/internal/actionrun"
 	"workflow-tool/internal/adb/binary"
 	"workflow-tool/internal/adb/device"
 	"workflow-tool/internal/ai"
+	"workflow-tool/internal/airun"
 	"workflow-tool/internal/builtinvars"
 	"workflow-tool/internal/registry"
+	"workflow-tool/internal/runstore"
+	"workflow-tool/internal/targetlock"
 	"workflow-tool/internal/workflow"
 )
 
@@ -23,10 +28,19 @@ type env struct {
 	builtins *builtinvars.Registry
 	dev      *device.Service
 	deps     actionrun.Deps
+	aiDeps   airun.Deps
+	// locks 是落盘的目标锁：CLI 运行与执行器运行同应用内的运行互斥。
+	locks *targetlock.Locks
+	// allowAI 为 true 时放行 AI 任务与含 AI 步骤的 workflow（--allow-ai，见 run.go）。
+	allowAI bool
+	// heartbeatEvery / stopPollEvery 是执行器回写心跳、轮询停止标记的间隔（见 executor.go）。
+	// 测试缩短它们。
+	heartbeatEvery time.Duration
+	stopPollEvery  time.Duration
 }
 
 // loadEnv 以 baseDir 为基准加载 actions/ai/workflows/config.yaml 并组装执行依赖。
-// AI 任务只用于 list/describe（run 一律 ai_blocked，见 run.go），故不组装 airun 依赖。
+// 对标 api.Service 的组装，但不含任何 Wails 依赖。
 func loadEnv(baseDir string) *env {
 	reg := registry.Load(filepath.Join(baseDir, "actions"), baseDir)
 	wfReg := workflow.Load(filepath.Join(baseDir, "workflows"))
@@ -51,7 +65,20 @@ func loadEnv(baseDir string) *env {
 		Builtins:  builtins,
 		BashPath:  func() string { return global["BASH_PATH"] },
 	}
-	return &env{baseDir: baseDir, reg: reg, wfReg: wfReg, aiReg: aiReg, global: global, builtins: builtins, dev: dev, deps: deps}
+	aiDeps := airun.Deps{BaseDir: baseDir, Builtins: builtins,
+		SkillRouter: &airun.SkillRouter{
+			Skills:     func() map[string]registry.SkillMeta { return reg.Skills },
+			HomeDir:    homeDir,
+			LedgerPath: filepath.Join(baseDir, "skills.synced.json"),
+		}}
+	return &env{baseDir: baseDir, reg: reg, wfReg: wfReg, aiReg: aiReg, global: global, builtins: builtins,
+		dev: dev, deps: deps, aiDeps: aiDeps, locks: targetlock.New(baseDir),
+		heartbeatEvery: runstore.HeartbeatInterval, stopPollEvery: time.Second}
+}
+
+func homeDir() string {
+	h, _ := os.UserHomeDir()
+	return h
 }
 
 // merge 合并全局配置与参数（参数覆盖同名全局），委托 actionrun.MergeParams 单一真相源。

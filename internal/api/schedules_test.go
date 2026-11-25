@@ -24,9 +24,21 @@ func scheduleService(t *testing.T, dir string) (*Service, string) {
 	if dir == "" {
 		dir = t.TempDir()
 	}
-	reg := &registry.Registry{Actions: map[string]registry.LoadedAction{"patrol": {Def: registry.ActionDef{ID: "patrol", Title: "Patrol", Command: registry.Command{Run: "echo ok"}}, Timeout: time.Minute}}}
-	workflows := &workflow.WorkflowRegistry{Workflows: map[string]workflow.LoadedWorkflow{"daily": {Def: workflow.WorkflowDef{ID: "daily", Title: "Daily", Steps: []workflow.Step{{Sleep: 1}}}}}}
-	return New(reg, workflows, dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml")), filepath.Join(dir, "schedules.yaml")
+	// 目标必须落在磁盘上：调度发起的运行交给执行器，它从应用目录重新加载目标。
+	for rel, body := range map[string]string{
+		"actions/patrol.yaml":  "id: patrol\ntitle: Patrol\ncommand:\n  run: echo ok\n",
+		"workflows/daily.yaml": "id: daily\ntitle: Daily\nsteps:\n  - sleep: 1\n",
+	} {
+		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, rel)), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, rel), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	svc := New(registry.Load(filepath.Join(dir, "actions"), dir), workflow.Load(filepath.Join(dir, "workflows")),
+		dir, filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
+	return svc, filepath.Join(dir, "schedules.yaml")
 }
 
 func validSchedule() ScheduleInput {
@@ -396,7 +408,7 @@ func TestScheduleCatalogConcurrentWithReload(t *testing.T) {
 	// Both reload paths publish new registry pointers while the catalog is read.
 	for dir, file := range map[string]string{"actions": "a.yaml", "workflows": "w.yaml"} {
 		path := filepath.Join(svc.baseDir, dir)
-		if err := os.Mkdir(path, 0o700); err != nil {
+		if err := os.MkdirAll(path, 0o700); err != nil {
 			t.Fatal(err)
 		}
 		body := "id: patrol\ntitle: Patrol\ncommand:\n  run: echo ok\n"

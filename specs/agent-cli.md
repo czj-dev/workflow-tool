@@ -16,7 +16,7 @@
 | 输出 | 默认原样透传；`--json` 切 NDJSON 流 |
 | 传参 | `--params` 只收 JSON（+ `@file` / `@-` stdin） |
 | baseDir | `--base-dir` + 环境变量，默认回退 `exeDir()` |
-| 可跑形态 | shell / adb / workflow；AI 任务 v1 禁跑 |
+| 可跑形态 | shell / adb / workflow；AI 任务与含 AI 步骤的 workflow 默认禁跑，`--allow-ai` 显式放行 |
 | 退出码 | 透传命令退出码；CLI 级错误保留码 `2` |
 | 取消 | SIGINT/SIGTERM → ctx cancel；可选 `--timeout` |
 | schema | A1 纯镜像：CLI 逐字镜像 emit，零解码、零状态 |
@@ -63,8 +63,8 @@ AI 任务（`kind:"ai"`）的 params/presets 同形，另加三个键：`prompt`
 ```
 
 ### `run <id>`
-执行 action 或 workflow；AI 任务一律拒绝（见「可跑形态」）。靠 registry 查类型分发；id 同时是 action、workflow、AI 任务中的多个 → `error kind=ambiguous_id`，要求加 `--kind action|workflow|ai`。
-Flags：`--json`、`--params <json>|@file|@-`、`--base-dir <path>`、`--device <serial>`、`--timeout <dur>`、`--kind action|workflow|ai`。
+执行 action、workflow 或 AI 任务（AI 默认拒绝，见「可跑形态」）。靠 registry 查类型分发；id 同时是 action、workflow、AI 任务中的多个 → `error kind=ambiguous_id`，要求加 `--kind action|workflow|ai`。
+Flags：`--json`、`--params <json>|@file|@-`、`--base-dir <path>`、`--device <serial>`、`--timeout <dur>`、`--kind action|workflow|ai`、`--allow-ai`。
 > id 必须紧跟 `run`（`run <id> [flags]`）——flag 一律放在 id 之后（Go `flag` 在首个非 flag 实参处停止解析）。
 
 ## Input：params
@@ -101,7 +101,7 @@ stdout/stderr 原样打到 CLI 的 stdout/stderr，透传命令退出码。等�
 {"type":"result","exit_code":0,"success":true,"duration_ms":5678,"error":null,"outputs":null}
 
 // CLI 级错误（非命令失败）；进程同时退出码 2
-{"type":"error","kind":"unknown_id|ambiguous_id|bad_params|validation|ai_blocked|no_device","message":"..."}
+{"type":"error","kind":"unknown_id|ambiguous_id|bad_params|validation|ai_blocked|target_locked|no_device","message":"..."}
 ```
 
 关键语义：
@@ -112,7 +112,7 @@ stdout/stderr 原样打到 CLI 的 stdout/stderr，透传命令退出码。等�
 ## 退出码
 
 - 命令跑完：**透传** action/workflow 的退出码（`runner.Result.ExitCode`）。
-- CLI 级错误（未知 id / 撞名 / params 坏 / 校验失败 / AI 禁跑 / 无设备）：保留码 **`2`** + stderr 人读消息；`--json` 下同时发 `{"type":"error",...}`。
+- CLI 级错误（未知 id / 撞名 / params 坏 / 校验失败 / AI 未放行 / 目标被占 / 无设备）：保留码 **`2`** + stderr 人读消息；`--json` 下同时发 `{"type":"error",...}`。
 - 取消/超时：`exit_code = -1`，`error = "context canceled"` / `"context deadline exceeded"`（对应 `runner.Result.Err` 的 `context.Canceled` / `context.DeadlineExceeded`）。
 
 Agent 据此分辨「命令失败了」（据输出可重试）与「我调错了」（改调用方式）。
@@ -126,11 +126,13 @@ Agent 据此分辨「命令失败了」（据输出可重试）与「我调错�
 
 优先级：`--base-dir <path>` > 环境变量 `WORKFLOW_TOOL_HOME` > 现有 `exeDir()` 约定。显式优于 `exeDir()` 的 cwd 回退——Agent 常在任意 cwd 下调用。
 
-## 可跑形态 / 设备 / AI 禁跑
+## 可跑形态 / 设备 / AI 放行 / 目标锁
 
 - **shell/script、adb、workflow** 可跑。
 - **adb** 动作需 `ADB_SERIAL`：走 `--device <serial>` 显式指定；未给时由 `device.ResolveActive` 自动解析（激活设备，或第一个 ready 的 adb 设备）；**仅在无任何 ready 设备时** → `error kind=no_device`。多设备下不强制指定（自动选激活/第一个），要精确控制就传 `--device`——不在 CLI 复制设备列表逻辑。
-- **AI 任务 v1 禁跑**：AI 任务（`ai/`，`kind: ai`）直接 `run`、以及含 `ai:` 步骤的 workflow，都拦截 → `error kind=ai_blocked`。`list`/`describe` 不受限。
+- **AI 默认禁跑**：AI 任务（`ai/`，`kind: ai`）直接 `run`、以及含 `ai:` 步骤的 workflow，都拦截 → `error kind=ai_blocked`。加 `--allow-ai` 即放行——AI 运行无人值守、权限固定 bypass，只在明确要它无人值守地跑时加。`list`/`describe` 不受限。
+- **目标锁跨进程**：目标正被应用里的运行或调度执行器占着 → `error kind=target_locked`，不并发跑。
+- 调度发起的运行（执行器）同样是 `run --record <run-id>`：应用内部使用，Agent 不要传 `--record`。
   - 原因：AI 任务拉起的 Agent CLI 带 `--permission-mode bypassPermissions` 且无防递归；Agent 经 CLI 触发会 fork 出无人值守 bypass 子进程、可成环。
   - guard 落在 `cli/` 层（`runTarget` 对 `kind: ai` 直接拒；`runWorkflow` 执行前预扫 steps 的 `ai` 字段），不动核心；`cli` 也不组装 `airun` 依赖，构造不出 AI 运行器。M4 起以显式放行标志开放。
 

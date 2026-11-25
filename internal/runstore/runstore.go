@@ -3,18 +3,23 @@
 // 落盘位置是可执行文件同级的 runs/<run-id>/，不入仓库：
 //
 //	run.json       运行记录本体。启动时写一次（running），结束时写一次终态——
-//	               任何路径不得二次改写终态。
+//	               任何路径不得二次改写终态。执行器运行另在运行期间回写心跳。
 //	events.ndjson  运行日志：该次运行 output 事件的逐行落盘，与前端收到的事件
 //	               同构（每行另带相对启动时刻的毫秒偏移 t），运行详情用它回放。
+//	STOP           停止标记：应用写入，执行器轮询到即取消（仅执行器运行会有）。
 //
 // run-id 由启动时刻（到秒）与随机后缀组成，目录名即 id。
+//
+// 调度到点与立即运行交给独立执行器（同一可执行文件的 run 子命令）：应用建好记录后把
+// 进程拉起来，执行器经 Attach 接手这条记录——写进程信息与心跳、续写日志、落终态。
+// 应用启动时按心跳与进程身份认领仍在运行的执行器；确认不在的改写为中断。
 //
 // 保留策略：每个目标最多保留 50 次运行，且超过 30 天的记录一律清理。
 //
 // 本包不依赖 Wails；应用日志（internal/applog）由调用方注入，记下中断、损坏、
 // 清理失败这类运行器自身的行迹。
 //
-// 设计规格：docs/superpowers/specs/2026-11-24-ai-system-and-schedules-design.md（运行记录）
+// 设计规格：docs/superpowers/specs/2026-11-24-ai-system-and-schedules-design.md（运行记录、进程模型）
 package runstore
 
 import (
@@ -33,6 +38,7 @@ import (
 	"time"
 
 	"workflow-tool/internal/applog"
+	"workflow-tool/internal/procinfo"
 	"workflow-tool/internal/target"
 )
 
@@ -50,7 +56,8 @@ const (
 	OriginManual   = "manual"
 )
 
-// 状态词汇。skipped 不是失败：调度到点时目标正在运行，因而不发起运行。
+// 状态词汇。skipped 与 missed 不是失败：前者是调度到点时目标正在运行、因而不发起运行；
+// 后者是应用未在运行时溜走的调度时刻。两者都只留一条没有过程的记录。
 const (
 	StatusRunning     = "running"
 	StatusSucceeded   = "succeeded"
@@ -58,27 +65,43 @@ const (
 	StatusCancelled   = "cancelled"
 	StatusInterrupted = "interrupted"
 	StatusSkipped     = "skipped"
+	StatusMissed      = "missed"
 )
 
-// Process.Mode 的取值：in-app = 应用进程内的运行；executor = 独立执行器（后续里程碑）。
-const ProcessInApp = "in-app"
+// Process.Mode 的取值：in-app = 应用进程内的运行；executor = 独立执行器的运行。
+const (
+	ProcessInApp    = "in-app"
+	ProcessExecutor = "executor"
+)
 
-// InterruptedReason 是启动对账时给遗留 running 记录写的原因。
-const InterruptedReason = "应用退出时仍在运行，未能得出结果"
+// InterruptedReason 是启动对账时给遗留 running 记录写的原因：按承载的进程分两种。
+const (
+	InterruptedReason         = "应用退出时仍在运行，未能得出结果"
+	ExecutorInterruptedReason = "执行器退出时仍在运行，未能得出结果"
+)
 
 const (
 	// DirName 是应用目录下存放运行记录的目录名。
 	DirName = "runs"
-	// RecordFile 与 EventsFile 是每个运行目录下的两个文件。
+	// RecordFile 与 EventsFile 是每个运行目录下的两个文件；StopFile 是停止标记。
 	RecordFile = "run.json"
 	EventsFile = "events.ndjson"
+	StopFile   = "STOP"
 	// KeepPerTarget 是每个目标最多保留的运行次数；MaxAge 是记录的最长保留期。
 	KeepPerTarget = 50
 	MaxAge        = 30 * 24 * time.Hour
 	// MaxEventLogBytes 是单个运行日志的上限。持续输出的动作（如 logcat-stream）
 	// 与大体积树帧会让日志无限增长，到达上限后停止落盘并写一行 truncated 标记。
 	MaxEventLogBytes = 16 << 20
+	// HeartbeatInterval 是执行器回写心跳的间隔；超过 HeartbeatStale 没有心跳视为过期，
+	// 此时改按进程身份（pid 与启动时刻）判断执行器是否还在。
+	HeartbeatInterval = 10 * time.Second
+	HeartbeatStale    = 30 * time.Second
 )
+
+// AliveFunc 报告某个 pid 是否是启动时刻相符的存活进程（认领执行器时用；默认
+// procinfo.Alive，测试注入）。
+type AliveFunc = func(pid int, startedAt string) bool
 
 // ErrNotFound 表示没有这个 run-id 对应的运行记录。
 var ErrNotFound = errors.New("run record not found")
@@ -87,24 +110,16 @@ var ErrNotFound = errors.New("run record not found")
 type Target = target.Target
 
 // Process 是承载本次运行的进程信息。
-//   - mode：in-app = 应用进程内的运行；executor = 独立执行器（后续里程碑，届时再填充 heartbeat_at）。
+//   - mode：in-app = 应用进程内的运行；executor = 独立执行器的运行。
 //   - pid 与 started_at 在此落档：认领一条仍在运行的记录时用两者核对进程身份——只比 pid
 //     不够，pid 会被复用。
+//   - heartbeat_at：仅执行器运行有，执行器运行期间定期回写。
 type Process struct {
 	Mode        string `json:"mode"`
 	PID         int    `json:"pid"`
 	StartedAt   string `json:"started_at,omitempty"`
 	HeartbeatAt string `json:"heartbeat_at,omitempty"`
 }
-
-// processStartedAt 是本进程内记下的第一个时刻，作为进程启动时间落进每条运行记录。
-// 它比真正的进程创建时刻晚一个运行时初始化的时长；认领时用它区分「同 pid 的不同进程」
-// 只需要进程之间互不相同——两个进程不会在同一纳秒启动。这样取值不依赖平台相关的系统调用，
-// 三个平台一致。
-var processStartedAt = time.Now()
-
-// ProcessStartedAt 返回本进程的启动时刻（见 processStartedAt）。
-func ProcessStartedAt() time.Time { return processStartedAt }
 
 // Record 是一条运行记录（run.json 的形状）。索引里只驻留元数据：Outputs 与 Rules
 // 只在盘上，经 Get 读取完整记录。
@@ -156,10 +171,12 @@ type options struct {
 	maxEventLogBytes int64
 	keepPerTarget    int
 	maxAge           time.Duration
+	alive            AliveFunc
+	now              func() time.Time // 测试注入；nil 用 time.Now
 }
 
 func defaultOptions() options {
-	return options{maxEventLogBytes: MaxEventLogBytes, keepPerTarget: KeepPerTarget, maxAge: MaxAge}
+	return options{maxEventLogBytes: MaxEventLogBytes, keepPerTarget: KeepPerTarget, maxAge: MaxAge, alive: procinfo.Alive}
 }
 
 // Store 管理应用目录下的全部运行记录。内存里维护一份元数据索引，列表与「最近一次」
@@ -178,8 +195,12 @@ type Store struct {
 // Open 打开（或首次建立）baseDir 下的运行记录索引。目录尚不存在时视为空，且不预建
 // 目录——第一条运行开始时才创建。
 //
-// 启动时逐条检查：上次遗留的 running 记录一律改写为 interrupted（应用内的运行随
-// 应用退出必然终止），无法解析的记录跳过并记一条应用日志。
+// 启动时逐条检查遗留的 running 记录：
+//   - 应用内的运行随应用退出必然终止，一律改写为 interrupted；
+//   - 执行器的运行按心跳与进程身份认领：心跳新鲜，或心跳虽过期但进程仍在，就仍是
+//     running（之后由 Poll 持续核对）；确认不在的改写为 interrupted。
+//
+// 无法解析的记录跳过并记一条应用日志。
 func Open(baseDir string, logger *applog.Logger) (*Store, error) {
 	return open(baseDir, logger, defaultOptions())
 }
@@ -195,11 +216,17 @@ func open(baseDir string, logger *applog.Logger, opts options) (*Store, error) {
 	if opts.maxAge <= 0 {
 		opts.maxAge = MaxAge
 	}
+	if opts.alive == nil {
+		opts.alive = procinfo.Alive
+	}
+	if opts.now == nil {
+		opts.now = time.Now
+	}
 	s := &Store{
 		dir:     filepath.Join(baseDir, DirName),
 		log:     logger,
 		opts:    opts,
-		now:     time.Now,
+		now:     opts.now,
 		records: make(map[string]Record),
 	}
 	entries, err := os.ReadDir(s.dir)
@@ -223,16 +250,13 @@ func open(baseDir string, logger *applog.Logger, opts options) (*Store, error) {
 			s.log.Log("run.record.unreadable", map[string]any{"run_id": id, "error": err.Error()})
 			continue
 		}
-		if rec.Status == StatusRunning {
+		if rec.Status == StatusRunning && !s.claimed(&rec) {
 			// 结束时刻不可知：不编造 finished_at。
-			rec.Status = StatusInterrupted
-			rec.Reason = InterruptedReason
-			if err := s.writeRecord(&rec); err != nil {
-				s.log.Log("run.interrupted", map[string]any{"run_id": id, "error": err.Error()})
+			interrupted, ok := s.interrupt(rec, interruptReason(rec))
+			if !ok {
 				continue
 			}
-			s.log.Log("run.interrupted", map[string]any{"run_id": id, "target": rec.Target,
-				"origin": rec.Origin, "schedule_id": rec.ScheduleID, "started_at": rec.StartedAt})
+			rec = interrupted
 		}
 		s.records[id] = lite(rec)
 	}
@@ -240,6 +264,132 @@ func open(baseDir string, logger *applog.Logger, opts options) (*Store, error) {
 	s.pruneLocked(now)
 	s.mu.Unlock()
 	return s, nil
+}
+
+// claimed 判定一条遗留的 running 记录是否仍在运行：应用内的运行必然已终止；执行器的
+// 运行看心跳，心跳过期再看进程是否还在。
+func (s *Store) claimed(rec *Record) bool {
+	if rec.Process == nil || rec.Process.Mode != ProcessExecutor || !s.executorAlive(*rec) {
+		return false
+	}
+	s.log.Log("run.claimed", map[string]any{"run_id": rec.ID, "target": rec.Target,
+		"origin": rec.Origin, "schedule_id": rec.ScheduleID, "started_at": rec.StartedAt})
+	return true
+}
+
+// executorAlive 报告一条执行器运行是否还在跑：心跳在 HeartbeatStale 之内算在；心跳过期
+// 时核对 pid 与启动时间，进程仍在就再等一个心跳周期——机器刚从睡眠恢复时心跳看起来
+// 过期，执行器其实还活着。
+func (s *Store) executorAlive(rec Record) bool {
+	if heartbeat, err := time.Parse(time.RFC3339Nano, rec.Process.HeartbeatAt); err == nil {
+		if elapsed := s.now().Sub(heartbeat); elapsed >= 0 && elapsed <= HeartbeatStale {
+			return true
+		}
+	}
+	return s.opts.alive(rec.Process.PID, rec.Process.StartedAt)
+}
+
+func interruptReason(rec Record) string {
+	if rec.Process != nil && rec.Process.Mode == ProcessExecutor {
+		return ExecutorInterruptedReason
+	}
+	return InterruptedReason
+}
+
+// interrupt 把一条 running 记录改写为 interrupted 并记一条应用日志；写盘失败时 ok=false。
+func (s *Store) interrupt(rec Record, reason string) (Record, bool) {
+	rec.Status, rec.Reason = StatusInterrupted, reason
+	if err := s.writeRecord(&rec); err != nil {
+		s.log.Log("run.interrupted", map[string]any{"run_id": rec.ID, "error": err.Error()})
+		return Record{}, false
+	}
+	s.log.Log("run.interrupted", map[string]any{"run_id": rec.ID, "target": rec.Target,
+		"origin": rec.Origin, "schedule_id": rec.ScheduleID, "started_at": rec.StartedAt})
+	return rec, true
+}
+
+// Poll 核对一条执行器运行并同步索引，应用为它打开着的时候定期调用。返回 ended=true
+// 表示这次核对发现运行已结束（rec 是终态）：执行器自己写了终态，或执行器已不在、
+// 这里改写成了 interrupted。只管执行器运行——应用内的运行有自己的执行路径，不读盘。
+func (s *Store) Poll(id string) (rec Record, ended bool) {
+	if s == nil {
+		return Record{}, false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, ok := s.records[id]
+	if !ok || current.Status != StatusRunning || current.Process == nil || current.Process.Mode != ProcessExecutor {
+		return Record{}, false
+	}
+	onDisk, err := readRecordFile(s.recordPath(id))
+	if err != nil {
+		// 读不出来（IO 抖动、写到一半）：这一次不动，下次再核对。
+		s.log.Log("run.poll.failed", map[string]any{"run_id": id, "error": err.Error()})
+		return Record{}, false
+	}
+	if onDisk.Status != StatusRunning {
+		s.records[id] = lite(onDisk)
+		return lite(onDisk), true
+	}
+	s.records[id] = lite(onDisk)
+	if s.executorAlive(onDisk) {
+		return Record{}, false
+	}
+	interrupted, ok := s.interrupt(onDisk, ExecutorInterruptedReason)
+	if !ok {
+		return Record{}, false
+	}
+	s.records[id] = lite(interrupted)
+	return lite(interrupted), true
+}
+
+// RequestStop 请求停止一条运行：在它的目录下写停止标记。执行器每秒轮询，见到即取消
+// （杀进程组，以 cancelled 收尾）——不依赖 POSIX 信号，Windows 同样可用。
+func (s *Store) RequestStop(id string) error {
+	if s == nil {
+		return nil
+	}
+	if !validRunID(id) {
+		return ErrNotFound
+	}
+	if err := os.WriteFile(filepath.Join(s.runDir(id), StopFile), nil, 0o644); err != nil {
+		return fmt.Errorf("write stop marker for run %q: %w", id, err)
+	}
+	return nil
+}
+
+// Attach 让执行器接手一条 running 记录：进程信息换成自己的，运行日志续在同一个文件里。
+// 只能接手还在 running 的记录——终态只写一次，已终结的不再改写。
+func Attach(baseDir, runID string) (*Session, error) {
+	if !validRunID(runID) {
+		return nil, fmt.Errorf("attach run %q: not a run id", runID)
+	}
+	s := &Store{dir: filepath.Join(baseDir, DirName), opts: defaultOptions(), now: time.Now,
+		records: make(map[string]Record)}
+	rec, err := readRecordFile(s.recordPath(runID))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, fmt.Errorf("attach run %q: %w", runID, ErrNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("attach run %q: %w", runID, err)
+	}
+	if rec.Status != StatusRunning {
+		return nil, fmt.Errorf("attach run %q: already %s", runID, rec.Status)
+	}
+	pid, startedAt := procinfo.Self()
+	// 第一次心跳立刻落下：执行器刚接手时，应用核对这条记录只认心跳与进程身份。
+	rec.Process = &Process{Mode: ProcessExecutor, PID: pid, StartedAt: startedAt,
+		HeartbeatAt: s.now().Format(time.RFC3339Nano)}
+	if err := s.writeRecord(&rec); err != nil {
+		return nil, err
+	}
+	file, err := os.OpenFile(filepath.Join(s.runDir(runID), EventsFile), os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open run log %q: %w", filepath.Join(s.runDir(runID), EventsFile), err)
+	}
+	s.records[runID] = lite(rec)
+	// 偏移仍以记录里的启动时刻为起点：接手前后是同一次运行。
+	return &Session{store: s, id: runID, target: rec.Target, start: rec.StartedAt, file: file}, nil
 }
 
 // Start 登记一次运行的开始：写 running 的 run.json、新建运行日志，并按保留策略清理。
@@ -274,7 +424,8 @@ func (s *Store) start(rec Record, withLog bool, noteStatus, noteReason string) (
 		rec.StartedAt = s.now()
 	}
 	if withLog && rec.Process == nil {
-		rec.Process = &Process{Mode: ProcessInApp, PID: os.Getpid(), StartedAt: processStartedAt.Format(time.RFC3339Nano)}
+		pid, startedAt := procinfo.Self()
+		rec.Process = &Process{Mode: ProcessInApp, PID: pid, StartedAt: startedAt}
 	}
 
 	s.mu.Lock()
@@ -420,8 +571,8 @@ func (s *Store) List(filter Filter) []Record {
 }
 
 // Latest 返回某目标最近一次运行。scheduleID 非空时只看该调度发起的运行；
-// excludeSkipped 为 true 时跳过 skipped 记录——跳过不覆盖上一次真实运行的结果。
-func (s *Store) Latest(targetKind target.Kind, targetID, scheduleID string, excludeSkipped bool) (Record, bool) {
+// realOnly 为 true 时跳过 skipped 与 missed——它们都不是真实运行，不覆盖上一次真实运行的结果。
+func (s *Store) Latest(targetKind target.Kind, targetID, scheduleID string, realOnly bool) (Record, bool) {
 	if s == nil {
 		return Record{}, false
 	}
@@ -436,7 +587,7 @@ func (s *Store) Latest(targetKind target.Kind, targetID, scheduleID string, excl
 		if scheduleID != "" && rec.ScheduleID != scheduleID {
 			continue
 		}
-		if excludeSkipped && rec.Status == StatusSkipped {
+		if realOnly && !isRealRun(rec) {
 			continue
 		}
 		if !found || rec.StartedAt.After(best.StartedAt) || (rec.StartedAt.Equal(best.StartedAt) && rec.ID > best.ID) {
@@ -482,16 +633,22 @@ func (s *Store) finalizeLocked(rec Record) (bool, error) {
 	return true, nil
 }
 
+// isRealRun 报告一条记录是不是一次真实运行：跳过与错过只是到点的留痕，没有发起运行。
+func isRealRun(rec Record) bool {
+	return rec.Status != StatusSkipped && rec.Status != StatusMissed
+}
+
 // pruneLocked 执行保留策略：超过保留期的终态记录一律清理；每个目标只留最近
 // keepPerTarget 次运行。运行中的记录不动。只清理索引里的记录，目录下的其他条目不碰。
 //
-// 被跳过的到点单独计配额：跳过不覆盖上一次真实运行的结果，所以也不能把真实记录挤出
-// 保留窗口——否则一条每分钟到点、目标长期被占用的调度，不到一小时就能让最近结果落空。
+// 没有发起运行的到点（跳过、错过）单独计配额：它们不覆盖上一次真实运行的结果，所以
+// 也不能把真实记录挤出保留窗口——否则一条每分钟到点、目标长期被占用的调度，不到一小时
+// 就能让最近结果落空。
 // 调用方须持有 s.mu。
 func (s *Store) pruneLocked(now time.Time) {
 	type bucket struct {
 		target  Target
-		skipped bool
+		notReal bool
 	}
 	byBucket := make(map[bucket][]string)
 	for id, rec := range s.records {
@@ -502,7 +659,7 @@ func (s *Store) pruneLocked(now time.Time) {
 			s.removeLocked(id, "expired")
 			continue
 		}
-		key := bucket{target: rec.Target, skipped: rec.Status == StatusSkipped}
+		key := bucket{target: rec.Target, notReal: !isRealRun(rec)}
 		byBucket[key] = append(byBucket[key], id)
 	}
 	for key, ids := range byBucket {
@@ -714,6 +871,16 @@ func (s *Session) Target() Target {
 	return s.target
 }
 
+// Params 返回这次运行的输入（记录里留存的那份）。执行器接手一条记录时据此取得输入。
+func (s *Session) Params() map[string]any {
+	if s == nil {
+		return nil
+	}
+	s.store.mu.Lock()
+	defer s.store.mu.Unlock()
+	return s.store.records[s.id].Params
+}
+
 // Output 落一条 output 事件。payload 与前端收到的事件同构（stream/line/seq/step）。
 func (s *Session) Output(payload map[string]any) { s.write("output", payload) }
 
@@ -762,6 +929,49 @@ func (s *Session) SetRules(rules string) {
 	s.mu.Unlock()
 }
 
+// Heartbeat 是执行器的跳动：把当前时刻写回 run.json 的 process.heartbeat_at。
+// 应用据它判断执行器还在不在（见 Open 与 Poll）。非执行器会话与已终结的会话是空操作。
+func (s *Session) Heartbeat() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.done || s.file == nil {
+		return
+	}
+	s.store.mu.Lock()
+	defer s.store.mu.Unlock()
+	rec, ok := s.store.records[s.id]
+	if !ok || rec.Status != StatusRunning || rec.Process == nil {
+		return
+	}
+	rec.Process.HeartbeatAt = s.store.now().Format(time.RFC3339Nano)
+	if err := s.store.writeRecord(&rec); err != nil {
+		s.store.log.Log("run.heartbeat.failed", map[string]any{"run_id": s.id, "error": err.Error()})
+		return
+	}
+	s.store.records[s.id] = lite(rec)
+}
+
+// Detach 把这条记录交出去：应用为执行器建好记录后不再写它，日志、心跳与终态都由
+// 执行器落。此后 Finish 是空操作——终态只能由接手的一方写。
+func (s *Session) Detach() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.done {
+		return
+	}
+	s.done = true
+	if s.file != nil {
+		_ = s.file.Close()
+		s.file = nil
+	}
+}
+
 // Finish 写终态并关闭运行日志。只有第一次调用生效：返回 false 表示这条记录已经
 // 终结（或会话为 nil），任何路径都不再改写。exitCode 为 nil 时不写 exit_code。
 func (s *Session) Finish(status, reason string, exitCode *int, outputs map[string]string) bool {
@@ -781,6 +991,8 @@ func (s *Session) Finish(status, reason string, exitCode *int, outputs map[strin
 	if file != nil {
 		_ = file.Close()
 	}
+	// 停止标记随终态清掉：它只对这一次运行有意义。
+	_ = os.Remove(filepath.Join(s.store.runDir(s.id), StopFile))
 	if status == StatusRunning {
 		status = StatusFailed
 		reason = strings.TrimSpace(reason + "（内部错误：终态为 running）")

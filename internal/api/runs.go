@@ -168,19 +168,24 @@ func toRunItem(rec runstore.Record) RunItem {
 // params 是本次输入，原样留存（含保留运行参数）。
 // 记录建不出来时返回 nil 会话并记一条应用日志——运行照常进行，只是没有留档。
 func (s *Service) beginRun(kind target.Kind, id string, params map[string]any, source *runSource) *runstore.Session {
-	rec := runstore.Record{Target: target.Target{Kind: kind, ID: id}, Origin: runstore.OriginManual, Params: params}
+	return s.startRun(runstore.Record{Target: target.Target{Kind: kind, ID: id}, Origin: runstore.OriginManual, Params: params}, source)
+}
+
+// startRun 建立运行记录并通告前端。rec.Process 由调用方给出时原样落档
+// （执行器运行的记录带着 mode: executor 建出来）。
+func (s *Service) startRun(rec runstore.Record, source *runSource) *runstore.Session {
 	if source != nil {
 		rec.Origin, rec.ScheduleID = source.origin, source.scheduleID
 	}
 	sess, err := s.runs.Start(rec)
 	if err != nil {
-		s.appLog.Log("run.start.failed", map[string]any{"target_kind": kind, "target_id": id, "origin": rec.Origin, "error": err.Error()})
+		s.appLog.Log("run.start.failed", map[string]any{"target_kind": rec.Target.Kind, "target_id": rec.Target.ID, "origin": rec.Origin, "error": err.Error()})
 		return nil
 	}
 	if source != nil {
 		source.runID = sess.ID()
 	}
-	s.notify(eventRunsChanged, runsChangedPayload(sess.ID(), runstore.StatusRunning, kind, id))
+	s.notify(eventRunsChanged, runsChangedPayload(sess.ID(), runstore.StatusRunning, rec.Target.Kind, rec.Target.ID))
 	return sess
 }
 

@@ -28,3 +28,7 @@ func killGroup(cmd *exec.Cmd) {
 	_ = kill.Run() // 进程已退出时 taskkill 报错，忽略
 	_ = cmd.Process.Kill()
 }
+
+// DetachProcessGroup 在 Windows 上是空操作：没有进程组语义，子进程本来就不随父进程的
+// 控制台信号走。
+func DetachProcessGroup(cmd *exec.Cmd) {}

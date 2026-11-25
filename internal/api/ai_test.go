@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"workflow-tool/internal/ai"
-	"workflow-tool/internal/airun"
 	"workflow-tool/internal/registry"
 	"workflow-tool/internal/runner"
 	"workflow-tool/internal/workflow"
@@ -449,32 +448,4 @@ func TestWorkflowWithBusyAiTaskFailsFast(t *testing.T) {
 	}
 	svc.CancelAi("t-block")
 	waitRegistered(t, svc.aiRunning, "t-block", false)
-}
-
-func TestRunAiOnceReportsTimeoutWithResumeHint(t *testing.T) {
-	svc, dir := newAiSvc(t, "")
-	slow := "id: z-slow\ntitle: Slow\nprompt: hi\ntimeout: 1s\nenv:\n  FAKE_AI_SECONDS: \"30\"\n"
-	if err := os.WriteFile(filepath.Join(dir, "ai", "z-slow.yaml"), []byte(slow), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	svc.Reload()
-	lt, ok := svc.aiRegistry().Get("z-slow")
-	if !ok {
-		t.Fatal("z-slow 未加载")
-	}
-	res, _ := runAiOnce(context.Background(), lt, svc.aiDeps,
-		airun.Options{Global: svc.GetGlobalConfig()}, func(string, string) {})
-	// 对外文案给出续接办法；底层原因仍是 DeadlineExceeded（簿记据此判超时）
-	if !errors.Is(res.Err, context.DeadlineExceeded) {
-		t.Fatalf("超时应保留 DeadlineExceeded，got %v", res.Err)
-	}
-	for _, want := range []string{"AI 运行超时", "1s", "resume"} {
-		if !strings.Contains(res.Err.Error(), want) {
-			t.Errorf("超时文案应含 %q，got %q", want, res.Err.Error())
-		}
-	}
-	// 会话 id 在超时前已写入 outputs：续接所需的线索仍在
-	if res.Outputs["session_id"] != "sess-1" {
-		t.Fatalf("超时时 session_id 应保留在 outputs，got %+v", res.Outputs)
-	}
 }

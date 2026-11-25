@@ -31,6 +31,7 @@ import {
   ListWorkflows,
   RunWorkflow,
   CancelWorkflow,
+  ResumeRun,
   GetWorkflowYaml,
   SetWorkflowYaml,
   UpdateLogcatFilter,
@@ -208,6 +209,12 @@ export interface RunnerContextValue {
   listRuns: (filter: RunListFilter) => Promise<RunItem[]>;
   getRun: (id: string) => Promise<RunDetail>;
   getRunEvents: (id: string) => Promise<RunEvent[]>;
+  // 续跑：以一条 AI 运行记录的同一份输入加 resume: <session_id> 发起新的手动运行，
+  // 并进入新运行的详情。返回新运行的 id。
+  resumeRun: (runId: string) => Promise<string>;
+  // 停止某个目标上正在进行的运行，不论它跑在应用进程内还是由执行器承担（调度发起的
+  // 运行在后端，取消经停止标记传达）。
+  stopRun: (run: Pick<RunItem, "targetKind" | "targetId">) => void;
   // 进入运行记录列表（可带初始筛选）与单条运行详情；closeRun 回到进入详情前的视图
   openRuns: (filter?: RunListFilter) => void;
   openRun: (id: string) => void;
@@ -1700,6 +1707,17 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   // 收窄成归约器要的形状（见 types/events.ts 的 RunEvent）
   const getRunEvents = async (id: string): Promise<RunEvent[]> => ((await GetRunEvents(id)) || []) as unknown as RunEvent[];
 
+  const resumeRun = async (runId: string): Promise<string> => {
+    const newId = await ResumeRun(runId);
+    openRun(newId);
+    return newId;
+  };
+  const stopRun = (run: Pick<RunItem, "targetKind" | "targetId">) => {
+    if (run.targetKind === "ai") CancelAi(run.targetId);
+    else if (run.targetKind === "workflow") CancelWorkflow(run.targetId);
+    else CancelAction(run.targetId);
+  };
+
   const openRuns = (filter: RunListFilter = {}) => {
     setFormSheetOpen(false);
     setRunsFilter(filter);
@@ -1943,6 +1961,8 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     listRuns,
     getRun,
     getRunEvents,
+    resumeRun,
+    stopRun,
     openRuns,
     openRun,
     closeRun,

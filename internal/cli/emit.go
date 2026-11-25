@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 
@@ -19,6 +20,8 @@ type cliError struct {
 	Kind    string
 	Message string
 }
+
+func (e *cliError) Error() string { return e.Message }
 
 // outputLine / resultLine / errorLine 是 --json 模式的 NDJSON 三类对象。
 type outputLine struct {
@@ -78,6 +81,11 @@ func pickEmit(jsonMode bool, enc *json.Encoder) runner.EmitFunc {
 // finish 收尾一次运行：json 模式打末行 result；raw 模式只在有错误时把错误写 stderr
 // （正常输出已由 emit 实时打出）。返回命令退出码。
 func finish(jsonMode bool, enc *json.Encoder, res runner.Result) int {
+	// 调用错误（「调错了」）走 fail：固定退出码 2，而不是命令失败的退出码。
+	var cliErr *cliError
+	if errors.As(res.Err, &cliErr) {
+		return fail(jsonMode, enc, cliErr)
+	}
 	if jsonMode {
 		var errp *string
 		if res.Err != nil {

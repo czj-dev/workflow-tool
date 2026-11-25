@@ -65,6 +65,8 @@ type CronDraft = { value: ScheduleCron; raw: string; changed: boolean; parseErro
 type Draft = {
   name: string;
   enabled: boolean;
+  // 补跑：应用恢复后为最近一个错过的时刻补跑一次
+  catchUp: boolean;
   cron: CronDraft;
   targetKind: ScheduleTargetKind;
   targetId: string;
@@ -101,6 +103,7 @@ function createDraft(value: ScheduleFormValue): Draft {
   return {
     name: value.name,
     enabled: value.enabled,
+    catchUp: value.catchUp ?? false,
     cron,
     targetKind,
     targetId: value.targetId,
@@ -226,6 +229,7 @@ export function ScheduleFormSheet() {
         targetKind: draft.targetKind,
         targetId: draft.targetId,
         params,
+        catchUp: draft.catchUp,
       });
     } catch (error: unknown) {
       patch({ error: getErrorMessage(error) });
@@ -288,6 +292,17 @@ export function ScheduleFormSheet() {
                   id="schedule-enabled"
                   checked={draft.enabled}
                   onCheckedChange={(checked) => patch({ enabled: checked })}
+                />
+              </label>
+              <label className="flex items-center justify-between gap-3 text-sm" htmlFor="schedule-catch-up">
+                <span>
+                  {t("scheduler.catchUp")}
+                  <span className="block text-xs text-muted-foreground">{t("scheduler.catchUpHint")}</span>
+                </span>
+                <Switch
+                  id="schedule-catch-up"
+                  checked={draft.catchUp}
+                  onCheckedChange={(checked) => patch({ catchUp: checked })}
                 />
               </label>
             </section>

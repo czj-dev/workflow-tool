@@ -52,6 +52,9 @@ skills.synced.json
 runs/
 logs/
 
+# 调度器的「上次评估时刻」（运行时生成，exe 同级，不入仓库）
+schedules.state.json
+
 # 业务 skill 本体（含敏感数据，各端自备；yaml 引用保留，缺技能时对应动作加载失败）
 skills/icafe-bug-analyzer/
 skills/icafe-skill/

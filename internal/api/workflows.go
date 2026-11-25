@@ -175,11 +175,13 @@ func (s *Service) executeWorkflow(ctx context.Context, id string, lw workflow.Lo
 	defer s.settleRun(ctx, sess, source, started, &finished, func() { s.wfRunning.end(id) })()
 
 	ev := newWorkflowEvents(s.app, id)
-	ev.sink = sess
+	ev.Sink = sess
 
 	merged := s.mergeGlobalAndParams(params)
 	// 直跑与 cli 路径共用的 workflow step 回调构造（见 actionrun.WorkflowCallbacks）。
 	actionRun, shellRun := actionrun.WorkflowCallbacks(s.actionRegistry(), s.runDeps, merged)
+	// 动作步骤占它自己的目标锁（规格：工作流的动作步骤与 AI 步骤同样占锁，撞上立即失败）。
+	actionRun = actionrun.LockActionStep(actionRun, s.locks)
 	// AI 步骤的回调占目标锁、ctx 挂在本 workflow 的 ctx 之下（见 run.go 的 aiStepRun）。
 	aiRun := s.aiStepRun(ctx, merged)
 	res := (&workflow.Executor{}).Execute(ctx, lw, actionRun, shellRun, aiRun, merged, ev.EmitFunc())

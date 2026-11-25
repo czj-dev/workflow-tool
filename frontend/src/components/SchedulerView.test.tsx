@@ -45,6 +45,7 @@ type MockSchedule = {
   targetKind: string;
   targetId: string;
   params: Record<string, unknown>;
+  catchUp?: boolean;
   nextRun: string;
   running: boolean;
   lastRun: MockRun | null;
@@ -193,7 +194,7 @@ describe("SchedulerView", () => {
 
   it("编辑：把该调度的现值原样交给调度编辑器", async () => {
     const user = userEvent.setup();
-    mockRunner.schedules = [{ ...schedule, cron: "05   08 * * 1-5" }];
+    mockRunner.schedules = [{ ...schedule, cron: "05   08 * * 1-5", catchUp: true }];
     renderView();
     await expandCard(user, "Nightly build");
     await user.click(screen.getByRole("button", { name: "编辑" }));
@@ -206,7 +207,26 @@ describe("SchedulerView", () => {
       targetKind: "action",
       targetId: "build",
       params: { BRANCH: "main" },
+      catchUp: true,
     }, false);
+  });
+
+  // 开了补跑的调度在时间规则旁标出来；没开的不标。
+  it("补跑：卡片的时间规则旁标出，未开启的不标", async () => {
+    const user = userEvent.setup();
+    mockRunner.schedules = [{ ...schedule, catchUp: true }];
+    renderView();
+    await expandCard(user, "Nightly build");
+    expect(screen.getByText("0 2 * * * · 补跑")).toBeInTheDocument();
+  });
+
+  it("未开启补跑的调度不显示补跑标识", async () => {
+    const user = userEvent.setup();
+    mockRunner.schedules = [schedule];
+    renderView();
+    await expandCard(user, "Nightly build");
+    expect(screen.getByText("0 2 * * *")).toBeInTheDocument();
+    expect(screen.queryByText(/补跑/)).not.toBeInTheDocument();
   });
 
   it("runs row actions and requires confirmation before deleting", async () => {

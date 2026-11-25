@@ -2,8 +2,6 @@ package api
 
 import (
 	"fmt"
-	"strconv"
-	"sync/atomic"
 	"time"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -14,11 +12,10 @@ import (
 )
 
 // 本文件是 action:<id>:* / ai:<id>:* / workflow:<id>:* 事件契约的唯一权威定义：
-// 事件名、payload 形状、到达顺序协议（seq 排序 / step 归桶）全部集中在这里，
-// 改事件协议只需改本文件（+前端对应处理）。
-//
-// 运行日志（runs/<run-id>/events.ndjson）也在这里落盘：emit 与落盘是同一处代码、
-// 同一个 payload，所以运行详情回放看到的与前端当时收到的事件同构。
+// 事件名、到达顺序协议（seq 排序 / step 归桶）全部集中在这里，改事件协议只需改本文件
+// （+前端对应处理）。payload 的形状与取号在 runstore.LogEmitter——它与运行日志同构，
+// 执行器的运行没有前端，只有落盘那一份。emit 与落盘是同一个 payload，所以运行详情
+// 回放看到的与前端当时收到的事件一致。
 
 // actionEvents 封装单个目标（action 或 AI 任务）的事件通道
 // （<prefix>:<id>:output / <prefix>:<id>:done），prefix 为 action 或 ai。
@@ -38,33 +35,26 @@ type actionEvents struct {
 	app    *application.App
 	prefix string // "action" | "ai"
 	id     string
-	seq    atomic.Int64
-	// sink 是本次运行的记录会话；每次 emit 的同一份 payload 先落盘再推送前端。
-	// nil（运行记录不可用）时落盘为空操作。
-	sink *runstore.Session
+	// LogEmitter 构造 payload、取号并落运行日志（Sink 是本次运行的记录会话；nil 时落盘
+	// 为空操作）。本类型只负责把同一个 payload 推给前端。
+	*runstore.LogEmitter
 }
 
 func newActionEvents(app *application.App, id string) *actionEvents {
-	return &actionEvents{app: app, prefix: "action", id: id}
+	return &actionEvents{app: app, prefix: "action", id: id, LogEmitter: runstore.NewLogEmitter(false)}
 }
 
 // newAiEvents 封装单个 AI 任务的事件通道（ai:<id>:output / ai:<id>:done）：payload 形状与
 // 排序协议和 action:<id>:* 完全相同。workflow 里的 AI 步骤不用它——输出带步骤归属落在
 // workflow:<wf-id>:output 上。
 func newAiEvents(app *application.App, id string) *actionEvents {
-	return &actionEvents{app: app, prefix: "ai", id: id}
+	return &actionEvents{app: app, prefix: "ai", id: id, LogEmitter: runstore.NewLogEmitter(false)}
 }
 
 // name 返回该通道某类事件的事件名。
 func (e *actionEvents) name(suffix string) string {
 	return eventName(e.prefix, e.id, suffix)
 }
-
-// nextSeq 取下一个事件序号。必须原子：emit 并非总是串行回调——logcat-stream 从
-// flush ticker 协程、控制协程（applyUpdate 的规则拒绝告警）、pidRefresher.start
-// （包未运行告警）三处并发 emit（internal/adb/logcat/stream.go），后两处在 core.mu
-// 之外。前端 seqGate 依赖 seq 唯一有序来定 logcat-replace 帧与增量帧的先后。
-func (e *actionEvents) nextSeq() int64 { return e.seq.Add(1) }
 
 // EmitFunc 返回 runner 用的 emit：每行 output 自带递增 seq。
 // stream 契约：stdout/stderr=文本行；progress=单行进度（前端原地覆盖上一条）；
@@ -76,47 +66,29 @@ func (e *actionEvents) nextSeq() int64 { return e.seq.Add(1) }
 // 取号不受 app 是否在场影响：headless 运行没有前端，运行日志仍要与有前端时同构。
 func (e *actionEvents) EmitFunc() runner.EmitFunc {
 	return func(stream, line string) {
-		payload := map[string]any{"stream": stream, "line": line, "seq": e.nextSeq()}
-		e.sink.Output(payload)
-		if e.app == nil || e.app.Event == nil {
-			return
-		}
-		e.app.Event.Emit(e.name("output"), payload)
+		e.emit(e.name("output"), e.Output(stream, line))
 	}
 }
 
-// Done 发送结束事件，seq **独占**一个号（用 nextSeq 而非 Load()+1）：取号必须独占——
-// logcat-stream 的控制协程与 pidRefresher 未被 join，其告警/重放帧可能在 Done 之后才
-// emit，若 Done 只读不占号，那条迟到 emit 会拿到同一个号，前端 seqGate 依赖 seq 唯一，
-// 撞号会丢事件。代价是 output 号段从此有一个洞：消费侧必须跨过这个号才能继续出队
-// （见 actionEvents 的顺序协议）。前端按序把退出码行落在所有 output 行之后。
+// Done 发送结束事件，seq **独占**一个号。代价是 output 号段从此有一个洞：消费侧必须
+// 跨过这个号才能继续出队（见 actionEvents 的顺序协议）。前端按序把退出码行落在所有
+// output 行之后。为何必须独占见 runstore.LogEmitter.Done。
 func (e *actionEvents) Done(exitCode int, errMsg string, d time.Duration, readout map[string]any) {
-	e.emitDone(exitCode, errMsg, d, readout, e.nextSeq())
+	e.emit(e.name("done"), e.LogEmitter.Done(exitCode, errMsg, d, readout, true))
 }
 
 // DoneUnordered 发送不参与排序的结束事件（payload 不带 seq，前端直接应用）。
 // 用于 runner 启动前早退的场景（如工作目录校验失败），此时尚无 output 序号空间。
 func (e *actionEvents) DoneUnordered(exitCode int, errMsg string, d time.Duration) {
-	e.emitDone(exitCode, errMsg, d, nil, 0)
+	e.emit(e.name("done"), e.LogEmitter.Done(exitCode, errMsg, d, nil, false))
 }
 
-func (e *actionEvents) emitDone(exitCode int, errMsg string, d time.Duration, readout map[string]any, seq int64) {
-	payload := map[string]any{
-		"exitCode": exitCode,
-		"err":      errMsg,
-		"duration": d.String(),
-	}
-	if readout != nil {
-		payload["readout"] = readout
-	}
-	if seq > 0 {
-		payload["seq"] = seq
-	}
-	e.sink.Done(payload)
+// emit 推送一个事件；没有前端（headless / 测试）时空操作——落盘已在 LogEmitter 里完成。
+func (e *actionEvents) emit(name string, payload map[string]any) {
 	if e.app == nil || e.app.Event == nil {
 		return
 	}
-	e.app.Event.Emit(e.name("done"), payload)
+	e.app.Event.Emit(name, payload)
 }
 
 // workflowEvents 封装单个 workflow 的事件通道（workflow:<id>:output / workflow:<id>:done）。
@@ -129,28 +101,22 @@ func (e *actionEvents) emitDone(exitCode int, errMsg string, d time.Duration, re
 //
 // 并发安全：curStep 写发生在 executor goroutine 的 step 边界，读发生在 runner 的
 // 输出 goroutine；runner.Run 返回前已 join 全部输出 goroutine，故两者有序不重叠。
-// seq 的取号是原子的：executor 的 step 边界与 runner 的输出协程都会 emit。
+// 取号是原子的：executor 的 step 边界与 runner 的输出协程都会 emit。
 type workflowEvents struct {
-	app     *application.App
-	id      string
-	curStep string
-	seq     atomic.Int64
-	// sink 是本次运行的记录会话（nil 安全，见 actionEvents.sink）。
-	sink *runstore.Session
+	app *application.App
+	id  string
+	// LogEmitter 构造 payload（带步骤归属）、取号并落运行日志；Sink 的 nil 安全同 actionEvents。
+	*runstore.LogEmitter
 }
 
 func newWorkflowEvents(app *application.App, id string) *workflowEvents {
-	return &workflowEvents{app: app, id: id}
+	return &workflowEvents{app: app, id: id, LogEmitter: runstore.NewLogEmitter(true)}
 }
 
-// EmitFunc 返回 runner/executor 用的 emit：step-start/step-skip 更新当前 step 归属。
+// EmitFunc 返回 runner/executor 用的 emit。
 func (e *workflowEvents) EmitFunc() runner.EmitFunc {
 	return func(stream, line string) {
-		if stream == "step-start" || stream == "step-skip" {
-			e.curStep = line
-		}
-		payload := map[string]any{"stream": stream, "line": line, "step": e.curStep, "seq": e.seq.Add(1)}
-		e.sink.Output(payload)
+		payload := e.Output(stream, line)
 		if e.app == nil || e.app.Event == nil {
 			return
 		}
@@ -160,12 +126,7 @@ func (e *workflowEvents) EmitFunc() runner.EmitFunc {
 
 // Done 发送 workflow 结束事件。done 不取号、不参与排序：前端与回放都直接应用。
 func (e *workflowEvents) Done(exitCode int, errMsg string, d time.Duration) {
-	payload := map[string]any{
-		"exitCode": exitCode,
-		"err":      errMsg,
-		"duration": d.String(),
-	}
-	e.sink.Done(payload)
+	payload := e.LogEmitter.Done(exitCode, errMsg, d, nil, false)
 	if e.app == nil || e.app.Event == nil {
 		return
 	}
@@ -202,36 +163,4 @@ func errStr(err error) string {
 		return ""
 	}
 	return err.Error()
-}
-
-// aiReadout 从 AI Result.Outputs 挑出终点读数字段（数值化）与会话 id；无可读字段时返回 nil。
-// cost/tokens 来自 stream-json 的 result 事件（runner.recordStructuredFields 写入 Outputs），
-// duration 用后端精确计时；读数行随 done 事件下发（聊天页终点展示）。
-// sessionId 单独也撑起 readout：失败/超时杀进程时 result 事件不会到达（无 cost/tokens），
-// 但 system/init 的 session_id 已写入——此刻恰恰是用户最需要会话 id（查现场/--resume）的时候。
-func aiReadout(outputs map[string]string, d time.Duration) map[string]any {
-	r := map[string]any{"durationMs": d.Milliseconds()}
-	// 会话 id（system/init 事件由 runner.recordStructuredFields 写入）：聊天页历史查看态顶部展示
-	if sid := outputs["session_id"]; sid != "" {
-		r["sessionId"] = sid
-	}
-	if v, err := strconv.ParseFloat(outputs["cost_usd"], 64); err == nil {
-		r["costUsd"] = v
-	}
-	in, errIn := strconv.Atoi(outputs["input_tokens"])
-	out, errOut := strconv.Atoi(outputs["output_tokens"])
-	if errIn == nil && errOut == nil {
-		r["inputTokens"] = in
-		r["outputTokens"] = out
-	}
-	// 仅当既无成本读数也无会话 id 时才视为无可读字段（durationMs 单独不算，
-	// done 事件 payload 本身已带 duration 字符串）。
-	if _, ok := r["sessionId"]; !ok {
-		if _, ok := r["costUsd"]; !ok {
-			if _, ok := r["inputTokens"]; !ok {
-				return nil
-			}
-		}
-	}
-	return r
 }
