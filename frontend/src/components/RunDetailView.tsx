@@ -182,9 +182,9 @@ export function RunDetailView() {
             </Fact>
           </section>
 
-          <div className="grid min-h-0 flex-1 content-start gap-4 overflow-auto p-4">
+          <div className="grid grid-cols-1 min-h-0 flex-1 content-start gap-4 overflow-auto p-4">
             {/* —— 过程：回放运行日志 —— */}
-            <section className="grid gap-2" aria-labelledby="run-process-heading">
+            <section className="grid grid-cols-1 gap-2 min-w-0" aria-labelledby="run-process-heading">
               <h2 id="run-process-heading" className="text-sm font-semibold">
                 {t("run.process")}
                 {running && <span className="ml-2 font-mono text-[11px] font-normal text-primary">{t("run.live")}</span>}
@@ -283,7 +283,9 @@ function RunProcess({
 
   if (detail.targetKind === "ai") {
     return (
-      <div className="rounded-lg border border-border bg-background p-4">
+      // min-w-0：AI 工具段的 pre 是 whitespace-pre 长行（JSON 命令/结果），grid item
+      // 默认 min-width:auto 会被它的 min-content 撑到「最长行宽」，把整条过程区拉宽
+      <div className="min-w-0 rounded-lg border border-border bg-background p-4">
         <AiOutputPanel prompt={runParam(detail, "prompt")} state={player.ai.panel} />
         {(aiFailed || player.ai.diag.length > 0) && (
           <AiDiagBlock className="mt-3" failed={aiFailed} error={aiFailed ? player.done?.err : undefined} lines={player.ai.diag} />

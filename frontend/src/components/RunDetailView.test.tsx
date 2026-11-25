@@ -138,6 +138,32 @@ describe("RunDetailView", () => {
     expect(screen.getByText(/无人可问，自行决断/)).toBeInTheDocument();
   });
 
+  it("过程区对 AI 长 JSON 输出收缩宽度：grid track/item 布局约束在位（防视图被拉宽）", async () => {
+    // jsdom 无布局引擎量不到真实宽度，这里钉住布局契约：AI 工具段的 pre 是 whitespace-pre
+    // 长行（单行 JSON 命令/结果可达上千字符），grid item 默认 min-width:auto 会被它的
+    // min-content 撑到「最长行宽」，把整条过程区拉宽。容器必须有 grid-cols-1（minmax(0,1fr)
+    // 轨道）与 min-w-0（item 收缩）才能真正受制于可用宽度。
+    mockRunner.getRunEvents.mockResolvedValue([
+      out(100, 1, "ai-tool", JSON.stringify({ id: "c1", name: "Bash", input: { command: "x".repeat(2000) } })),
+      out(200, 2, "ai", JSON.stringify({ target_date: "2026-11-25", groups: { 已分析: [{ card_no: "edc-scrum-428286", title: "y".repeat(800) }] } })),
+      done(3700, 3, { readout: { durationMs: 3700 } }),
+    ]);
+    renderView();
+    await screen.findByText("代码审查");
+
+    // 过程区晚于结论区到达（日志是第二步加载）：等面板落地再断言布局契约
+    const section = await waitFor(() => {
+      const el = document.querySelector('section[aria-labelledby="run-process-heading"]');
+      expect(el).not.toBeNull();
+      expect(el!.querySelector(".rounded-lg")).not.toBeNull();
+      return el!;
+    });
+    expect(section.className).toContain("grid-cols-1");
+    expect(section.className).toContain("min-w-0");
+    // AI 过程面板容器（section 下的 grid item）同样可收缩
+    expect(section.querySelector(".rounded-lg")!.className).toContain("min-w-0");
+  });
+
   it("action run: replays output lines in order with the exit-code line last; long values fold", async () => {
     mockRunner.getRun.mockResolvedValue(detail({
       targetKind: "action", targetId: "build", params: { BRANCH: "main" },
