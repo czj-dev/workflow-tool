@@ -71,3 +71,11 @@ fragments:
       content: vrsdk_AsrEngine_\d+:\s+asrResultInfo\s+sn:\s*(\S+)\s+(offline|online)\s+asr:\s*(.+?)\s+(final)_result(?:\s+(\S+))?\s*$
       tags:
         - Log
+    - title: 档位  1：N，2：R,4：P,8：D
+      content: adb shell dumpsys virtualcar_service inject-virtual-event 0x31400231 0 1
+      tags:
+        - adb
+    - title: 电源挡位  0x1 = LOCK, 0x2 = OFF,0x3 = ACC, 0x4 = ON,0x5 = START
+      content: adb shell dumpsys virtualcar_service inject-virtual-event 0x31400201 0 4
+      tags:
+        - adb
