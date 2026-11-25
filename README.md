@@ -2,8 +2,6 @@
 
 一键触发命令/脚本/多步骤工作流/AI 任务的桌面工具。基于 **Wails v3 + Go + React**，YAML 声明动作、工作流与 AI 任务，按钮触发，实时流式输出，编译为跨 macOS / Windows 单二进制。
 
-![Workflow Tool 界面预览](docs/main.png)
-
 ## 核心特性
 
 - **YAML 驱动**：在 `actions/` 放一个 `.yaml` 即新增一个动作，零代码；`workflows/`、`ai/` 同理新增工作流与 AI 任务
