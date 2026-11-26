@@ -33,8 +33,9 @@ const (
 	unreadableGrace = time.Minute
 )
 
-// AliveFunc 报告某个 pid 是否是启动时刻相符的存活进程；默认用 procinfo.Alive，测试注入。
-type AliveFunc func(pid int, startedAt string) bool
+// AliveFunc 是进程身份核对函数的类型（别名自 procinfo.AliveFunc）；默认用 procinfo.Alive，
+// 测试注入。
+type AliveFunc = procinfo.AliveFunc
 
 // Locks 管理一个应用目录下的全部目标锁。
 type Locks struct {

@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -61,6 +62,13 @@ func (e *env) executeRecord(ctx context.Context, runID string) int {
 // 再写终态。返回进程退出码。
 func (e *env) finishRecord(sess *runstore.Session, log *runstore.LogEmitter, res runner.Result, rules string) int {
 	tgt := sess.Target()
+	// 调度到点撞上运行中的目标（应用预检与这里真正占锁之间只有微秒级窗口）：规格「冲突
+	// 只跳过」——留档为 skipped、没有过程，不覆盖上一次真实运行的结果。
+	var cliErr *cliError
+	if errors.As(res.Err, &cliErr) && cliErr.Kind == "target_locked" && sess.Origin() == runstore.OriginSchedule {
+		sess.Finish(runstore.StatusSkipped, res.Err.Error(), nil, nil)
+		return res.ExitCode
+	}
 	var readout map[string]any
 	if tgt.Kind == runstore.KindAI && len(res.Outputs) > 0 {
 		readout = airun.Readout(res.Outputs, res.Duration)

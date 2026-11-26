@@ -99,9 +99,9 @@ const (
 	HeartbeatStale    = 30 * time.Second
 )
 
-// AliveFunc 报告某个 pid 是否是启动时刻相符的存活进程（认领执行器时用；默认
-// procinfo.Alive，测试注入）。
-type AliveFunc = func(pid int, startedAt string) bool
+// AliveFunc 是进程身份核对函数的类型（别名自 procinfo.AliveFunc）：认领执行器时用，
+// 默认 procinfo.Alive，测试注入。
+type AliveFunc = procinfo.AliveFunc
 
 // ErrNotFound 表示没有这个 run-id 对应的运行记录。
 var ErrNotFound = errors.New("run record not found")
@@ -389,7 +389,7 @@ func Attach(baseDir, runID string) (*Session, error) {
 	}
 	s.records[runID] = lite(rec)
 	// 偏移仍以记录里的启动时刻为起点：接手前后是同一次运行。
-	return &Session{store: s, id: runID, target: rec.Target, start: rec.StartedAt, file: file}, nil
+	return &Session{store: s, id: runID, target: rec.Target, origin: rec.Origin, start: rec.StartedAt, file: file}, nil
 }
 
 // Start 登记一次运行的开始：写 running 的 run.json、新建运行日志，并按保留策略清理。
@@ -450,7 +450,7 @@ func (s *Store) start(rec Record, withLog bool, noteStatus, noteReason string) (
 		}
 		s.records[id] = lite(rec)
 		s.pruneLocked(s.now())
-		return &Session{store: s, id: id, target: rec.Target, start: rec.StartedAt, done: true}, nil
+		return &Session{store: s, id: id, target: rec.Target, origin: rec.Origin, start: rec.StartedAt, done: true}, nil
 	}
 	rec.Status = StatusRunning
 	if err := s.writeRecord(&rec); err != nil {
@@ -464,7 +464,7 @@ func (s *Store) start(rec Record, withLog bool, noteStatus, noteReason string) (
 	}
 	s.records[id] = lite(rec)
 	s.pruneLocked(s.now())
-	return &Session{store: s, id: id, target: rec.Target, start: time.Now(), file: file}, nil
+	return &Session{store: s, id: id, target: rec.Target, origin: rec.Origin, start: time.Now(), file: file}, nil
 }
 
 // reserveIDLocked 生成未被占用的 run-id：r<YYYYMMDD-HHMMSS>-<6 位十六进制>。
@@ -845,6 +845,7 @@ type Session struct {
 	store  *Store
 	id     string
 	target Target    // 这次运行的目标：收尾时随 runs:changed 通知出去
+	origin string    // 发起来源：执行器落终态时据此区分「调度撞锁 → skipped」与其它失败
 	start  time.Time // 相对偏移的起点（单调时钟）
 
 	mu        sync.Mutex
@@ -861,6 +862,15 @@ func (s *Session) ID() string {
 		return ""
 	}
 	return s.id
+}
+
+// Origin 返回这次运行的发起来源（schedule / run-now / manual）。执行器落终态时据此
+// 区分「调度到点撞上运行中的目标」（skipped）与其他失败。
+func (s *Session) Origin() string {
+	if s == nil {
+		return ""
+	}
+	return s.origin
 }
 
 // Target 返回这次运行的目标。

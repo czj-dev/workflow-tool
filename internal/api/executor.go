@@ -57,7 +57,7 @@ func (s *Service) launchExecutor(kind target.Kind, id string, params map[string]
 		Params: params, Process: &runstore.Process{Mode: runstore.ProcessExecutor},
 	}, source)
 	runID := sess.ID()
-	reg.hold(id, func() { s.stopExecutor(runID) })
+	reg.hold(id, runID, func() { s.stopExecutor(runID) })
 	s.beginScheduledRun(source)
 	if err := spawnExecutor(s, kind, id, runID); err != nil {
 		err = fmt.Errorf("启动执行器失败: %w", err)
@@ -115,7 +115,7 @@ func (s *Service) adoptExecutorRuns() {
 			continue
 		}
 		runID := rec.ID
-		s.registryFor(rec.Target.Kind).hold(rec.Target.ID, func() { s.stopExecutor(runID) })
+		s.registryFor(rec.Target.Kind).hold(rec.Target.ID, runID, func() { s.stopExecutor(runID) })
 	}
 }
 
@@ -151,7 +151,9 @@ func (s *Service) pollExecutorRun(runID string) {
 	if !ended {
 		return
 	}
-	s.registryFor(rec.Target.Kind).end(rec.Target.ID)
+	// 只清「属于这条记录」的登记：执行器结束后目标上可能刚开始了新的运行，按目标清会
+	// 误清新运行的取消入口、释放它刚占下的锁（Spec 轴审查发现）。
+	s.registryFor(rec.Target.Kind).endIf(rec.Target.ID, rec.ID)
 	s.notify(eventRunsChanged, runsChangedPayload(rec.ID, rec.Status, rec.Target.Kind, rec.Target.ID))
 	if rec.ScheduleID != "" {
 		s.finishScheduleFromRecord(rec)
@@ -161,6 +163,12 @@ func (s *Service) pollExecutorRun(runID string) {
 // finishScheduleFromRecord 用一条执行器运行的终态更新调度卡的最近结果。只接「这张卡
 // 正等着的那一次运行」——内存里是更新的另一次运行时不覆盖。
 func (s *Service) finishScheduleFromRecord(rec runstore.Record) {
+	// 到点被跳过 / 错过：只更新「上次到点」的留痕，不覆盖上一次真实运行的结果。
+	if rec.Status == runstore.StatusSkipped || rec.Status == runstore.StatusMissed {
+		s.skipScheduleRun(rec.ScheduleID, rec.Reason, rec.ID)
+		s.emitScheduleChanged(rec.ScheduleID)
+		return
+	}
 	s.scheduleMu.Lock()
 	state := s.scheduleRuns[rec.ScheduleID]
 	if state != nil && state.Running && state.LastRun != nil && state.LastRun.RunID == rec.ID {

@@ -25,7 +25,9 @@ func TestWithTreeSourcePreservesFrameAndOtherStreams(t *testing.T) {
 	})
 	emit("tree", `{"nodes":[{"label":"log.txt","path":"a/log.txt"}]}`)
 	var frame struct {
-		Nodes  []struct{ Path string `json:"path"` } `json:"nodes"`
+		Nodes []struct {
+			Path string `json:"path"`
+		} `json:"nodes"`
 		Source TreeSource `json:"source"`
 	}
 	if err := json.Unmarshal([]byte(gotLine), &frame); err != nil {

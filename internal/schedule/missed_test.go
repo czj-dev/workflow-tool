@@ -194,7 +194,7 @@ func TestClockRollbackIsNotMissedAndDoesNotRewindHistory(t *testing.T) {
 	if len(rig.missed["a"]) != 0 {
 		t.Fatalf("a clock rollback was reported as missed instants: %v", rig.missed["a"])
 	}
-	if mark := s.seen["a"]; !mark.Seen.Equal(schedulerTime(30, 0)) {
+	if mark := s.lastSeen["a"]; !mark.Seen.Equal(schedulerTime(30, 0)) {
 		t.Fatalf("rollback rewound the history to %s", mark.Seen)
 	}
 	// 时间回到原处之后：10:31 起才是没被评估过的时刻

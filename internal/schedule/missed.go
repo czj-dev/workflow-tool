@@ -32,9 +32,9 @@ type MissedHandlers struct {
 	CatchUp func(ctx context.Context, def Definition, instant time.Time) error
 }
 
-// seenMark 是一条调度上次被评估到的时刻，连同当时的 enabled 与 cron——两者任一改过，
+// lastSeenMark 是一条调度上次被评估到的时刻，连同当时的 enabled 与 cron——两者任一改过，
 // 旧时刻就不能再用（重新启用或改时间规则之后，不按新规则去翻旧账）。
-type seenMark struct {
+type lastSeenMark struct {
 	Seen    time.Time `json:"seen"`
 	Cron    string    `json:"cron"`
 	Enabled bool      `json:"enabled"`
@@ -58,14 +58,14 @@ func (s *Scheduler) reconcileMissed(ctx context.Context, minute time.Time) {
 	s.mu.Lock()
 	changed := false
 	for _, def := range s.definitions {
-		mark, hasMark := s.seen[def.ID]
+		mark, hasMark := s.lastSeen[def.ID]
 		if hasMark && mark.Seen.Before(minute) && mark.Cron == def.Cron && mark.Enabled == def.Enabled && def.Enabled {
 			s.reportMissed(ctx, def, mark.Seen, minute)
 		}
 		// 时钟回拨（minute 早于已记下的时刻）不动记录：否则时间回到原处后会把处理过的
 		// 时刻再报一遍。
 		if !hasMark || minute.After(mark.Seen) {
-			s.seen[def.ID] = seenMark{Seen: minute, Cron: def.Cron, Enabled: def.Enabled}
+			s.lastSeen[def.ID] = lastSeenMark{Seen: minute, Cron: def.Cron, Enabled: def.Enabled}
 			changed = true
 		}
 	}
@@ -133,21 +133,21 @@ func (s *Scheduler) loadSeenLocked() {
 	if err != nil {
 		return
 	}
-	var marks map[string]seenMark
+	var marks map[string]lastSeenMark
 	if err := json.Unmarshal(data, &marks); err != nil {
 		log.Printf("schedule state %q: unreadable, starting without history: %v", s.statePath, err)
 		return
 	}
 	for id, mark := range marks {
 		if !mark.Seen.IsZero() {
-			s.seen[id] = mark
+			s.lastSeen[id] = mark
 		}
 	}
 }
 
 // saveSeenLocked 原子改写状态文件：先写同目录临时文件再改名。调用方须持有 s.mu。
 func (s *Scheduler) saveSeenLocked() {
-	data, err := json.Marshal(s.seen)
+	data, err := json.Marshal(s.lastSeen)
 	if err == nil {
 		err = os.MkdirAll(filepath.Dir(s.statePath), 0o755)
 	}

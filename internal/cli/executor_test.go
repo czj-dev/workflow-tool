@@ -192,23 +192,63 @@ func TestExecuteRecordRunsWorkflowWithAIStepWhenAllowed(t *testing.T) {
 	}
 }
 
-// 目标已被别的运行占着：执行器不跑，记录落失败并写明原因，别人的锁原样保留。
+// 目标已被别的运行占着：执行器不跑。调度到点的记录留档为 skipped（规格：冲突只跳过，
+// 不覆盖上一次真实运行的结果），别的来源是 failed；别人的锁原样保留。
 func TestExecuteRecordRefusesLockedTarget(t *testing.T) {
-	dir := executorBaseDir(t)
-	id := executorRecord(t, dir, targetkind.Action, "ok")
-	release, err := targetlock.New(dir).Acquire(targetkind.Action, "ok")
+	for _, origin := range []string{runstore.OriginSchedule, runstore.OriginRunNow} {
+		t.Run(origin, func(t *testing.T) {
+			dir := executorBaseDir(t)
+			id := executorRecord(t, dir, targetkind.Action, "ok")
+			recBefore := readDiskRecord(t, dir, id)
+			recBefore.Origin = origin
+			writeRecord(t, dir, id, recBefore)
+
+			release, err := targetlock.New(dir).Acquire(targetkind.Action, "ok")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer release()
+
+			ExecuteRecord(context.Background(), dir, id, false)
+			rec, _ := reopen(t, dir).Get(id)
+			want := runstore.StatusSkipped
+			if origin == runstore.OriginRunNow {
+				want = runstore.StatusFailed
+			}
+			if rec.Status != want || !strings.Contains(rec.Reason, "正在运行") {
+				t.Fatalf("locked target record = %+v, want %s", rec, want)
+			}
+			if !targetlock.New(dir).Busy(targetkind.Action, "ok") {
+				t.Fatal("the other holder's lock was released")
+			}
+		})
+	}
+}
+
+// readDiskRecord 直读盘上的记录，不经过 runstore.Open——Open 会做启动对账，把执行器
+// 还没接手的 running 记录判成中断。
+func readDiskRecord(t *testing.T, dir, id string) runstore.Record {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, runstore.DirName, id, runstore.RecordFile))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer release()
-
-	ExecuteRecord(context.Background(), dir, id, false)
-	rec, _ := reopen(t, dir).Get(id)
-	if rec.Status != runstore.StatusFailed || !strings.Contains(rec.Reason, "正在运行") {
-		t.Fatalf("locked target record = %+v", rec)
+	var rec runstore.Record
+	if err := json.Unmarshal(data, &rec); err != nil {
+		t.Fatal(err)
 	}
-	if !targetlock.New(dir).Busy(targetkind.Action, "ok") {
-		t.Fatal("the other holder's lock was released")
+	return rec
+}
+
+// writeRecord 直接改写盘上的一条记录（测试里调整 origin 用）。
+func writeRecord(t *testing.T, dir, id string, rec runstore.Record) {
+	t.Helper()
+	data, err := json.MarshalIndent(rec, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, runstore.DirName, id, runstore.RecordFile), data, 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

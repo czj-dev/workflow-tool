@@ -18,6 +18,10 @@ import (
 // 运行——方向是保守的（多等一轮或跳过一次，不会重复运行），不值得为此读内核的精确值。
 const startSlack = 10 * time.Second
 
+// AliveFunc 报告某个 pid 是否是启动时刻相符的存活进程。目标锁（internal/targetlock）
+// 与运行记录认领（internal/runstore）共用的类型，两边各自以它作别名，不重复定义。
+type AliveFunc = func(pid int, startedAt string) bool
+
 // selfStartedAt 是本进程内记下的第一个时刻，作为「本进程的启动时刻」落进目标锁与
 // 运行记录。它比真正的进程创建时刻晚一个运行时初始化的时长，但两个进程不会在同一
 // 纳秒启动，足以区分「同 pid 的不同进程」。这样取值不依赖平台相关的系统调用。

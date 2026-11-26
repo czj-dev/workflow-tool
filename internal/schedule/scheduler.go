@@ -23,12 +23,12 @@ type Scheduler struct {
 	nowTrigger TriggerFunc
 	// 错过与补跑（见 missed.go）：statePath 非空时追踪每条调度上次被评估到的时刻。
 	statePath string
-	seen      map[string]seenMark
+	lastSeen  map[string]lastSeenMark
 	handlers  MissedHandlers
 }
 
 func NewScheduler(defs []Definition, trigger TriggerFunc) *Scheduler {
-	s := &Scheduler{trigger: trigger, triggered: make(map[string]map[int64]struct{}), seen: map[string]seenMark{}}
+	s := &Scheduler{trigger: trigger, triggered: make(map[string]map[int64]struct{}), lastSeen: map[string]lastSeenMark{}}
 	s.Replace(defs)
 	return s
 }
@@ -78,9 +78,9 @@ func (s *Scheduler) Replace(defs []Definition) {
 		}
 	}
 	// 被删掉的调度不再有「上次评估时刻」：同一个 id 日后重建时不继承旧历史。
-	for id := range s.seen {
+	for id := range s.lastSeen {
 		if _, exists := ids[id]; !exists {
-			delete(s.seen, id)
+			delete(s.lastSeen, id)
 			dropped = true
 		}
 	}

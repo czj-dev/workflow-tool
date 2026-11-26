@@ -22,7 +22,10 @@ type runRegistry struct {
 
 	mu       sync.Mutex
 	running  map[string]context.CancelFunc
-	releases map[string]func()   // 本进程持有的目标锁的释放函数（hold 登记的运行没有）
+	releases map[string]func() // 本进程持有的目标锁的释放函数（hold 登记的运行没有）
+	// runIDs 是登记项所属的运行记录 id（hold 时记下）。核对在途的执行器运行结束时要按
+	// 「目标 id」清登记——但目标上可能已经开始了新的运行；只清属于同一条记录的那份。
+	runIDs   map[string]string
 	controls map[string]chan any // 可选：logcat-stream 启动时登记（其余动作无登记）
 }
 
@@ -32,6 +35,7 @@ func newRunRegistry(kind target.Kind, locks *targetlock.Locks) *runRegistry {
 		locks:    locks,
 		running:  map[string]context.CancelFunc{},
 		releases: map[string]func(){},
+		runIDs:   map[string]string{},
 		controls: map[string]chan any{},
 	}
 }
@@ -63,14 +67,15 @@ func (r *runRegistry) beginChild(id string, parent context.Context) (context.Con
 
 // hold 登记一个「由别的进程执行」的运行（执行器）：目标锁在执行器手里，这里只登记
 // 取消入口。cancel 由调用方给出（执行器运行的取消是写停止标记）。撞上已登记的 id
-// 返回 false。
-func (r *runRegistry) hold(id string, cancel context.CancelFunc) bool {
+// 返回 false。runID 是这次运行的记录 id：核对它的结束时要按它精确清登记。
+func (r *runRegistry) hold(id, runID string, cancel context.CancelFunc) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if _, exists := r.running[id]; exists {
 		return false
 	}
 	r.running[id] = cancel
+	r.runIDs[id] = runID
 	return true
 }
 
@@ -88,11 +93,32 @@ func (r *runRegistry) end(id string) {
 	release := r.releases[id]
 	delete(r.running, id)
 	delete(r.releases, id)
+	delete(r.runIDs, id)
 	delete(r.controls, id)
 	r.mu.Unlock()
 	if release != nil {
 		release()
 	}
+}
+
+// endIf 清除 id 上**属于 runID 那条记录**的登记。登记的是别的运行（比如执行器结束后同一
+// 目标刚开始了新的手动运行）时返回 false 且不动——按目标清登记会误清新运行的取消入口、
+// 释放它刚占下的锁。
+func (r *runRegistry) endIf(id, runID string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.runIDs[id] != runID {
+		return false
+	}
+	release := r.releases[id]
+	delete(r.running, id)
+	delete(r.releases, id)
+	delete(r.runIDs, id)
+	delete(r.controls, id)
+	if release != nil {
+		release()
+	}
+	return true
 }
 
 // setControl 登记 id 的运行期控制通道（logcat-stream 启动时由 RunAction 注入）。

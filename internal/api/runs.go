@@ -256,11 +256,11 @@ type targetBusyError struct {
 func (e *targetBusyError) Error() string { return e.reason }
 
 // onTargetBusy 是目标正在运行时的处置，按发起来源分流（规格「目标锁与冲突」）：
-//   - 手动运行：返回「正在运行」，前端回到该目标的界面；
+//   - 手动运行（含续跑：没有调度标识）：返回「正在运行」，前端回到该目标的界面；
 //   - 立即运行：返回「已在运行，已跳过」，不动调度的最近结果；
 //   - 调度到点：留档为跳过并注明原因，不覆盖上一次真实运行的结果。
 func (s *Service) onTargetBusy(kind target.Kind, id string, params map[string]any, source *runSource) error {
-	if source == nil {
+	if source == nil || source.scheduleID == "" {
 		return fmt.Errorf("%s %q 正在运行", targetLabel(kind), id)
 	}
 	if source.origin == runstore.OriginRunNow {

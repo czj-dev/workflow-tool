@@ -11,6 +11,8 @@ import (
 
 	"workflow-tool/internal/registry"
 	"workflow-tool/internal/runstore"
+	"workflow-tool/internal/target"
+	"workflow-tool/internal/targetlock"
 )
 
 // 调度交给执行器之后，应用这边的行为：错过与补跑、停止、重启后的认领、续跑。
@@ -267,5 +269,92 @@ func TestResumeRunRejectsWhatItCannotResume(t *testing.T) {
 	done := waitRuns(t, svc, 1, allSettled)[0]
 	if _, err := svc.ResumeRun(done.ID); err == nil || !strings.Contains(err.Error(), "AI") {
 		t.Fatalf("resumed a non-AI run: %v", err)
+	}
+}
+
+// 续跑撞上正在运行的任务：是「手动运行撞锁」，返回「正在运行」——不能落成跳过的留痕，
+// 也不能在 scheduleRuns 里造出空 schedule_id 的幻影状态。
+func TestResumeRunOnBusyTargetReturnsBusyNotSkipped(t *testing.T) {
+	svc, _ := newAiSvc(t, "")
+	if err := svc.RunAi("t-ask", map[string]any{"TOPIC": "crash"}); err != nil {
+		t.Fatal(err)
+	}
+	first := waitRuns(t, svc, 1, allSettled)[0]
+
+	// 再占住任务：续跑这次发起撞上它
+	if _, ok := svc.aiRunning.begin("t-ask"); !ok {
+		t.Fatal("cannot reserve the AI task")
+	}
+	defer svc.aiRunning.end("t-ask")
+
+	if _, err := svc.ResumeRun(first.ID); err == nil || !strings.Contains(err.Error(), "正在运行") {
+		t.Fatalf("a busy target must refuse the resume with 正在运行, got %v", err)
+	}
+	runs := svc.ListRuns(RunFilter{TargetKind: "ai"}).Runs
+	if len(runs) != 1 {
+		t.Fatalf("a refused resume must not leave a run record: %+v", runs)
+	}
+	if _, ghost := svc.scheduleRuns[""]; ghost {
+		t.Fatal("a refused resume created a phantom scheduleRuns entry with an empty id")
+	}
+}
+
+// 执行器 R1 刚结束、同一目标上开始了新运行 R2：核对 R1 的结束只能清 R1 自己的登记，
+// 不能按目标清掉 R2 的取消入口、释放它刚占下的锁。
+func TestPollOfAFinishedExecutorRunKeepsANewerManualRunRegistered(t *testing.T) {
+	svc, dir := newRunSvc(t)
+	if err := svc.RunAction("sleep", nil); err != nil {
+		t.Fatal(err)
+	}
+	waitRegistered(t, svc.running, "sleep", true)
+
+	// 伪造一条同目标的执行器记录并直接落终态（模拟执行器刚跑完、记录先于 R2 存在）
+	sess, err := svc.runs.Start(runstore.Record{
+		Target: target.Target{Kind: target.Action, ID: "sleep"}, Origin: runstore.OriginSchedule,
+		ScheduleID: "check", Params: map[string]any{},
+		Process: &runstore.Process{Mode: runstore.ProcessExecutor},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	exit := 0
+	sess.Finish(runstore.StatusSucceeded, "", &exit, nil)
+	svc.pollExecutorRun(sess.ID())
+
+	if !svc.running.held("sleep") {
+		t.Fatal("the newer manual run lost its cancellation registration")
+	}
+	if !targetlock.New(dir).Busy(target.Action, "sleep") {
+		t.Fatal("the newer manual run's target lock was released")
+	}
+	// 它仍然停得掉
+	svc.CancelAction("sleep")
+	waitRegistered(t, svc.running, "sleep", false)
+}
+
+// 执行器把到点落成 skipped（撞上运行中的目标）：比对账把它登记为 LastRun——skipped 不覆盖
+// 上一次真实运行的结果，只在「上次到点」留痕。
+func TestPollOfSkippedExecutorRecordSetsLastSkipNotLastRun(t *testing.T) {
+	svc, _ := scheduleService(t, "")
+	if _, err := svc.SaveSchedule(validSchedule()); err != nil {
+		t.Fatal(err)
+	}
+	sess, err := svc.runs.Start(runstore.Record{
+		Target: target.Target{Kind: target.Action, ID: "patrol"}, Origin: runstore.OriginSchedule,
+		ScheduleID: "check", Params: map[string]any{},
+		Process: &runstore.Process{Mode: runstore.ProcessExecutor},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sess.Finish(runstore.StatusSkipped, `动作 "patrol" 正在运行`, nil, nil)
+	svc.pollExecutorRun(sess.ID())
+
+	item := svc.ListSchedules().Schedules[0]
+	if item.LastRun != nil {
+		t.Fatalf("a skipped executor run must not become LastRun: %+v", item.LastRun)
+	}
+	if item.LastSkip == nil || !strings.Contains(item.LastSkip.Reason, "正在运行") {
+		t.Fatalf("the skip must be noted as last skipped: %+v", item.LastSkip)
 	}
 }
