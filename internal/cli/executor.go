@@ -18,6 +18,11 @@ import (
 //
 //	接手记录（runstore.Attach）→ 占目标锁 → 运行，输出落进运行日志 → 落终态、释放锁
 //
+// 接手排在一切加载之前：应用的核对循环只认记录里的心跳与进程身份，加载目标与依赖
+// 要花秒级时间——先加载后接手的话，拉起到接手之间这条记录没有 pid 也没有心跳，核对
+// 循环会把运行误判成中断，执行器随后的接手必然失败（M4 上线后调度全部「没有过程」
+// 的竞态就是它；runstore.AttachGrace 兜住接手前残留的盲窗）。
+//
 // 运行期间每 heartbeatEvery 回写一次心跳；每 stopPollEvery 看一眼停止标记（应用写入
 // runs/<run-id>/STOP），见到即取消——取消经 ctx 传导，runner 杀掉整个进程组，以 cancelled
 // 收尾。不依赖 POSIX 信号，Windows 同样可用。
@@ -28,31 +33,44 @@ import (
 // ExecuteRecord 以执行器的身份接手并跑完一条运行记录，返回进程退出码。
 // allowAI 为 true 时放行 AI 任务与含 AI 步骤的 workflow（调度可以指向它们）。
 // 接手不了（没有这条记录、已终结）返回 exitCLIError，不动任何记录。
+// 接手先于加载：见文件头的说明。
 func ExecuteRecord(ctx context.Context, baseDir, runID string, allowAI bool) int {
+	sess, err := runstore.Attach(baseDir, runID)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "执行器无法接手运行记录:", err)
+		return exitCLIError
+	}
 	e := loadEnv(baseDir)
 	e.allowAI = allowAI
-	return e.executeRecord(ctx, runID)
+	return e.executeSession(ctx, sess)
 }
 
+// executeRecord 接手一条运行记录并跑完它（执行环境已就绪，测试直入这条路径）。
 func (e *env) executeRecord(ctx context.Context, runID string) int {
 	sess, err := runstore.Attach(e.baseDir, runID)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "执行器无法接手运行记录:", err)
 		return exitCLIError
 	}
+	return e.executeSession(ctx, sess)
+}
+
+// executeSession 跑一条已接手的运行记录。心跳与停止标记的轮询从进入这一刻就转起来：
+// 解析目标、构造执行段都可能耗时，别让它们再制造一段没有心跳的空窗。
+func (e *env) executeSession(ctx context.Context, sess *runstore.Session) int {
 	tgt := sess.Target()
 	log := runstore.NewLogEmitter(tgt.Kind == runstore.KindWorkflow)
 	log.Sink = sess
+
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	stopWatching := e.watchRun(cancel, sess, filepath.Join(e.baseDir, runstore.DirName, sess.ID(), runstore.StopFile))
+	defer stopWatching()
 
 	resolved, cerr := e.resolve(tgt.ID, string(tgt.Kind))
 	if cerr != nil {
 		return e.finishRecord(sess, log, cliFailure(cerr), "")
 	}
-
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	stopWatching := e.watchRun(cancel, sess, filepath.Join(e.baseDir, runstore.DirName, runID, runstore.StopFile))
-	defer stopWatching()
 
 	res, rules := e.runTarget(ctx, resolved, sess.Params(), "", func(stream, line string) { log.Output(stream, line) })
 	return e.finishRecord(sess, log, res, rules)

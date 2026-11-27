@@ -213,6 +213,42 @@ func TestPollInterruptsExecutorThatDiedWhileAppWasOpen(t *testing.T) {
 	}
 }
 
+// 执行器还没接手（pid 仍为 0）：拉起到接手之间没有心跳与进程身份可核对，宽限期内
+// Poll 不得把运行判成中断——误判会让执行器随后的接手必然失败（M4 竞态的回归测试）。
+// 宽限过后仍没接手才改写为中断。
+func TestPollGracesUnattachedExecutorUntilAttachGraceExpires(t *testing.T) {
+	dir := t.TempDir()
+	app := executorStore(t, dir, neverAlive, func() time.Time { return claimClock })
+	id := executorRun(t, app, "") // pid 0，执行器从未接手
+
+	for _, age := range []time.Duration{0, 2 * time.Second, AttachGrace - time.Second} {
+		app.now = func() time.Time { return claimClock.Add(age) }
+		if _, ended := app.Poll(id); ended {
+			t.Fatalf("poll at age %s interrupted a run whose executor is still starting up", age)
+		}
+		if rec := readRecord(t, dir, id); rec.Status != StatusRunning {
+			t.Fatalf("unattached run at age %s = %+v, want still running", age, rec)
+		}
+	}
+
+	app.now = func() time.Time { return claimClock.Add(AttachGrace + time.Second) }
+	rec, ended := app.Poll(id)
+	if !ended || rec.Status != StatusInterrupted || rec.Reason != ExecutorInterruptedReason {
+		t.Fatalf("poll after grace = (%+v, %v), want interrupted by the executor's absence", rec, ended)
+	}
+}
+
+// 启动对账同样给宽限：应用重启时执行器刚被拉起、还没接手，不误判中断。
+func TestReopenGracesUnattachedExecutor(t *testing.T) {
+	dir := t.TempDir()
+	id := executorRun(t, executorStore(t, dir, neverAlive, func() time.Time { return claimClock }), "")
+
+	reopened := executorStore(t, dir, neverAlive, func() time.Time { return claimClock.Add(5 * time.Second) })
+	if rec := reopened.List(Filter{})[0]; rec.Status != StatusRunning || rec.ID != id {
+		t.Fatalf("unattached executor run = %+v, want still running", rec)
+	}
+}
+
 // Poll 只管执行器运行：应用内自己的运行不读盘、不改写。
 func TestPollIgnoresInAppRuns(t *testing.T) {
 	dir := t.TempDir()

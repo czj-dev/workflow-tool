@@ -97,6 +97,12 @@ const (
 	// 此时改按进程身份（pid 与启动时刻）判断执行器是否还在。
 	HeartbeatInterval = 10 * time.Second
 	HeartbeatStale    = 30 * time.Second
+	// AttachGrace 是执行器接手记录的宽限：应用拉起执行器到执行器把进程信息写进记录
+	// 之间，记录里既没有 pid 也没有心跳——这段时间没有事实可核对，只能按记录的启动
+	// 时刻给一段宽限。拉起到接手本应只有一瞬（执行器先接手再加载），宽限盖住的是慢
+	// 启动（冷盘、杀毒扫描）与拉起后即刻退场的残留：把「还没接手」判成「执行器没了」
+	// 会让核对循环立刻把运行改写成中断，执行器随后的接手必然失败。
+	AttachGrace = 30 * time.Second
 )
 
 // AliveFunc 是进程身份核对函数的类型（别名自 procinfo.AliveFunc）：认领执行器时用，
@@ -279,8 +285,12 @@ func (s *Store) claimed(rec *Record) bool {
 
 // executorAlive 报告一条执行器运行是否还在跑：心跳在 HeartbeatStale 之内算在；心跳过期
 // 时核对 pid 与启动时间，进程仍在就再等一个心跳周期——机器刚从睡眠恢复时心跳看起来
-// 过期，执行器其实还活着。
+// 过期，执行器其实还活着。执行器还没接手（pid 仍为 0）时按启动时刻给 AttachGrace 的
+// 宽限：这段时间没有心跳与进程身份可核对，误判会把还没接手的运行改写成中断。
 func (s *Store) executorAlive(rec Record) bool {
+	if rec.Process.PID == 0 {
+		return s.now().Sub(rec.StartedAt) < AttachGrace
+	}
 	if heartbeat, err := time.Parse(time.RFC3339Nano, rec.Process.HeartbeatAt); err == nil {
 		if elapsed := s.now().Sub(heartbeat); elapsed >= 0 && elapsed <= HeartbeatStale {
 			return true

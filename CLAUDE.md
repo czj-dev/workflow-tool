@@ -77,14 +77,16 @@ internal/api/       Wails Service 绑定 + runRegistry 运行簿记（唯一依�
                     runregistry.go
 internal/cli/       headless 子命令 list / describe / run（供 Agent 从 shell 调用，绝不 import Wails）；
                     AI 任务与含 AI 步骤的 workflow 默认 ai_blocked（退出码 2），--allow-ai 显式放行，用法见 internal/cli/SKILL.md；
-                    兼任独立执行器（M4）：run --record <run-id> 接手应用建好的运行记录（executor.go）
+                    兼任独立执行器（M4）：run --record <run-id> 接手应用建好的运行记录（executor.go），
+                    先接手（写 pid 与首次心跳）再加载目标与依赖——先加载后接手会让应用侧核对循环在空窗里误判中断
 internal/apphome/   exe 目录约定与 baseDir 解析（main 与 cli 共用的单一真相源）
 internal/target/    「目标」的共享词汇：Kind（action / workflow / ai）与 Target；schedule 与 runstore 都依赖它，
                      不各自定义一份字符串常量靠「恰好相等」互认；不依赖仓库内其他包
 internal/runstore/  运行记录：runs/<run-id>/run.json（结论）+ events.ndjson（过程）；Start/Note/Finish（终态只写一次）、
                     内存索引 + List/Latest 查询、保留策略（每目标 50 次 / 30 天）；不依赖 Wails。
-                    M4：Open 按心跳与进程身份认领仍在运行的执行器运行（其余遗留 running 一律 interrupted）、
-                    Poll 供应用定期核对在途的执行器运行、Attach 让执行器接手一条记录（回写心跳、续写日志、落终态）、
+                    M4：Open 按心跳与进程身份认领仍在运行的执行器运行（其余遗留 running 一律 interrupted；
+                    未接手 pid=0 的给 30 秒接手宽限 AttachGrace，别把「还没接手」误判成「执行器没了」）、
+                    Poll 供应用定期核对在途的执行器运行、Attach 让执行器接手一条记录（回写 pid、心跳、续写日志、落终态）、
                     RequestStop 写 STOP 停止标记；LogEmitter 是运行日志行 / 前端事件 payload 的共同契约（取号 + 落盘）
 internal/procinfo/   进程身份核对：pid + 启动时刻 → 是否仍是那个进程（Alive/Self）。目标锁判残留、运行记录认领共用；
                      启动时刻向系统查（unix 走 ps -o etime=，Windows 走 PowerShell Get-Process），容差 10 秒

@@ -43,9 +43,6 @@ func cmdRun(args []string) int {
 		return exitCLIError
 	}
 
-	e := loadEnv(apphome.ResolveBaseDir(*baseDir))
-	e.allowAI = *allowAI
-
 	// 信号 → ctx 取消（子进程清理复用 runner 的 pgid 逻辑）；可选 --timeout 封顶。
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -55,9 +52,15 @@ func cmdRun(args []string) int {
 		defer cancel()
 	}
 
+	base := apphome.ResolveBaseDir(*baseDir)
+	// 执行器模式：先接手记录再加载目标（见 internal/cli/executor.go 的说明），loadEnv
+	// 不能放在它前面——加载耗时会让应用侧的核对循环在执行器接手之前把运行判成中断。
 	if *record != "" {
-		return e.executeRecord(ctx, *record)
+		return ExecuteRecord(ctx, base, *record, *allowAI)
 	}
+
+	e := loadEnv(base)
+	e.allowAI = *allowAI
 	if len(rest) == len(args) {
 		fmt.Fprintln(os.Stderr, "用法: workflow-tool run <id> [--json] [--params <json>|@file|@-] [--kind ..] [--device ..] [--allow-ai] [--base-dir ..] [--timeout ..]")
 		return exitCLIError
