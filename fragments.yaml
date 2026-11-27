@@ -79,3 +79,7 @@ fragments:
       content: adb shell dumpsys virtualcar_service inject-virtual-event 0x31400201 0 4
       tags:
         - adb
+    - title: 热词
+      content: 'setHotWordWithCallBack - appId:'
+      tags:
+        - Log
