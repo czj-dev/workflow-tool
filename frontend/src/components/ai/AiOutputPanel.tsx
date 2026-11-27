@@ -283,7 +283,7 @@ function ToolSegmentView({ seg, live }: { seg: Extract<AiSegment, { kind: "tool"
       />
       <CollapsibleContent className="animate-collapsible-down data-[state=closed]:animate-collapsible-up">
         {seg.result != null && (
-          <pre className="mt-1.5 max-h-64 overflow-auto rounded-md bg-muted/60 p-2.5 font-mono text-[11.5px] leading-relaxed text-muted-foreground">
+          <pre className="mt-1.5 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded-md bg-muted/60 p-2.5 font-mono text-[11.5px] leading-relaxed text-muted-foreground">
             {seg.result}
           </pre>
         )}
