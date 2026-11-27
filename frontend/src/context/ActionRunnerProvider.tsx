@@ -17,7 +17,9 @@ import {
   ListActions,
   RunAction,
   CancelAction,
+  GetAgentConfig,
   GetGlobalConfig,
+  SetAgentConfig,
   SetGlobalConfig,
   GetVarReferenceCounts,
   GetFragments,
@@ -51,6 +53,7 @@ import {
 } from "../../bindings/workflow-tool/internal/api/service.js";
 import type {
   ActionItem,
+  AgentConfig,
   AiTaskItem,
   ScheduleInput,
   ScheduleItem,
@@ -188,6 +191,8 @@ export interface RunnerContextValue {
   exitInfo: ExitInfo | null;
   // Phase 3 新增
   globalConfig: Record<string, string>;
+  // Agent 三键当前值（用户级 auth.json；Settings → Agent 表单初值）
+  agentConfig: AgentConfig;
   varRefCounts: Record<string, number | undefined>;
   formValues: Record<string, string>;
   view: RunnerView;
@@ -309,6 +314,9 @@ export interface RunnerContextValue {
   copyOutput: () => Promise<void>;
   selectPreset: (actionId: string, presetName: string) => void;
   saveGlobalConfig: (kv: Record<string, string>) => Promise<void>;
+  // Agent 三键保存（Settings → Agent 表单）：只收三个已知字段；auth.json 里的未知键
+  // 由后端保存时原样保留（前端不感知）
+  saveAgentConfig: (cfg: { baseUrl: string; authKey: string; model: string }) => Promise<void>;
   saveFragments: (list: Fragment[]) => Promise<void>;
   setView: (v: RunnerView) => void;
   setFormValue: (id: string, value: string) => void;
@@ -370,6 +378,13 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
   const [status, setStatus] = useState<Status>("idle");
   const [exitInfo, setExitInfo] = useState<ExitInfo | null>(null);
   const [globalConfig, setGlobalConfig] = useState<Record<string, string>>({});
+  // Agent 三键（auth.json）：AI 运行时由后端按次合并生效，前端只在 Settings → Agent 编辑
+  const [agentConfig, setAgentConfig] = useState<AgentConfig>({
+    baseUrl: "",
+    authKey: "",
+    model: "",
+    extra: undefined,
+  });
   const [varRefCounts, setVarRefCounts] = useState<Record<string, number | undefined>>({});
   const [formValues, setFormValues] = useState<Record<string, string>>({});
   const [view, setViewState] = useState<RunnerView>("output");
@@ -788,6 +803,20 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       .then((g) => setGlobalConfig((g ?? {}) as Record<string, string>))
       .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // 挂载时拉取 Agent 三键（用户级 auth.json）：缺失=零值表单；损坏=后端报 error，
+  // 这里归空表单不阻塞设置页（保存时后端会拒绝覆盖损坏文件并返回原因）。
+  // async + try/catch（同 refreshSchedules）：读失败不影响其余挂载拉取。
+  useEffect(() => {
+    const load = async () => {
+      try {
+        setAgentConfig(await GetAgentConfig());
+      } catch {
+        // 读失败保持空表单
+      }
+    };
+    void load();
   }, []);
 
   // 挂载时拉取指令片段
@@ -1752,6 +1781,14 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     setGlobalConfig(kv);
   };
 
+  // saveAgentConfig：Settings → Agent 保存。extra 显式置 undefined 满足生成类型的
+  // 必填形状；后端 SetAgentConfig 只取已知字段，auth.json 未知键原样保留。
+  const saveAgentConfig = async (cfg: { baseUrl: string; authKey: string; model: string }) => {
+    const next: AgentConfig = { ...cfg, extra: undefined };
+    await SetAgentConfig(next);
+    setAgentConfig(next);
+  };
+
   const saveFragments = async (list: Fragment[]) => {
     await SetFragments(list);
     setFragments(list);
@@ -1948,6 +1985,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     isRunning: (id: string) => runningIds.has(id) || aiRunningIds.has(id) || !!aiHolders[id],
     exitInfo,
     globalConfig,
+    agentConfig,
     varRefCounts,
     formValues,
     view,
@@ -2020,6 +2058,7 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
     copyOutput,
     selectPreset,
     saveGlobalConfig,
+    saveAgentConfig,
     saveFragments,
     setView,
     setFormValue,

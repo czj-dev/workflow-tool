@@ -22,9 +22,10 @@ func TestAiDirectoryValidates(t *testing.T) {
 	if len(aiReg.Tasks) == 0 {
 		t.Fatal("no ai tasks loaded from ai/")
 	}
-	// M1 从 actions/ 迁来的 5 个任务：id 不变，且只存在于 ai/（迁移是搬家不是复制）
-	migrated := []string{"claude-ask", "claude-bug-analyze", "claude-card-transfrom",
-		"demo-llm-skill", "xdzs-verify-fix"}
+	// M1 从 actions/ 迁来的 4 个任务（原 claude-* 前缀改 ai-*，问 LLM 归演示组改
+	// demo-ask；demo-llm-skill 演示任务已删除）：且只存在于 ai/（迁移是搬家不是复制）
+	migrated := []string{"demo-ask", "ai-bug-analyze", "ai-card-transfrom",
+		"xdzs-verify-fix"}
 	for _, id := range migrated {
 		if _, ok := aiReg.Get(id); !ok {
 			t.Errorf("ai task %q not loaded", id)

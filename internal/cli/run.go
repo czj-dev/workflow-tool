@@ -23,8 +23,8 @@ import (
 // cmdRun 执行 action / workflow / AI 任务。args[0] 是目标 id，flags 跟其后；执行器模式
 // （--record）没有位置参数，目标与输入取自运行记录。
 //
-// AI 任务与含 AI 步骤的 workflow 默认 ai_blocked：无人值守的 AI 运行固定 bypassPermissions，
-// 必须用 --allow-ai 显式放行（调度与立即运行经执行器发起，应用替它们给出这个标志）。
+// AI 任务与含 AI 步骤的 workflow 默认 ai_blocked：无人值守的 AI 运行无审批门控（pi
+// --no-approve，ADR-0008），必须用 --allow-ai 显式放行（调度与立即运行经执行器发起，应用替它们给出这个标志）。
 func cmdRun(args []string) int {
 	rest := args
 	if len(args) > 0 && args[0] != "" && args[0][0] != '-' {
@@ -37,7 +37,7 @@ func cmdRun(args []string) int {
 	deviceSerial := fs.String("device", "", "adb 设备 serial")
 	kind := fs.String("kind", "", "action|workflow|ai（撞名消歧）")
 	timeout := fs.Duration("timeout", 0, "整次运行超时，如 30s/5m，默认不限")
-	allowAI := fs.Bool("allow-ai", false, "放行 AI 任务与含 AI 步骤的 workflow（无人值守，权限固定 bypass）")
+	allowAI := fs.Bool("allow-ai", false, "放行 AI 任务与含 AI 步骤的 workflow（无人值守，无审批门控）")
 	record := fs.String("record", "", "执行器模式：接手这条运行记录（run-id），目标与输入取自记录")
 	if err := fs.Parse(rest); err != nil {
 		return exitCLIError

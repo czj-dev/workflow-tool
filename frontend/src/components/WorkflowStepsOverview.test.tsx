@@ -35,9 +35,9 @@ describe("WorkflowStepsOverview", () => {
   });
 
   it("渲染 ai 步的 label 与 kind 文案", () => {
-    const steps: WorkflowStepInfo[] = [{ kind: "ai", label: "claude-ask", name: "" }];
+    const steps: WorkflowStepInfo[] = [{ kind: "ai", label: "demo-ask", name: "" }];
     render(<WorkflowStepsOverview steps={steps} />);
-    expect(screen.getByText("claude-ask")).toBeInTheDocument();
+    expect(screen.getByText("demo-ask")).toBeInTheDocument();
     expect(screen.getByText("ai")).toBeInTheDocument();
   });
 });

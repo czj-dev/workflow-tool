@@ -169,15 +169,15 @@ describe("decayAndBump", () => {
 describe("groupByPrefix", () => {
   it("按 id 第一段前缀分组", () => {
     // Arrange
-    const items = [mk("adb-logcat"), mk("adb-install"), mk("claude-ask")];
+    const items = [mk("adb-logcat"), mk("adb-install"), mk("ai-bug-analyze")];
 
     // Act
     const groups = groupByPrefix(items);
 
     // Assert
-    expect(Object.keys(groups).sort()).toEqual(["adb", "claude"]);
+    expect(Object.keys(groups).sort()).toEqual(["adb", "ai"]);
     expect(groups.adb.map((a) => a.id)).toEqual(["adb-logcat", "adb-install"]);
-    expect(groups.claude.map((a) => a.id)).toEqual(["claude-ask"]);
+    expect(groups.ai.map((a) => a.id)).toEqual(["ai-bug-analyze"]);
   });
 
   it("无连字符的 id 归入 MISC 组", () => {
@@ -203,7 +203,7 @@ describe("groupByPrefix", () => {
 describe("groupLabel", () => {
   it("已注册前缀返回规范显示名", () => {
     expect(groupLabel("adb")).toBe("ADB");
-    expect(groupLabel("claude")).toBe("Claude");
+    expect(groupLabel("ai")).toBe("AI");
   });
 
   it("未注册前缀首字母大写", () => {

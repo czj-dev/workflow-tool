@@ -38,7 +38,7 @@ steps:                         # 必填，至少一步
     shell: bash                # 可选修饰：解释器（bash/sh/pwsh/powershell/python/node/cmd 或自定义模板），只搭配 run
     timeout: 30s               # 仅 run step 有效
 
-  - ai: claude-bug-analyze     # 形态 D：调用 ai/ 下的 AI 任务
+  - ai: ai-bug-analyze         # 形态 D：调用 ai/ 下的 AI 任务
     params: { BUG_URL: "${{ params.BUG_URL }}" }   # 可选，本次运行的输入（只做 ${{ }} 替换）
 
   - run: flaky-command         # 可选修饰符（任意形态可用）
@@ -118,14 +118,14 @@ steps:
 steps:
   - id: analyze
     name: 分析卡片
-    ai: claude-bug-analyze
+    ai: ai-bug-analyze
     params:
       BUG_URL: ${{ params.BUG_URL }}
 
   - id: summarize
     name: 压缩成三行结论
     if: steps.analyze.outputs.success == 'true'
-    ai: claude-ask
+    ai: demo-ask
     params:
       prompt: |
         把下面的报告压缩成三行结论：

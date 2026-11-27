@@ -55,6 +55,15 @@ logs/
 # 调度器的「上次评估时刻」（运行时生成，exe 同级，不入仓库）
 schedules.state.json
 
+# pi 运行时目录（hermetic agent/会话，运行时生成，exe 同级，不入仓库）
+pi-agent/
+pi-sessions/
+
+# 随包分发的 pi 二进制探测位（<BaseDir>/pi/pi，本地自备；AI_PI_BIN 显式指定时不适用）。
+# 目录本身不能整目录忽略（否则 ! 例外进不去），改为忽略内容；仅版本标注文件入库
+/pi/*
+!/pi/version.yaml
+
 # 业务 skill 本体（含敏感数据，各端自备；yaml 引用保留，缺技能时对应动作加载失败）
 skills/icafe-bug-analyzer/
 skills/icafe-skill/

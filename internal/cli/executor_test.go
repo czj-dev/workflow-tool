@@ -21,12 +21,15 @@ import (
 // 执行器（M4）与 CLI 放行：调度到点与立即运行交给同一可执行文件的 run 子命令，它接手
 // 应用建好的运行记录——占目标锁、写心跳、续写日志、落终态；AI 任务经 --allow-ai 放行。
 
-// fakeAICli 模拟 AI CLI 的 stream-json 输出：先给 session_id，再吐回复与 result 事件。
+// fakeAICli 模拟 pi --mode json 的事件流：先给 session id，再吐回复增量（ai 流）、
+// 收口消息（usage 权威值随 message_end）与 agent_settled。事件形状对齐
+// runner/testdata/pi_stream.jsonl。
 const fakeAICli = `#!/bin/sh
 cat > /dev/null
-printf '%s\n' '{"type":"system","subtype":"init","session_id":"sess-1"}'
-printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"你好"}]}}'
-printf '%s\n' '{"type":"result","total_cost_usd":0.0125,"usage":{"input_tokens":10,"output_tokens":5}}'
+printf '%s\n' '{"type":"session","id":"sess-1"}'
+printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"你好"}}'
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"你好"}],"stopReason":"stop","usage":{"input":10,"output":5,"totalTokens":15,"cost":{"total":0.0125}}}}'
+printf '%s\n' '{"type":"agent_settled","aborted":false}'
 `
 
 // executorBaseDir 建一个应用目录：ok / sleep 两个动作、ask 一个 AI 任务（假 CLI）。
@@ -50,7 +53,15 @@ func executorBaseDir(t *testing.T) string {
 	write("actions/sleep.yaml", "id: sleep\ntitle: Sleep\ncommand:\n  run: sleep 30\n", 0o644)
 	write("workflows/with-ai.yaml", "id: with-ai\ntitle: With AI\nsteps:\n  - run: echo step-one\n  - id: analyze\n    ai: ask\n", 0o644)
 	write("ai/ask.yaml", "id: ask\ntitle: Ask\nprompt: 介绍一下部署流程\n", 0o644)
-	if err := registry.SaveGlobal(filepath.Join(dir, "config.yaml"), map[string]string{"AI_CLI": filepath.Join(dir, "fake-ai.sh")}); err != nil {
+	// 用户目录重定向到空临时目录：AI 运行会读 auth.json（AgentConfig），不碰真实
+	// ~/.workflow-tool，也不受它当前内容的影响（本包测试全部经此 fixture）。
+	t.Setenv("WORKFLOW_TOOL_USER_HOME", t.TempDir())
+	// pi 三键 + AI_PI_BIN 指向假 pi：假脚本不消费端点与模型，但 Build 的三键校验
+	// 与可执行解析必须照常通过。
+	if err := registry.SaveGlobal(filepath.Join(dir, "config.yaml"), map[string]string{
+		"AI_BASE_URL": "http://oneapi.example/v1", "AI_AUTH_KEY": "k-test", "AI_MODEL": "M-TEST",
+		"AI_PI_BIN": filepath.Join(dir, "fake-ai.sh"),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	return dir
@@ -461,4 +472,36 @@ func captureStdout(t *testing.T, fn func() int) string {
 		t.Fatalf("cmdRun exit code = %d, output %s", code, out)
 	}
 	return string(out)
+}
+
+// CLI 的 auth.json 接线：config.yaml 不带三键、用户级 auth.json（设置页保存的同一
+// 份文件）提供三键时，--allow-ai 运行照常通过校验——GUI 与 shell 路径同一合并语义。
+func TestCLIRunUsesAgentConfigAuth(t *testing.T) {
+	dir := executorBaseDir(t)
+	// config.yaml 清三键，只留假 pi
+	if err := registry.SaveGlobal(filepath.Join(dir, "config.yaml"), map[string]string{
+		"AI_PI_BIN": filepath.Join(dir, "fake-ai.sh"),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	userDir, _ := os.LookupEnv("WORKFLOW_TOOL_USER_HOME")
+	if err := registry.SaveAuth(filepath.Join(userDir, "auth.json"), map[string]string{
+		"AI_BASE_URL": "http://oneapi.example/v1", "AI_AUTH_KEY": "k-test", "AI_MODEL": "M-TEST",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	e := loadEnv(dir)
+	e.allowAI = true
+	ask, cerr := e.resolve("ask", "ai")
+	if cerr != nil {
+		t.Fatal(cerr)
+	}
+	res, _ := e.runTarget(context.Background(), ask, map[string]any{}, "", func(string, string) {})
+	if res.ExitCode != 0 || res.Err != nil {
+		t.Fatalf("三键来自 auth.json 的 AI 运行应成功: exit=%d err=%v", res.ExitCode, res.Err)
+	}
+	if res.Outputs["text"] != "你好" {
+		t.Fatalf("回复不符: %v", res.Outputs)
+	}
 }

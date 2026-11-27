@@ -31,3 +31,24 @@ func ResolveBaseDir(flagVal string) string {
 	}
 	return ExeDir()
 }
+
+// UserDir 返回用户级配置目录：环境变量 WORKFLOW_TOOL_USER_HOME > ~/.workflow-tool。
+// 与 exe 侧 baseDir（WORKFLOW_TOOL_HOME）是两条独立的轴：baseDir 装可执行文件同级、
+// 可随包分发的内容（actions/、config.yaml…），UserDir 装不该随包走的用户数据
+// （auth.json——Agent 三键）。HomeDir 不可用时回退 "."（与 ExeDir 的容错一致）。
+func UserDir() string {
+	if v := os.Getenv("WORKFLOW_TOOL_USER_HOME"); v != "" {
+		return v
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "."
+	}
+	return filepath.Join(home, ".workflow-tool")
+}
+
+// AuthPath 返回 Agent 三键（AI_BASE_URL / AI_AUTH_KEY / AI_MODEL）的存取位置：
+// <UserDir>/auth.json。用户级文件，不随可执行文件分发，密钥不进 exe 同级目录。
+func AuthPath() string {
+	return filepath.Join(UserDir(), "auth.json")
+}

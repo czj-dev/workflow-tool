@@ -24,7 +24,7 @@ import (
 const (
 	ParamPrompt = "prompt" // 出现即替换定义里的 prompt 模板
 	ParamSystem = "system" // 出现即替换定义里的 system 模板
-	ParamResume = "resume" // 非空时以 --resume 续接该会话，否则新开会话
+	ParamResume = "resume" // 非空时以 --session 续接该会话，否则新开会话
 )
 
 // DefaultTimeout 是任务未写 timeout 时的运行上限。

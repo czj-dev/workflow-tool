@@ -1,6 +1,7 @@
 package apphome
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 )
@@ -34,4 +35,34 @@ func TestExeDirAbsentActionsFallsBackToDot(t *testing.T) {
 	if got != "." && filepath.Base(got) == "" {
 		t.Fatalf("ExeDir 返回非法路径 %q", got)
 	}
+}
+
+func TestUserDir(t *testing.T) {
+	t.Run("环境变量覆盖", func(t *testing.T) {
+		t.Setenv("WORKFLOW_TOOL_USER_HOME", "/user/home")
+		if got := UserDir(); got != "/user/home" {
+			t.Fatalf("应取环境变量，got %q", got)
+		}
+	})
+
+	t.Run("无环境变量时回退 ~/.workflow-tool", func(t *testing.T) {
+		t.Setenv("WORKFLOW_TOOL_USER_HOME", "")
+		home, err := os.UserHomeDir()
+		if err != nil {
+			t.Skip("无 HomeDir 可用")
+		}
+		want := filepath.Join(home, ".workflow-tool")
+		if got := UserDir(); got != want {
+			t.Fatalf("UserDir = %q，want %q", got, want)
+		}
+	})
+
+	t.Run("auth.json 落在用户目录下", func(t *testing.T) {
+		t.Setenv("WORKFLOW_TOOL_USER_HOME", "/user/home")
+		// 独立于 baseDir 的轴：WORKFLOW_TOOL_HOME 不影响它
+		t.Setenv("WORKFLOW_TOOL_HOME", "/exe/dir")
+		if got := AuthPath(); got != "/user/home/auth.json" {
+			t.Fatalf("AuthPath = %q", got)
+		}
+	})
 }

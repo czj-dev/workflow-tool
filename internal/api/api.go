@@ -2,14 +2,13 @@
 // 按域拆文件：actions.go（动作 CRUD/列表）、run.go（直跑执行）、workflows.go
 // （workflow CRUD/执行）、ai.go（AI 任务 CRUD/列表）、events.go（事件发射器与顺序
 // 协议）、devices.go（设备选择）、
-// config.go（全局配置/片段）、dialog.go（原生对话框）、runregistry.go（运行簿记）、
+// config.go（全局配置/片段/Agent 三键 auth.json）、dialog.go（原生对话框）、runregistry.go（运行簿记）、
 // schedules.go（调度 CRUD 与到点发起）、runs.go（运行记录查询与接入点）。
 package api
 
 import (
 	"context"
 	"log"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -21,6 +20,7 @@ import (
 	"workflow-tool/internal/adb/device"
 	"workflow-tool/internal/ai"
 	"workflow-tool/internal/airun"
+	"workflow-tool/internal/apphome"
 	"workflow-tool/internal/applog"
 	"workflow-tool/internal/builtinvars"
 	"workflow-tool/internal/registry"
@@ -42,6 +42,7 @@ type Service struct {
 	baseDir   string
 	cfgPath   string // config.yaml 路径
 	fragPath  string // fragments.yaml 路径
+	authPath  string // 用户级 auth.json 路径（Agent 三键，apphome.AuthPath()）
 	global    map[string]string
 	gMu       sync.Mutex // 保护 global 的读写
 	fragments []registry.Fragment
@@ -106,6 +107,7 @@ func New(reg *registry.Registry, wfReg *workflow.WorkflowRegistry, baseDir, cfgP
 		baseDir:      baseDir,
 		cfgPath:      cfgPath,
 		fragPath:     fragPath,
+		authPath:     apphome.AuthPath(),
 		global:       g,
 		fragments:    frags,
 		running:      newRunRegistry(target.Action, locks),
@@ -145,12 +147,12 @@ func New(reg *registry.Registry, wfReg *workflow.WorkflowRegistry, baseDir, cfgP
 	svc.builtins = builtinvars.New(svc.dev)
 	svc.runDeps = actionrun.Deps{BaseDir: baseDir, ADBPaths: svc.binPaths, ADBDevice: svc.dev, Builtins: svc.builtins, BashPath: svc.bashOverride}
 	svc.aiDeps = airun.Deps{BaseDir: baseDir, Builtins: svc.builtins,
-		SkillRouter: &airun.SkillRouter{
-			// 惰性取当前 registry（热重载后 Skills 随之更新）
-			Skills:     func() map[string]registry.SkillMeta { return svc.actionRegistry().Skills },
-			HomeDir:    func() string { h, _ := os.UserHomeDir(); return h },
-			LedgerPath: filepath.Join(baseDir, "skills.synced.json"),
-		}}
+		// 惰性取当前 registry（热重载后 Skills 随之更新）
+		SkillDirs: airun.SkillDirResolver(
+			func() map[string]registry.SkillMeta { return svc.actionRegistry().Skills }),
+		// 每次运行现读 auth.json（不缓存）：Settings → Agent 保存后下一次运行即生效
+		AgentConfig: func() (map[string]string, error) { return registry.LoadAuth(svc.authPath) },
+	}
 	return svc
 }
 

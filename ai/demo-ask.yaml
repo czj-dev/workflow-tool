@@ -1,7 +1,7 @@
-id: claude-ask
+id: demo-ask
 title: 问 LLM
 icon: hi:ai
-description: 输入问题，LLM 流式回答；CLI 由 config.yaml AI_CLI 决定，默认 ducc
+description: 输入问题，LLM 流式回答；模型与端点由用户级 auth.json 三键（AI_BASE_URL / AI_AUTH_KEY / AI_MODEL，Settings → Agent 编辑）决定
 presets:
   - name: 打招呼
     values: { prompt: 用一句话介绍你自己 }

@@ -156,7 +156,7 @@ step.env > workflow.env > command.env > step.params > workflow.params > config.y
 
 ## AI 调用不属于动作
 
-需要调用 Agent CLI（`claude`、`ducc` 等）时不写动作，而是写一个 AI 任务：`ai/` 目录下的独立定义，有自己的会话页、输入参数、守则与产出，见 [AI 任务定义指南](ai.md)。
+需要调用 Agent（pi，唯一 AI 运行器，ADR-0008）时不写动作，而是写一个 AI 任务：`ai/` 目录下的独立定义，有自己的会话页、输入参数、守则与产出，见 [AI 任务定义指南](ai.md)。
 
 动作曾经有第四种形态 `command.llm`，现已整体独立出去，不再被识别——留在 `actions/` 里的这类文件加载时报「command 必须指定 run/script/adb 之一」。迁移方法见 ai.md 的「从 command.llm 迁移」。
 

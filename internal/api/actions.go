@@ -169,9 +169,14 @@ func (s *Service) OpenActionsDir() error {
 var varRefRe = regexp.MustCompile(`\$\{([A-Za-z0-9_]+)\}|\$env:([A-Za-z0-9_]+)`)
 
 // GetVarReferenceCounts 统计每个变量被多少处引用：
-// 所有 action 的 shell 命令 + script 脚本文件内容 + AI 任务的 prompt/system/cwd/env
-// + 指令片段。
-// 同一处（一个 action 或一个片段）内重复引用只计一次，体现「是否被用到」。
+// 所有 action 的 shell 命令 + cwd + env 值 + script 脚本文件内容 + params 默认值 +
+// preset 值 + AI 任务的 prompt/system/cwd/env/params 默认值 + workflow 的
+// env/params 默认值/step 字段 + 指令片段。
+// 同一字段内重复引用只计一次，体现「是否被用到」。
+// params 默认值与 action preset 值都是模板：动作经 withActionDefaults /
+// expandDirectParams、AI 任务经 resolveInputs 的 fromDefault 展开分支、workflow
+// 参数经表单预填进 merged 后 ExpandParams——漏扫会让仅被默认值引用的变量
+// （如 log-spm-download 的 ${LOGS_DIR}）在全局配置页显示未使用。
 func (s *Service) GetVarReferenceCounts() map[string]int {
 	counts := map[string]int{}
 	add := func(text string) {
@@ -187,12 +192,21 @@ func (s *Service) GetVarReferenceCounts() map[string]int {
 			}
 		}
 	}
-	// actions：inline run + cwd + env values + script 脚本文件内容
+	// actions：inline run + cwd + env values + script 脚本文件内容 + params 默认值 +
+	// presets 值（preset 提交后与其他参数一起经 expandDirectParams 展开）
 	for _, la := range s.actionRegistry().Actions {
 		add(la.Def.Command.Run)
 		add(la.Def.Command.Cwd)
 		for _, v := range la.Def.Command.Env {
 			add(v)
+		}
+		for _, spec := range la.Def.Params {
+			add(spec.Default)
+		}
+		for _, p := range la.Def.Presets {
+			for _, v := range p.Values {
+				add(v)
+			}
 		}
 		if la.Def.Command.Script != "" {
 			if data, ok := readScriptBytes(la.Def.Command.Script, s.baseDir); ok {
@@ -200,7 +214,9 @@ func (s *Service) GetVarReferenceCounts() map[string]int {
 			}
 		}
 	}
-	// ai tasks：prompt / system / cwd / env 值都是模板，运行时经 runner.Expand 展开
+	// ai tasks：prompt / system / cwd / env 值 / params 默认值都是模板，运行时经
+	// runner.Expand 展开（默认值见 airun 的 fromDefault 展开分支）。AI preset 不扫：
+	// 已声明参数的 preset 值是字面输入不做模板展开，仅 prompt/system 覆盖值是模板。
 	for _, lt := range s.aiRegistry().Tasks {
 		add(lt.Task.PromptText())
 		add(lt.Task.System)
@@ -208,12 +224,18 @@ func (s *Service) GetVarReferenceCounts() map[string]int {
 		for _, v := range lt.Task.Env {
 			add(v)
 		}
+		for _, spec := range lt.Task.Params {
+			add(spec.Default)
+		}
 	}
-	// workflows：workflow 级 env + 每个 step 的 shell / params / env 值
+	// workflows：workflow 级 env + 声明参数默认值 + 每个 step 的 shell / params / env 值
 	// （运行时这些字段都会被 runner.Expand 展开 ${VAR}，故都需统计引用）
 	for _, lw := range s.workflowRegistry().Workflows {
 		for _, v := range lw.Def.Env {
 			add(v)
+		}
+		for _, spec := range lw.Def.Params {
+			add(spec.Default)
 		}
 		for _, step := range lw.Def.Steps {
 			add(step.Run)

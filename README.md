@@ -10,7 +10,7 @@
 - **多步骤工作流**：`workflows/` 定义串行 step（引用 action / 内联 shell / sleep / AI 任务），支持 retry、continue_on_error、`if` 条件跳过与步骤 outputs（`${{ }}`）引用
 - **定时调度**：`schedules.yaml` 用 5 段 cron（分钟粒度）定时运行动作、工作流或 AI 任务，调度面板可增删、启停、立即运行；目标正忙时到点记为跳过而不是失败；调度器跑在应用进程内，应用须在到点时运行，到点后把运行交给独立执行器（应用退出后照常跑完，重启后认领）；应用没在运行时溜走的到点记为错过，可选 `catch_up` 补跑
 - **运行记录**：每次运行（手动、调度、立即运行）都在 `runs/` 留下结论与可回放的输出日志，运行记录列表可按目标、状态、来源筛选，运行详情回放过程（AI 运行还原成工序段）、停止运行中的记录，AI 运行可一键续跑
-- **AI 任务**：`ai/` 下的 YAML 把「意图 + 输入」交给本机 Agent CLI（`config.yaml` 的 `AI_CLI` 指定）执行；聊天式会话页 + 工序轨道面板透出思考与工具调用，历次运行留档可查，支持 `resume` 续接会话，也可作为工作流的一步或被调度定时运行
+- **AI 任务**：`ai/` 下的 YAML 把「意图 + 输入」交给 pi（唯一 AI 运行器，OpenAI 兼容端点经用户级 `~/.workflow-tool/auth.json` 三键 `AI_BASE_URL` / `AI_AUTH_KEY` / `AI_MODEL` 配置——设置页「Agent」分类编辑，0600 落盘不随包分发，ADR-0008）执行；聊天式会话页 + 工序轨道面板透出思考与工具调用，历次运行留档可查，支持 `resume` 续接会话，也可作为工作流的一步或被调度定时运行
 - **设备选择器**：adb 设备下拉选择，展开即刷新列表
 - **内置 YAML 编辑器**：CodeMirror 6，Action / Workflow / AI 任务卡片标题直达编辑
 - **adb 域 operation**：install / push 走 PTY 实时进度，input-text 支持中文（ADBKeyboard 输入法广播），foreground-info 前台信息三段展示
@@ -131,7 +131,7 @@ steps:
 ## AI 任务定义（ai/*.yaml）
 
 ```yaml
-id: claude-bug-analyze
+id: ai-bug-analyze
 title: 分析 bug 卡片
 system: |
   你是 bug 分析师，只基于取到的证据下结论。
@@ -181,7 +181,7 @@ workflow-tool/
 │   ├── adb/            adb 域 operation 子包（package / file / input / logcat / foreground / scrcpy…）
 │   ├── adbcore/        跨平台进程基座（执行 / PTY / 进程组 / 校验）
 │   ├── ai/             AI 任务 schema / 校验 / 加载
-│   ├── airun/          AI 任务 → AIRunner 构造（输入合并 / 模板展开 / 守则 / skill 同步）
+│   ├── airun/          AI 任务 → AIRunner 构造（输入合并 / 模板展开 / 守则 / pi 初始化 / skill 零拷贝）
 │   ├── runner/         Runner 接口 + Shell/Sleep/AI Runner + 变量展开
 │   ├── builtinvars/    内置变量（CURRENT_DATE / CURRENT_TIME / ADB_SERIAL）
 │   ├── registry/       actions + config + fragments 加载校验

@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"os"
 	"path/filepath"
 	"time"
 
@@ -10,6 +9,7 @@ import (
 	"workflow-tool/internal/adb/device"
 	"workflow-tool/internal/ai"
 	"workflow-tool/internal/airun"
+	"workflow-tool/internal/apphome"
 	"workflow-tool/internal/builtinvars"
 	"workflow-tool/internal/registry"
 	"workflow-tool/internal/runstore"
@@ -66,19 +66,13 @@ func loadEnv(baseDir string) *env {
 		BashPath:  func() string { return global["BASH_PATH"] },
 	}
 	aiDeps := airun.Deps{BaseDir: baseDir, Builtins: builtins,
-		SkillRouter: &airun.SkillRouter{
-			Skills:     func() map[string]registry.SkillMeta { return reg.Skills },
-			HomeDir:    homeDir,
-			LedgerPath: filepath.Join(baseDir, "skills.synced.json"),
-		}}
+		SkillDirs: airun.SkillDirResolver(func() map[string]registry.SkillMeta { return reg.Skills }),
+		// 每次运行现读用户级 auth.json（apphome.AuthPath()）：与 api 路径同一合并
+		// 语义，GUI 与 shell 跑同一份 Agent 配置。
+		AgentConfig: func() (map[string]string, error) { return registry.LoadAuth(apphome.AuthPath()) }}
 	return &env{baseDir: baseDir, reg: reg, wfReg: wfReg, aiReg: aiReg, global: global, builtins: builtins,
 		dev: dev, deps: deps, aiDeps: aiDeps, locks: targetlock.New(baseDir),
 		heartbeatEvery: runstore.HeartbeatInterval, stopPollEvery: time.Second}
-}
-
-func homeDir() string {
-	h, _ := os.UserHomeDir()
-	return h
 }
 
 // merge 合并全局配置与参数（参数覆盖同名全局），委托 actionrun.MergeParams 单一真相源。

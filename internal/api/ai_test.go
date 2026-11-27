@@ -18,15 +18,17 @@ import (
 	"workflow-tool/internal/workflow"
 )
 
-// fakeAICli 模拟 AI CLI 的 stream-json 输出：先给 session_id，把收到的 prompt 与
-// STEP_NOTE 环境变量打到 stderr（供断言输入确实抵达子进程），按 FAKE_AI_SECONDS
-// 阻塞，最后吐回复与 result 事件。
+// fakeAICli 模拟 pi --mode json 的事件流：先给 session id，把收到的 prompt 与
+// STEP_NOTE 环境变量打到 stderr（供断言输入确实抵达子进程——prompt 同样走 stdin），
+// 按 FAKE_AI_SECONDS 阻塞，最后吐回复增量（ai 流）、收口消息（usage 权威值随
+// message_end）与 agent_settled。事件形状对齐 runner/testdata/pi_stream.jsonl。
 const fakeAICli = `#!/bin/sh
-printf '%s\n' '{"type":"system","subtype":"init","session_id":"sess-1"}'
+printf '%s\n' '{"type":"session","id":"sess-1"}'
 printf 'PROMPT<%s>|STEP_NOTE<%s>\n' "$(cat)" "$STEP_NOTE" 1>&2
 sleep "${FAKE_AI_SECONDS:-0}"
-printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"你好"}]}}'
-printf '%s\n' '{"type":"result","total_cost_usd":0.0125,"usage":{"input_tokens":10,"output_tokens":5}}'
+printf '%s\n' '{"type":"message_update","assistantMessageEvent":{"type":"text_delta","contentIndex":0,"delta":"你好"}}'
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"你好"}],"stopReason":"stop","usage":{"input":10,"output":5,"totalTokens":15,"cost":{"total":0.0125}}}}'
+printf '%s\n' '{"type":"agent_settled","aborted":false}'
 `
 
 // newAiSvc 建一个带 ai/ 目录与假 AI CLI 的 service，workflowYAML 非空时再建一个只含
@@ -46,7 +48,12 @@ func newAiSvc(t *testing.T, workflowYAML string) (*Service, string) {
 	}
 	write("fake-ai.sh", fakeAICli, 0o755)
 	cfgPath := filepath.Join(dir, "config.yaml")
-	if err := registry.SaveGlobal(cfgPath, map[string]string{"AI_CLI": filepath.Join(dir, "fake-ai.sh")}); err != nil {
+	// pi 三键 + AI_PI_BIN 指向假 pi：假脚本不消费端点与模型，但 Build 的三键校验
+	// 与可执行解析必须照常通过。
+	if err := registry.SaveGlobal(cfgPath, map[string]string{
+		"AI_BASE_URL": "http://oneapi.example/v1", "AI_AUTH_KEY": "k-test", "AI_MODEL": "M-TEST",
+		"AI_PI_BIN": filepath.Join(dir, "fake-ai.sh"),
+	}); err != nil {
 		t.Fatal(err)
 	}
 	for _, sub := range []string{"actions", "ai"} {
@@ -256,14 +263,15 @@ func TestAddAiPreset(t *testing.T) {
 
 func TestGetVarReferenceCountsIncludesAiTasks(t *testing.T) {
 	svc, dir := newAiSvc(t, "")
-	refs := "id: z-refs\ntitle: Z\nprompt: 分析 ${BUG_URL}\nsystem: 你是 ${ROLE}\ncwd: ${ROOT}\nenv:\n  NOTE: ${NOTE_VAR}\n"
+	refs := "id: z-refs\ntitle: Z\nparams:\n  - { id: SRC, label: 来源, type: text, default: \"${AI_PARAM_VAR}\" }\nprompt: 分析 ${BUG_URL}\nsystem: 你是 ${ROLE}\ncwd: ${ROOT}\nenv:\n  NOTE: ${NOTE_VAR}\n"
 	if err := os.WriteFile(filepath.Join(dir, "ai", "z-refs.yaml"), []byte(refs), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	svc.Reload()
 	counts := svc.GetVarReferenceCounts()
-	// TOPIC 来自 t-ask 的 prompt 模板，其余四个来自 z-refs 的四个字段
-	for _, name := range []string{"TOPIC", "BUG_URL", "ROLE", "ROOT", "NOTE_VAR"} {
+	// TOPIC 来自 t-ask 的 prompt 模板，其余五个来自 z-refs 的五个字段
+	// （含 params 默认值：airun 的 fromDefault 展开分支会展开它）
+	for _, name := range []string{"TOPIC", "BUG_URL", "ROLE", "ROOT", "NOTE_VAR", "AI_PARAM_VAR"} {
 		if counts[name] < 1 {
 			t.Errorf("变量 %s 在 AI 任务里被引用，应被统计", name)
 		}

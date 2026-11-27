@@ -1,6 +1,6 @@
 ---
 name: agent-cli
-description: 用本项目构建出的 workflow-tool 二进制从 shell 发现、描述、运行它的 action / workflow 并拿到输出。当你要列出有哪些 action/workflow/AI 任务、查某个的参数、执行 action 或 workflow、或读它的流式/结构化输出时用。AI 任务只能 list/describe，不能在 CLI 运行。
+description: 用本项目构建出的 workflow-tool 二进制从 shell 发现、描述、运行它的 action / workflow 并拿到输出。当你要列出有哪些 action/workflow/AI 任务、查某个的参数、执行 action 或 workflow、或读它的流式/结构化输出时用。AI 任务默认不能在 CLI 运行（--allow-ai 显式放行）。
 ---
 
 # Agent CLI — 从命令行运行本项目的 action / workflow
@@ -12,7 +12,7 @@ description: 用本项目构建出的 workflow-tool 二进制从 shell 发现、
 1. **发现** —— 列出全部 action、workflow 与 AI 任务：
    ```bash
    workflow-tool list
-   # [{"id":"claude-ask","title":"问 LLM","kind":"ai"},
+   # [{"id":"demo-ask","title":"问 LLM","kind":"ai"},
    #  {"id":"pkg-install","title":"安装 APK","kind":"action"}, ...]
    ```
    `kind ∈ action | workflow | ai`。
@@ -22,7 +22,7 @@ description: 用本项目构建出的 workflow-tool 二进制从 shell 发现、
    workflow-tool describe pkg-install
    # {"id":...,"kind":"action","params":[{"id":"apk","type":"path","required":true,...}],"presets":[...]}
    ```
-   `kind:"ai"` 的任务在此之上多出 `prompt`（定义里的模板原文；空串 = 提示词由调用方给入）、`system`（为空时省略）与 `reservedRunParams`（`prompt`/`system`/`resume`，无需声明即接受）。AI 任务只能描述，不能 `run`（见「跑不了的」）。
+   `kind:"ai"` 的任务在此之上多出 `prompt`（定义里的模板原文；空串 = 提示词由调用方给入）、`system`（为空时省略）与 `reservedRunParams`（`prompt`/`system`/`resume`，无需声明即接受）。AI 任务默认不能 `run`，加 `--allow-ai` 显式放行（见「跑不了的」）。
 
 3. **运行** —— 执行并拿输出：
    ```bash
@@ -59,7 +59,7 @@ description: 用本项目构建出的 workflow-tool 二进制从 shell 发现、
 | `--kind action\|workflow\|ai` | id 在 action/workflow/AI 任务间撞名时消歧 |
 | `--base-dir <path>` | actions/ai/workflows/config.yaml 所在目录（默认二进制同级或 `WORKFLOW_TOOL_HOME`） |
 | `--timeout <dur>` | 整次运行封顶，如 `30s`/`5m`，默认不限 |
-| `--allow-ai` | 放行 AI 任务与含 AI 步骤的 workflow（默认 `ai_blocked`）。无人值守、权限固定 bypass，只在明确要它无人值守地跑时加 |
+| `--allow-ai` | 放行 AI 任务与含 AI 步骤的 workflow（默认 `ai_blocked`）。无人值守、无审批门控（pi `--no-approve`），只在明确要它无人值守地跑时加 |
 
 ## 退出码与错误
 

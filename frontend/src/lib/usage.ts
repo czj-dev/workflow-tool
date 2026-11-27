@@ -20,7 +20,7 @@ export type UsageByBucket = Record<Bucket, UsageMap>;
 // id 前缀 → 分组显示名。未命中前缀走 capitalize，无分隔符归 MISC_KEY。
 const PREFIX_LABELS: Record<string, string> = {
   adb: "ADB",
-  claude: "Claude",
+  ai: "AI",
   log: "LOG",
   demo: "演示",
 };

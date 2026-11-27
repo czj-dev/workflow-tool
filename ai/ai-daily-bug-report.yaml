@@ -1,4 +1,4 @@
-id: claude-daily-bug-report
+id: ai-daily-bug-report
 title: 每日 Bug 流转报告
 icon: hi:ai
 description: 获取当天由指定操作人流转的 Bug 卡片报告（候选集+流转历史双重确认），按当前真实状态分组输出 JSON
@@ -35,12 +35,13 @@ prompt: |
   - `OPERATOR` ${OPERATOR}，任一系统用户名，必填。
   - `SPACE` ${SPACE}，iCafe 空间 ID。
   - `CARD_TYPE` ${CARD_TYPE}。
-  - 统计窗口固定为 `T 00:00:00`（含）至 `T+1 00:00:00`（不含），即 IQL 用 `>` 与 `<` 两个开区间。
+  - 统计窗口固定为开区间 `(T 00:00:00, T+1 00:00:00)`：iCafe IQL 对时间字段只支持 `>` 与 `<`（实测 `>=` 返回 400），且两个端点均**不含**。
 
   ## 执行环境
 
-  - 工具为 icafe-skill CLI，根目录 `SKILL_DIR`（含 `scripts/query_card.py`、`scripts/status.py`、`config/config.yaml`）。
-  - 所有命令在 `SKILL_DIR` 目录下执行；`--format json` 的 stdout 是数据（仅 stdout），页码提示在 stderr。
+  - 工具为 icafe-skill CLI，已绑定 skill（`skills/icafe-skill`）。
+  - **一律绝对路径调用**（守则要求）：`python ${SKILL_DIR}/scripts/query_card.py ...`；**禁止** `cd`/切目录、禁止相对路径。
+  - `--format json` 的 stdout 是数据（仅 stdout），页码提示在 stderr；合并 stdout 时不要带 stderr。
   - **禁止** `head/tail/sed -n` 截断脚本输出；**禁止** `python -c` 直调 SDK 内部函数绕过 CLI。
   - 每批 50 个序号上限；附件类串行操作与本次任务无关。
 
@@ -57,7 +58,7 @@ prompt: |
   命令（page 从 1 递增）：
 
   ```bash
-  python scripts/query_card.py --space ${SPACE} --list --iql "{IQL}" \
+  python ${SKILL_DIR}/scripts/query_card.py --space ${SPACE} --list --iql "{IQL}" \
     --order lastModifiedTime --desc --format json --page N
   ```
 
@@ -70,7 +71,7 @@ prompt: |
   候选集 `sequence` 按 50 个一批（逗号分隔）：
 
   ```bash
-  python scripts/status.py --format json status-changes --space ${SPACE} --sequences "seq1,seq2,..."
+  python ${SKILL_DIR}/scripts/status.py --format json status-changes --space ${SPACE} --sequences "seq1,seq2,..."
   ```
 
   - 只保留满足 **两个条件同时成立** 的记录：
@@ -83,7 +84,7 @@ prompt: |
   候选集快照与输出时刻存在时间差，命中卡的当前状态必须以最新查询为准：
 
   ```bash
-  python scripts/query_card.py --space ${SPACE} --id {seq} --format json
+  python ${SKILL_DIR}/scripts/query_card.py --space ${SPACE} --id {seq} --format json
   ```
 
   - 每张命中卡只查一次，结果落盘 `/tmp/icafe_card_{seq}.json` 复用；该卡后续不再重复查询。

@@ -1,4 +1,4 @@
-id: claude-bug-analyze
+id: ai-bug-analyze
 title: 分析 bug 卡片
 icon: hi:ai
 description: 输入 iCafe 卡片链接，加载 icafe-bug-analyzer 技能跑完整七步流水线，产出结构化根因报告

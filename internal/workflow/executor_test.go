@@ -389,7 +389,7 @@ func TestExecutor_AIStep(t *testing.T) {
 		Env: map[string]string{"WF": "w"},
 		Steps: []Step{
 			{ID: "find", Run: "produce"},
-			{ID: "analyze", AI: "claude-bug-analyze", Params: map[string]string{
+			{ID: "analyze", AI: "ai-bug-analyze", Params: map[string]string{
 				"BUG_URL": "${{ steps.find.outputs.apk_path }}",
 				"prompt":  "只分析崩溃线程，卡片：${{ steps.find.outputs.apk_path }}；原样保留 ${BUG_URL} 与 $HOME",
 			}, Env: map[string]string{"TOKEN": "${{ steps.find.outputs.token }}", "BASE": "${ROOT}/x"}},
@@ -413,7 +413,7 @@ func TestExecutor_AIStep(t *testing.T) {
 	aiCalls := 0
 	aiRun := func(req AIRequest) runner.Result {
 		aiCalls++
-		if req.TaskID != "claude-bug-analyze" {
+		if req.TaskID != "ai-bug-analyze" {
 			t.Errorf("TaskID = %q", req.TaskID)
 		}
 		if got, _ := req.Ctx.Value(ctxKey{}).(string); got != "v" {
@@ -459,7 +459,7 @@ func TestExecutor_AIStepRetryAndContinueOnError(t *testing.T) {
 	wf := LoadedWorkflow{Def: WorkflowDef{
 		ID: "wf-ai-retry", Title: "t",
 		Steps: []Step{
-			{ID: "analyze", AI: "claude-ask", Retry: 2, ContinueOnError: true},
+			{ID: "analyze", AI: "demo-ask", Retry: 2, ContinueOnError: true},
 			{ID: "after", Run: "echo next"},
 		},
 	}}
@@ -486,7 +486,7 @@ func TestExecutor_AIStepWithoutCallbackFails(t *testing.T) {
 	wf := LoadedWorkflow{Def: WorkflowDef{
 		ID: "wf-ai-nil", Title: "t",
 		Steps: []Step{
-			{ID: "analyze", AI: "claude-ask"},
+			{ID: "analyze", AI: "demo-ask"},
 			{ID: "after", Run: "echo never"},
 		},
 	}}
@@ -501,7 +501,7 @@ func TestExecutor_AIStepWithoutCallbackFails(t *testing.T) {
 				stderr = append(stderr, line)
 			}
 		})
-	if res.ExitCode != -1 || res.Err == nil || !strings.Contains(res.Err.Error(), "claude-ask") {
+	if res.ExitCode != -1 || res.Err == nil || !strings.Contains(res.Err.Error(), "demo-ask") {
 		t.Fatalf("应报未注入回调并指向任务: %+v", res)
 	}
 	if len(ran) != 0 {

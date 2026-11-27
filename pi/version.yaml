@@ -1,0 +1,16 @@
+# pi 运行器版本标注（人工维护；本目录整个被 .gitignore 的 /pi/ 规则忽略，二进制各端自备）
+# 可执行解析顺序（internal/airun/pi_setup.go）：config.yaml AI_PI_BIN > <应用目录>/pi/pi > PATH
+binary: pi/pi                 # Mach-O arm64 standalone 编译产物
+version: "0.0.0"              # ./pi/pi --version 自报；构建时未注入版本号
+package: "@earendil-works/pi-coding-agent"   # 上游产品（pi.dev，仓库 earendil-works/pi-mono）
+placed_at: "2026-11-27"       # 二进制放入本目录的日期
+
+# 上游版本参考（截至 2026-11-27）：
+#   官方最新发布：1.6.1（2026-11-25，pi.dev/changelog，npm 同名包）
+#   本机用户级安装：1.6.0（~/.local/bin/pi → ~/.pi/agent/install/releases/1.6.0）
+#
+# 说明：二进制内嵌模型目录与 1.6.x 同代（含 GPT-6.2 / GLM-5.3 / Claude Opus 4.8 等），
+# 属 1.6.0 前后的源码 standalone 构建；版本号未注入，故 --version 自报 0.0.0。
+# 应用集成所需 flag（--mode json --offline --no-approve --session-dir --no-skills
+# --skill --model）已验证支持，真实端点冒烟通过。
+# 升级 pi 后请同步更新本文件的 version 与 placed_at。

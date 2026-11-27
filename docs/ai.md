@@ -1,15 +1,15 @@
 # AI 任务定义指南
 
-AI 任务（AI Task）是与动作、工作流并列的第三种可执行物。动作是「给定输入得到确定结果」，AI 任务是「说明意图，由 Agent 自行决定路径」：YAML 里不写命令，只写角色、任务正文、输入与运行约束，具体怎么做交给本机的 Agent CLI。在 `ai/` 目录下放一个 `.yaml` 文件即可新增一个 AI 任务，无需写代码。
+AI 任务（AI Task）是与动作、工作流并列的第三种可执行物。动作是「给定输入得到确定结果」，AI 任务是「说明意图，由 Agent 自行决定路径」：YAML 里不写命令，只写角色、任务正文、输入与运行约束，具体怎么做交给 pi——唯一 AI 运行器（[ADR-0008](adr/0008-pi-only-runner.md)）。在 `ai/` 目录下放一个 `.yaml` 文件即可新增一个 AI 任务，无需写代码。
 
-AI 任务有三个入口：在界面上手动运行、作为工作流的一步（AI 步骤），或被调度定时运行。定义里没有任何时间字段——定时由调度承担（[ADR-0005](adr/0005-schedules-own-timing.md)），AI 任务只是调度的第三种目标。CLI 能列出、描述 AI 任务，但不能运行它。
+AI 任务有三个入口：在界面上手动运行、作为工作流的一步（AI 步骤），或被调度定时运行。定义里没有任何时间字段——定时由调度承担（[ADR-0005](adr/0005-schedules-own-timing.md)），AI 任务只是调度的第三种目标。CLI 运行须显式 `--allow-ai` 放行，默认拒绝（`ai_blocked`）。
 
-设计结论见 [ADR-0004](adr/0004-ai-task-independent.md)（AI 任务独立于动作）、[ADR-0005](adr/0005-schedules-own-timing.md)（调度是第三种目标）与 [ADR-0007](adr/0007-unattended-ai-runs.md)（无人值守运行与守则），术语见 [CONTEXT.md](../CONTEXT.md)。
+设计结论见 [ADR-0004](adr/0004-ai-task-independent.md)（AI 任务独立于动作）、[ADR-0005](adr/0005-schedules-own-timing.md)（调度是第三种目标）、[ADR-0007](adr/0007-unattended-ai-runs.md)（无人值守运行与守则）与 [ADR-0008](adr/0008-pi-only-runner.md)（pi 唯一运行器），术语见 [CONTEXT.md](../CONTEXT.md)。
 
 ## 完整字段参考
 
 ```yaml
-id: claude-bug-analyze          # 必填，^[a-z0-9-]+$，ai/ 内唯一
+id: ai-bug-analyze              # 必填，^[a-z0-9-]+$，ai/ 内唯一
 title: 分析 bug 卡片             # 必填，侧栏/卡片/会话页显示文字
 icon: hi:ai                     # 可选，hugeicons 图标 key 或 emoji，默认 hi:ai
 color: violet                   # 可选，卡片氛围色：amber | green | blue | violet（不写按组序循环）
@@ -37,7 +37,7 @@ timeout: 30m                    # 可选，Go duration，默认 30m
 cwd: ${PROJ_DIR}                # 可选，模板，默认应用目录（可执行文件同级）
 env:                            # 可选，值为模板
   KEY: value
-skills: [demo-skill]            # 可选，skill id，须存在于 skills/
+skills: [icafe-bug-analyzer]    # 可选，skill id，须存在于 skills/
 ```
 
 ## 字段详解
@@ -91,10 +91,10 @@ UI 行为与动作不同：AI 任务的预设只把值填进草稿，不直接�
 提示词完全由调用方给入的最小任务：
 
 ```yaml
-id: claude-ask
+id: demo-ask
 title: 问 LLM
 icon: hi:ai
-description: 输入问题，LLM 流式回答；CLI 由 config.yaml AI_CLI 决定，默认 ducc
+description: 输入问题，LLM 流式回答；模型与端点由用户级 auth.json 三键（AI_BASE_URL / AI_AUTH_KEY / AI_MODEL，Settings → Agent 编辑）决定
 presets:
   - name: 打招呼
     values: { prompt: 用一句话介绍你自己 }
@@ -108,7 +108,7 @@ Go duration（`30s` / `5m` / `1h`），必须带单位，默认 `30m`。非法�
 
 ### cwd
 
-Agent 进程的工作目录，模板。不写或展开后为空 = 应用目录（可执行文件同级）；展开后必须存在且是目录，否则运行失败（「工作目录不存在或不是目录」）。它同时是 project 级 skill 的同步目标根（`<cwd>/.claude/skills/`）。
+Agent 进程的工作目录，模板。不写或展开后为空 = 应用目录（可执行文件同级）；展开后必须存在且是目录，否则运行失败（「工作目录不存在或不是目录」）。
 
 ### env
 
@@ -116,13 +116,12 @@ Agent 进程的工作目录，模板。不写或展开后为空 = 应用目录�
 
 ### skills
 
-绑定的 skill id 列表，须存在于 `skills/`，否则任务加载失败。运行前把源目录整目录同步到 Agent 目录，由 CLI 自行发现——**不在 `prompt` / `system` 里拼接任何内容**。
+绑定的 skill id 列表，须存在于 `skills/`，否则任务加载失败。运行时把源目录经 `--skill <dir>` 直传给 pi（零拷贝）——**不在 `prompt` / `system` 里拼接任何内容，也不复制文件**。
 
-- **源目录**在应用目录下的 `skills/`，位置即作用域：`skills/<id>/` = project 级 → 同步到 `<cwd>/.claude/skills/<id>/`；`skills/user/<id>/` = user 级 → 同步到 `~/.claude/skills/<id>/`。子目录含 `SKILL.md` 才算一个 skill；id 须匹配 `^[a-z0-9-]+$`，两级合并为单一命名空间，跨级同名加载时报冲突
-- **目标目录按 CLI 路由**（`config.yaml` 的 `AI_CLI`）：`claude` / `ducc` → `.claude/skills`；`codex` → `.codex/skills` 与 `.agents/skills` 双根；其他 CLI 回退 `.claude/skills` 并输出警告
-- **源为准**：逐文件比对内容，不一致覆盖，目标里多出的文件删除，一致跳过
-- 同步报告以 `[skill-sync]` 行出现在输出开头（如 `[skill-sync] demo-skill(project) → /proj/.claude/skills/demo-skill`、`[skill-sync] demo-skill(project) 已是最新，跳过`）
-- 同步写失败 = 运行失败（skill 是声明的依赖）；同步足迹记在应用目录的 `skills.synced.json`
+- **源目录**在应用目录下的 `skills/`，位置即作用域：`skills/<id>/` = project 级、`skills/user/<id>/` = user 级，两级合并为单一命名空间。子目录含 `SKILL.md` 才算一个 skill；id 须匹配 `^[a-z0-9-]+$`，跨级同名加载时报冲突
+- **零拷贝**（[ADR-0008](adr/0008-pi-only-runner.md)）：argv 里 `--skill <源目录>` 按声明顺序直传，pi 直读源目录；历史上的复制同步机器（按 CLI 路由到 `.claude/skills` 等）已删除，`skills.synced.json` 不再读写，历史文件可手动删除
+- 绑定报告以 `[skill]` 行出现在输出开头（如 `[skill] 绑定 1 个 skill（零拷贝直传）：icafe-bug-analyzer`）
+- 运行时源目录解析失败（加载后被移动或删除）= 该次运行失败——skill 是声明的依赖
 
 ## 保留运行参数
 
@@ -132,7 +131,7 @@ Agent 进程的工作目录，模板。不写或展开后为空 = 应用目录�
 |------|------|----------|
 | `prompt` | 替换定义里的 `prompt` 模板 | 会话页底部的输入框 |
 | `system` | 替换定义里的 `system` 模板 | 会话页的「系统提示词」chip |
-| `resume` | 会话 id。非空时以 `--resume <id>` 续接该会话，空则新开会话 | 会话页的「续接会话」chip |
+| `resume` | 会话 id。非空时以 `--session <id>` 续接该会话，空则新开会话 | 会话页的「续接会话」chip |
 
 - 不能在 `params` 里声明同名参数（加载失败）
 - `prompt` / `system`：键出现即整体替换定义里的模板，传空串也算替换；替换进来的值同样是模板，照常展开
@@ -172,7 +171,7 @@ Agent 进程的工作目录，模板。不写或展开后为空 = 应用目录�
 查找顺序（先命中先用）：
 
 1. **本次输入**（已声明参数的终值）
-2. **全局配置**（`config.yaml` 中的键值对）
+2. **全局配置**（`config.yaml` 键值对；AI 三键已从 auth.json 并入——`AI_AUTH_KEY` 除外，防泄漏见「运行机制」）
 3. **内置变量**（`CURRENT_DATE` / `CURRENT_TIME` / `ADB_SERIAL`，见 [action.md](action.md) 的「内置变量」）
 4. **环境变量**（应用进程自己的环境）
 
@@ -182,7 +181,7 @@ Agent 进程的工作目录，模板。不写或展开后为空 = 应用目录�
 
 1. **本次传入**——键出现即算传入，空值也保留，不回落默认值
 2. **定义里的 `default`**
-3. **`config.yaml` 同名值**
+3. **`config.yaml` 同名值**（AI 三键已并入 auth.json 的非空值）
 
 - **默认值按声明顺序展开**：靠后的默认值引用靠前的参数时，拿到的是靠前的终值。
 
@@ -216,23 +215,40 @@ AI 任务运行时没有人盯着，所以每次运行都带一份运行环境�
 ```
 
 - 守则只描述运行环境，与任务承担的角色无关；角色与纪律写在任务的 `system` 里，不要各抄一份
-- 运行时守则在前、`system` 在后，合成一份系统提示，经单个 `--append-system-prompt` 传给 CLI
-- 配套的固定 flag `--permission-mode bypassPermissions`：无人值守没有交互通道，所有 AI 运行一律 bypass，不新增审批机制（[ADR-0007](adr/0007-unattended-ai-runs.md)）。任务因此拥有与当前用户相同的权限，`cwd` 指向哪里要自己把关
+- 运行时守则在前、`system` 在后，合成一份系统提示，经单个 `--append-system-prompt` 传给 pi
+- 配套的固定 flag `--no-approve`：pi 没有审批机制，该 flag 让它忽略信任门控的项目本地配置与资源，无人值守运行不受阻也不新增审批机制（[ADR-0007](adr/0007-unattended-ai-runs.md) 的前提不变）。任务因此拥有与当前用户相同的权限，`cwd` 指向哪里要自己把关
+
+## 配置（Agent 三键）
+
+三键是**用户级**配置：不写 exe 同级的 `config.yaml`，也不随应用打包分发。
+
+| 键 | 说明 |
+|----|------|
+| `AI_BASE_URL` | OpenAI 兼容端点地址，含 `/v1` 路径（如 `https://oneapi.example.com:8000/v1`） |
+| `AI_AUTH_KEY` | 端点密钥 |
+| `AI_MODEL` | 模型名（如 `GLM-5.3-Flash`） |
+
+- **存放**：`~/.workflow-tool/auth.json`，JSON 对象、键名沿用上表。0600 权限、原子写（临时文件 + rename）；根目录可被 env `WORKFLOW_TOOL_USER_HOME` 覆盖。文件缺失视为三键全空，内容损坏则构造早失败
+- **编辑**：设置页「Agent」分类的三个字段（密钥为密码框），保存即落盘；直接改文件同样即生效——每次运行现读该文件
+- **合并与回退**：auth.json 的非空键覆盖 `config.yaml` 同名键；留在 `config.yaml` 的三键仍作为回退生效，但每次运行发一条迁移提示的 BuildWarning；合并后任一键为空 → 构造早失败（见「运行机制」#2）
+- **`AI_PI_BIN` 不在三键之列**：pi 可执行路径仍配置在 `config.yaml`
 
 ## 运行机制
 
-1. **构造**（`airun.Build`，进程启动前）：合并输入 → 展开 `prompt` / `system` / `cwd` / `env` → 校验 `cwd` → 读取守则 → 同步 skills。
-2. **CLI**：`config.yaml` 的 `AI_CLI`（默认 `ducc`），每次运行时取当前配置（生效方式见文末）。本机须已安装对应 CLI 并在 `PATH` 中。
-3. **argv**：固定 flag 在前，之后依次是 `--resume <会话 id>`（`resume` 非空时）和 `--append-system-prompt <守则 + system>`（非空时）。任务 YAML 里不写任何 CLI flag。
+1. **构造**（`airun.Build`，进程启动前）：合并输入 → 展开 `prompt` / `system` / `cwd` / `env` → 校验 `cwd` → 读取守则 → pi 初始化 → 解析 skills 绑定。
+2. **pi**：唯一 AI 运行器（[ADR-0008](adr/0008-pi-only-runner.md)）。可执行按 `config.yaml` 的 `AI_PI_BIN` > 应用目录 `pi/pi`（Windows `pi\\pi.exe`）> `PATH` 顺序解析，均未解析到则构造失败；`AI_BASE_URL` / `AI_AUTH_KEY` / `AI_MODEL` 三键（来源见「配置」一节）任一缺失同样构造早失败。每次运行时取当前配置（生效方式见文末）。
+3. **argv**：固定 flag 在前，之后依次是 `--session <会话 id>`（`resume` 非空时）和 `--append-system-prompt <守则 + system>`（非空时）。任务 YAML 里不写任何 CLI flag。
 
    ```
-   <AI_CLI> -p --output-format=stream-json --verbose --thinking enabled --permission-mode bypassPermissions [--resume <id>] [--append-system-prompt <text>]
+   pi --mode json --offline --no-approve --session-dir <pi-sessions> \
+      --no-skills [--skill <src> ...] --model workflow-tool/<AI_MODEL> \
+      [--session <id>] [--append-system-prompt <text>]
    ```
 
 4. **不经 shell**：系统提示是独立 argv，提示词写入子进程 stdin——多行、引号、`$` 零转义风险。
-5. **子进程环境变量**，同名时靠后的覆盖靠前的：继承的应用进程环境 < `config.yaml` 全部键 + 已声明参数 < 任务 `env`（作为工作流步骤时再叠 workflow `env` < step `env`）。保留运行参数不进入环境变量。
+5. **hermetic**：应用目录下的 `pi-agent/` 经 env `PI_CODING_AGENT_DIR` 指给 pi（用户自己的 `~/.pi` 不生效），构造层在其中原子写 `models.json`——provider 固定 `workflow-tool`、模型即 `AI_MODEL`、`apiKey` 写 `${AI_AUTH_KEY}` 插值字面量，密钥不落盘，请求时 pi 从子进程环境变量解析；会话存 `pi-sessions/`（`--session-dir`）。子进程环境变量，同名时靠后的覆盖靠前的：继承的应用进程环境 < `config.yaml` 全部键（含从 auth.json 并入的三键）+ 已声明参数 < 任务 `env`（作为工作流步骤时再叠 workflow `env` < step `env`）。保留运行参数不进入环境变量；`AI_AUTH_KEY` 只出现在子进程环境里，不进提示词模板的查找源（防泄漏）。
 6. **超时**：任务自己的 `timeout`。超时终止进程，运行失败：「AI 运行超时（上限 …），进程已终止；可用 resume 续接该会话重跑」。
-7. **退出码**：即 CLI 的退出码；构造阶段失败为 -1。
+7. **退出码与失败判定**：pi 的模型层失败不产生非零退出码——exit 0 但流内 `stopReason` 为 error / aborted（或 agent 中止）判失败，ExitCode 记 -1、原因文案推到 stderr；进程自身错误（启动失败 / 超时 / 取消）优先于流内判定；构造阶段失败为 -1。pi 自带的最多 3 次内部重试不影响该判定。
 
 ### 输出流
 
@@ -241,8 +257,8 @@ AI 任务运行时没有人盯着，所以每次运行都带一份运行环境�
 | `ai` | 回复正文增量 | `text` |
 | `ai-thinking` | 思考过程增量 | `thinking`（非空才有） |
 | `ai-tool` | 工具调用对，JSON：`tool_use` 为 `{"id","name","input"}`，`tool_result` 为 `{"id","content","isError"}` | 否 |
-| `stderr` | CLI 的诊断输出与 skill 同步警告，原样转发不解析 | 否 |
-| `stdout` | 只有运行开头的 `[skill-sync]` 报告行 | 否 |
+| `stderr` | pi 的诊断输出与 Build 层警告（如 config.yaml 残留 `AI_CLI` 的提示），原样转发不解析 | 否 |
+| `stdout` | 只有运行开头的 `[skill]` 绑定报告行 | 否 |
 
 ### 产出
 
@@ -250,9 +266,9 @@ AI 任务运行时没有人盯着，所以每次运行都带一份运行环境�
 |-----|------|----------|
 | `text` | 回复正文全文 | 有回复时 |
 | `thinking` | 思考过程全文 | 非空时 |
-| `session_id` | 会话 id，可填回 `resume` 续接 | CLI 报出过会话 id 时（失败、超时也会保留） |
-| `cost_usd` | 本次费用 | 收到 CLI 的 `result` 事件时 |
-| `input_tokens` / `output_tokens` / `total_tokens` | token 用量 | 收到 CLI 的 `result` 事件时 |
+| `session_id` | 会话 id，可填回 `resume` 续接 | pi 报出过会话 id 时（失败、超时也会保留） |
+| `cost_usd` | 本次费用 | 收到 usage 读数时（`message_end` 收口；网关不报价格时为 0，属正常值） |
+| `input_tokens` / `output_tokens` / `total_tokens` | token 用量 | 收到 usage 读数时（同上） |
 | `exit_code` / `success` / `stdout` / `stderr` | 通用产出，同动作；`stdout` = `text`，`stderr` 恒为空串 | 总是（构造阶段失败时只有 `exit_code` 与 `success`） |
 
 ## 界面
@@ -301,14 +317,14 @@ params:
 steps:
   - id: analyze
     name: 分析卡片
-    ai: claude-bug-analyze
+    ai: ai-bug-analyze
     params:
       BUG_URL: ${{ params.BUG_URL }}
 
   - id: summarize
     name: 压缩成三行结论
     if: steps.analyze.outputs.success == 'true'
-    ai: claude-ask
+    ai: demo-ask
     params:
       prompt: |
         把下面的报告压缩成三行结论：
@@ -324,7 +340,7 @@ steps:
 
 产出见上表，写在 `steps.<id>.outputs` 下，供后续步骤用 `${{ steps.<id>.outputs.<key> }}` 或 `if` 引用；构造阶段失败的退出码是 `-1`。在工作流视图里，AI 步骤的卡片以工序段面板呈现（思考 / 工具调用 / 回答，与会话页同一套渲染），stdout / stderr 诊断行另起一块——AI 步骤不发 `ai:<id>:*` 事件，输出带步骤归属走 `workflow:<wf-id>:output`，也一并落进所属工作流那一次运行的日志。AI 步骤本身不单独留运行记录。
 
-含 AI 步骤的工作流不能在 CLI 里运行（见下文）。
+含 AI 步骤的工作流在 CLI 里同样默认拒绝（`ai_blocked`），显式加 `--allow-ai` 才能运行（见下文）。
 
 ## 目标锁与冲突
 
@@ -361,7 +377,7 @@ schedules:
 - `params` 是这个任务的输入，**保存时按目标校验**：键必须是任务已声明的参数或保留运行参数 `prompt` / `system` / `resume`——未声明的键直接报错（拼错参数名不会静默落空）；值必须是标量或 JSON 字符串，不能是对象（动作的 `$literal` 在这里不适用）
 - 键出现即算传入：给了 `prompt` 就整体替换任务里的提示词模板（替换进来的值同样是模板，照常展开）；没给的参数由任务取默认值
 - 调度编辑器里 AI 目标的参数区是结构化输入（每个已声明参数一个框，外加 `prompt` / `system` 两个多行框），不是 JSON 文本框；留空 = 不传
-- 到点后与其他目标一样留运行记录（`origin: schedule`），撞上运行中的任务则跳过（见上表）。所有 AI 运行固定 bypass 权限，所以一条指向 AI 任务的调度等同于定时执行有当前用户权限的代码
+- 到点后与其他目标一样留运行记录（`origin: schedule`），撞上运行中的任务则跳过（见上表）。所有 AI 运行无审批门控（pi `--no-approve`，[ADR-0007](adr/0007-unattended-ai-runs.md)），所以一条指向 AI 任务的调度等同于定时执行有当前用户权限的代码
 - 调度运行没有交互通道：任务的 `cwd` 指向哪里、`prompt` 让它做什么，要在定义里把好关
 - 调度发起的运行一开始，任务卡就进入运行态（最近结果变为「运行中」并连着运行记录）；此时点卡身去那条运行的详情跟踪。动作与工作流的调度同理，参数校验规则见各自的文档
 - **调度到点与「立即运行」不跑在应用进程里**，而是交给独立执行器：应用退出后它照常跑完，重启后应用按心跳认领它（见 [runs.md](runs.md)「进程模型」）。手动运行仍留在应用进程内
@@ -376,7 +392,8 @@ CLI（`workflow-tool list` / `describe` / `run`）：
 - `describe <id> --kind ai`：输出 `id`、`kind`、`params`、`presets`（为空时省略）、`prompt`（总是输出）、`system`（为空时省略）和 `reservedRunParams`
 - `run <id>`：**默认拒绝**运行 AI 任务，结果 `ai_blocked`，退出码 2——「AI 任务 "…" 不能在 CLI 里运行（用 GUI 跑，或加 --allow-ai 放行）」
 - `run <workflow>`：工作流含 AI 步骤时同样 `ai_blocked`
-- 加 `--allow-ai` 即放行：`run <id> --kind ai --allow-ai`、含 AI 步骤的 workflow 都能跑。放行是显式的，因为 AI 运行固定 `bypassPermissions`、没有交互通道——从 shell 发起它等同于定时执行有当前用户权限的代码
+- 加 `--allow-ai` 即放行：`run <id> --kind ai --allow-ai`、含 AI 步骤的 workflow 都能跑。放行是显式的，因为 AI 运行无审批门控（pi `--no-approve`）、没有交互通道——从 shell 发起它等同于定时执行有当前用户权限的代码
+- Agent 三键与 GUI 同源：CLI 读同一份 `~/.workflow-tool/auth.json`；`--base-dir` 只改 BaseDir（目标 YAML 所在的根目录），不改用户目录，要换一套密钥隔离用 `WORKFLOW_TOOL_USER_HOME`
 - CLI 运行同样占目标锁：任务正被应用或执行器占着时返回 `target_locked`，不并发跑
 
 id 与动作、工作流重名时加 `--kind ai`。完整用法见 [internal/cli/SKILL.md](../internal/cli/SKILL.md)。
@@ -422,10 +439,10 @@ AI 任务曾是动作的第四种执行形态 `command.llm`，现已整体独立
 |---|---|
 | `command.llm.system: ROLE`，模板放在 `params[ROLE].default` 里 | 模板直接写在顶层 `system` |
 | `command.llm.prompt: TASK`，模板放在 `params[TASK].default` 里 | 模板直接写在顶层 `prompt`；提示词由调用方给入时写 `prompt: ""` |
-| 续接会话靠自定义参数与手写 flag | 保留运行参数 `resume`，运行时转成 `--resume` |
+| 续接会话靠自定义参数与手写 flag | 保留运行参数 `resume`，运行时转成 `--session` |
 | `command.cwd` / `command.timeout` / `command.env` / `command.llm.skills` | 顶层 `cwd` / `timeout` / `env` / `skills` |
 | `timeout` 默认 `60s` | 默认 `30m` |
-| `config.yaml` 的 `LLM_CLI` | `AI_CLI` |
+| `config.yaml` 的 `LLM_CLI` | 用户级 auth.json 的 `AI_BASE_URL` / `AI_AUTH_KEY` / `AI_MODEL` 三键（`AI_PI_BIN` 留 config.yaml） |
 | 视图 `llm-grid` / `llm-chat` | `ai-grid` / `ai-chat`（另有 `ai-edit`） |
 | 输出流 `llm` / `llm-thinking` / `llm-tool` | `ai` / `ai-thinking` / `ai-tool` |
 | 本地存储 `llm-usage` / `llm-history:<id>` | `ai-usage`；历次运行的记录改由后端的运行记录承担（`runs/`，见 [runs.md](runs.md)），不再存在浏览器里 |
@@ -439,7 +456,8 @@ AI 任务曾是动作的第四种执行形态 `command.llm`，现已整体独立
 
 - 新增任务：在 `ai/` 新建 YAML 后**重启 exe** 生效（启动时扫描 `ai/*.yaml`）；之后在编辑器里保存任意动作或 AI 任务的 YAML 也会触发重扫
 - 修改任务：用内置 YAML 编辑器保存即重载（校验失败不写盘，`id` 不可改）；直接改文件则等重扫或重启生效
-- `config.yaml`（含 `AI_CLI`）：在侧栏「配置」分组的「全局配置」页里保存即生效；直接改文件需重启
+- Agent 三键（`~/.workflow-tool/auth.json`）：设置页「Agent」分类保存即生效（每次运行现读该文件）；直接改文件同样即生效
+- `config.yaml`（含 `AI_PI_BIN`）：在侧栏「配置」分组的「全局配置」页里保存即生效；直接改文件需重启
 - `ai-rules.md` 每次运行前读取，改完即生效
 
 ## 相关文档
@@ -449,3 +467,4 @@ AI 任务曾是动作的第四种执行形态 `command.llm`，现已整体独立
 - [运行记录与应用日志](runs.md) — AI 运行留下的记录与日志、调度最近结果
 - [ADR-0004 AI 任务脱离动作体系](adr/0004-ai-task-independent.md)
 - [ADR-0007 无人值守的 AI 运行](adr/0007-unattended-ai-runs.md)
+- [ADR-0008 pi 唯一运行器](adr/0008-pi-only-runner.md)

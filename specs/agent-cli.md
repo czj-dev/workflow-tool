@@ -39,7 +39,7 @@
 ### `list`
 枚举全部 action、workflow 与 AI 任务，输出**一次性 JSON 数组**（按 id 排序）：
 ```json
-[{"id":"claude-ask","title":"问 LLM","kind":"ai"},
+[{"id":"demo-ask","title":"问 LLM","kind":"ai"},
  {"id":"pkg-install","title":"安装 APK","kind":"action"},
  {"id":"xdzs-package-and-verify-res","title":"打包并验收","kind":"workflow"}]
 ```
@@ -57,7 +57,7 @@
 
 AI 任务（`kind:"ai"`）的 params/presets 同形，另加三个键：`prompt`（定义里的模板原文；空串 = 提示词由调用方给入，该键必出）、`system`（模板原文，为空时省略）、`reservedRunParams`（固定 `["prompt","system","resume"]`，无需声明即接受的运行参数）。
 ```json
-{"id":"claude-ask","kind":"ai","params":null,
+{"id":"demo-ask","kind":"ai","params":null,
  "presets":[{"name":"打招呼","values":{"prompt":"用一句话介绍你自己"}}],
  "prompt":"","reservedRunParams":["prompt","system","resume"]}
 ```

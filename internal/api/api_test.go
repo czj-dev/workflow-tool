@@ -40,7 +40,7 @@ steps:
   - action: some-action
   - sleep: 5
   - run: echo hi
-  - ai: claude-ask
+  - ai: demo-ask
 `)
 	res := svc.ListWorkflows()
 	if len(res.Workflows) != 1 {
@@ -54,7 +54,7 @@ steps:
 		{Kind: "action", Label: "some-action"},
 		{Kind: "sleep", Label: "5s"},
 		{Kind: "run", Label: "echo hi"},
-		{Kind: "ai", Label: "claude-ask"},
+		{Kind: "ai", Label: "demo-ask"},
 	}
 	if len(w.Steps) != len(want) {
 		t.Fatalf("steps 数量不符：%+v", w.Steps)
@@ -286,13 +286,19 @@ func TestSetActionYamlRejectsIDChange(t *testing.T) {
 }
 
 // TestGetVarReferenceCountsCoversWorkflowFields 校验 workflow 中 ${VAR} 引用被正确统计：
-// step.run、step.params、step.env、workflow.env 都会经 runner.Expand 展开，必须计入引用计数。
+// step.run、step.params、step.env、workflow.env、params 默认值都会经 runner.Expand
+// 展开，必须计入引用计数。
 // 复现场景：xdzs-debug-chain 的 find-apk step.run 引用 VOICE_DEBUG_OUTPUT 却未被计数。
 func TestGetVarReferenceCountsCoversWorkflowFields(t *testing.T) {
 	svc, _ := newWorkflowSvc(t, `id: chain
 title: Chain
 env:
   WF_ENV: "${WF_ENV_VAR}"
+params:
+  - id: APK_DIR
+    label: 目录
+    type: text
+    default: "${WF_PARAM_VAR}"
 steps:
   - id: find-apk
     name: 定位 APK
@@ -306,7 +312,7 @@ steps:
       APK_PATH: "${APK_PATH_VAR}"
 `)
 	counts := svc.GetVarReferenceCounts()
-	for _, name := range []string{"VOICE_DEBUG_OUTPUT", "WF_ENV_VAR", "STEP_ENV_VAR", "APK_PATH_VAR"} {
+	for _, name := range []string{"VOICE_DEBUG_OUTPUT", "WF_ENV_VAR", "STEP_ENV_VAR", "APK_PATH_VAR", "WF_PARAM_VAR"} {
 		if counts[name] < 1 {
 			t.Errorf("变量 %q 应被 workflow 引用计数 ≥1，got %d（counts=%+v）", name, counts[name], counts)
 		}
@@ -322,5 +328,42 @@ func TestGetVarReferenceCountsDedupesWithinField(t *testing.T) {
 	svc, _ := newWorkflowSvc(t, "id: w\ntitle: W\nsteps:\n  - run: \"echo ${DUP} ${DUP}\"\n")
 	if c := svc.GetVarReferenceCounts()["DUP"]; c != 1 {
 		t.Fatalf("同字段内重复引用应只计一次，got %d", c)
+	}
+}
+
+// TestGetVarReferenceCountsCoversActionDefaultsAndPresets 校验 action 的 params
+// 默认值与 preset 值里的 ${VAR} 引用被统计（复现场景：log-spm-download 的
+// OUT_DIR 默认值引用 ${LOGS_DIR} 却显示未使用）。默认值经 withActionDefaults /
+// expandDirectParams 展开、preset 值提交后与其他参数一起展开，都是真实引用。
+func TestGetVarReferenceCountsCoversActionDefaultsAndPresets(t *testing.T) {
+	dir := t.TempDir()
+	ad := filepath.Join(dir, "actions")
+	if err := os.Mkdir(ad, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(ad, "a.yaml"), []byte(`id: a
+title: A
+params:
+  - id: OUT_DIR
+    label: 输出目录
+    type: path
+    default: "${LOGS_DIR}"
+presets:
+  - name: 首页
+    values: { OUT_DIR: "${LOGS_DIR}/sub" }
+command:
+  run: echo done
+`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	wd := filepath.Join(dir, "workflows")
+	if err := os.Mkdir(wd, 0755); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(registry.Load(ad, dir), workflow.Load(wd), dir,
+		filepath.Join(dir, "config.yaml"), filepath.Join(dir, "fragments.yaml"))
+	// 默认值与 preset 值各一处，合计 2
+	if c := svc.GetVarReferenceCounts()["LOGS_DIR"]; c != 2 {
+		t.Fatalf("params 默认值与 preset 值都应计入，want 2, got %d", c)
 	}
 }

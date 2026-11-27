@@ -14,29 +14,35 @@ import (
 	"workflow-tool/internal/workflow"
 )
 
-// slowCli 是一个只会拖时间的假 AI CLI：供超时用例。
+// slowCli 是一个只会拖时间的假 pi：先吐 session 事件再沉睡，供超时用例。
 const slowCli = `#!/bin/sh
-printf '%s\n' '{"type":"system","subtype":"init","session_id":"sess-slow"}'
+printf '%s\n' '{"type":"session","id":"sess-slow"}'
 sleep 30
 `
 
-// echoCli 把子进程环境里的 NOTE 与 TOPIC 打到 stderr：供步骤 env 用例。
+// echoCli 把子进程环境里的 NOTE 与 TOPIC 打到 stderr，再回放一条 assistant 消息：
+// 供步骤 env 用例。
 const echoCli = `#!/bin/sh
 printf 'NOTE<%s>|TOPIC<%s>\n' "$NOTE" "$TOPIC" 1>&2
-printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":"ok"}]}}'
+printf '%s\n' '{"type":"message_end","message":{"role":"assistant","content":[{"type":"text","text":"ok"}],"stopReason":"stop"}}'
 `
 
-// fakeCliEnv 建一个把 config.yaml 的 AI_CLI 指向给定假 CLI 的执行环境。
-func fakeCliEnv(t *testing.T, script string) (Deps, map[string]string) {
+// fakePiEnv 建一个可运行的执行环境：三键齐全，AI_PI_BIN 指向给定假 pi 脚本。
+func fakePiEnv(t *testing.T, script string) (Deps, map[string]string) {
 	t.Helper()
 	if runtime.GOOS == "windows" {
-		t.Skip("假 AI CLI 是 sh 脚本")
+		t.Skip("假 pi 是 sh 脚本")
 	}
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "fake-ai.sh"), []byte(script), 0o755); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "fake-pi.sh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	return Deps{BaseDir: dir}, map[string]string{"AI_CLI": filepath.Join(dir, "fake-ai.sh")}
+	return Deps{BaseDir: dir}, map[string]string{
+		"AI_BASE_URL": "http://oneapi.example/v1",
+		"AI_AUTH_KEY": "k-test",
+		"AI_MODEL":    "M-TEST",
+		"AI_PI_BIN":   filepath.Join(dir, "fake-pi.sh"),
+	}
 }
 
 // collect 返回一个记下每一行的 emit，以及存放它们的切片。
@@ -65,7 +71,7 @@ func TestRunReportsBuildFailureOnStderr(t *testing.T) {
 // 超时是失败不是取消：原因写明上限与续接办法，底层原因仍是 DeadlineExceeded；
 // 已经拿到的 session_id 留在产出里。守则全文随结果返回，供运行记录留档。
 func TestRunTimeoutNamesTheLimitAndKeepsTheCause(t *testing.T) {
-	deps, global := fakeCliEnv(t, slowCli)
+	deps, global := fakePiEnv(t, slowCli)
 	lt := loadTask(t, "id: slow\ntitle: 慢\nprompt: 慢慢来\ntimeout: 1s\n")
 	emit, _ := collect()
 
@@ -85,7 +91,7 @@ func TestRunTimeoutNamesTheLimitAndKeepsTheCause(t *testing.T) {
 // 工作流的 AI 步骤：params 原样交给 Build（${VAR} 在那里展开成提示词），step env 先用
 // merged 展开 ${VAR}，再覆盖任务定义里的同名 env。
 func TestStepExpandsStepEnvAndPassesParamsThrough(t *testing.T) {
-	deps, global := fakeCliEnv(t, echoCli)
+	deps, global := fakePiEnv(t, echoCli)
 	global["NOTE"] = "from-config"
 	lt := loadTask(t, "id: demo\ntitle: 演示\nparams:\n  - { id: TOPIC, type: text }\nprompt: 介绍一下 ${TOPIC}\nenv:\n  NOTE: from-task\n")
 	emit, lines := collect()
@@ -119,8 +125,8 @@ func TestAiReadoutIncludesSessionID(t *testing.T) {
 	if r["durationMs"] != int64(3500) {
 		t.Fatalf("durationMs 不符: %+v", r)
 	}
-	// 失败/超时场景：result 事件未到达（无 cost/tokens），但 system/init 的 session_id 已写入，
-	// sessionId 必须随 readout 下发（否则历史条目丢会话 id，无法查现场/--resume）。
+	// 失败/超时场景：usage 读数未到达（无 cost/tokens），但 session 事件报过的 session_id 已写入，
+	// sessionId 必须随 readout 下发（否则历史条目丢会话 id，无法查现场/续接）。
 	fail := Readout(map[string]string{"session_id": "abc"}, 0)
 	if fail == nil || fail["sessionId"] != "abc" {
 		t.Fatalf("失败时 sessionId 应单独撑起 readout，got %+v", fail)

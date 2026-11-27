@@ -1,4 +1,6 @@
-AI_CLI: ducc
+# pi 唯一 AI 运行器（docs/adr/0008-pi-only-runner.md）：AI 三键（AI_BASE_URL / AI_AUTH_KEY / AI_MODEL）
+# 存用户级 ~/.workflow-tool/auth.json（Settings → Agent 编辑，0600 不随包分发），不进本文件
+# AI_PI_BIN: /path/to/pi   # 可选：显式指定 pi 可执行；缺省探 <应用目录>/pi/pi > PATH
 LOGS_DIR: /Users/v_chenzhaojun/Documents/Logs
 OUTPUT_DIR: /Users/v_chenzhaojun/Documents/docs
 VOICE_DEBUG_OUTPUT: /Users/v_chenzhaojun/Project/baidu/asd-edc/xdzs-speech/app-vui/vr-app/build/outputs/apk/debug

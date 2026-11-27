@@ -15,7 +15,7 @@ func TestValidateStepKindsExclusive(t *testing.T) {
 		"action": {Action: "a"},
 		"run":    {Run: "echo"},
 		"sleep":  {Sleep: 1},
-		"ai":     {AI: "claude-ask"},
+		"ai":     {AI: "demo-ask"},
 	} {
 		if err := Validate(base(s)); err != nil {
 			t.Errorf("%s: 单一形态应合法，got %v", name, err)
@@ -23,9 +23,9 @@ func TestValidateStepKindsExclusive(t *testing.T) {
 	}
 	for name, s := range map[string]Step{
 		"none":       {},
-		"action+ai":  {Action: "a", AI: "claude-ask"},
-		"run+ai":     {Run: "echo", AI: "claude-ask"},
-		"sleep+ai":   {Sleep: 1, AI: "claude-ask"},
+		"action+ai":  {Action: "a", AI: "demo-ask"},
+		"run+ai":     {Run: "echo", AI: "demo-ask"},
+		"sleep+ai":   {Sleep: 1, AI: "demo-ask"},
 		"action+run": {Action: "a", Run: "echo"},
 	} {
 		err := Validate(base(s))
@@ -59,7 +59,7 @@ title: W
 steps:
   - id: analyze
     name: 分析缺陷
-    ai: claude-bug-analyze
+    ai: ai-bug-analyze
     params:
       BUG_URL: ${{ params.BUG_URL }}
       prompt: |
@@ -72,7 +72,7 @@ steps:
 		t.Fatalf("Validate: %v", err)
 	}
 	s := def.Steps[0]
-	if s.AI != "claude-bug-analyze" || s.Action != "" || s.Run != "" || s.Name != "分析缺陷" {
+	if s.AI != "ai-bug-analyze" || s.Action != "" || s.Run != "" || s.Name != "分析缺陷" {
 		t.Fatalf("解析结果不符: %+v", s)
 	}
 	if s.Params["prompt"] != "只分析崩溃线程\n" {

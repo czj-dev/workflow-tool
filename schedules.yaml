@@ -3,4 +3,4 @@ schedules:
       name: 每日 Bug 流转报告
       enabled: true
       cron: 0 20 * * 1,2,3,4,5
-      ai: claude-daily-bug-report
+      ai: ai-daily-bug-report

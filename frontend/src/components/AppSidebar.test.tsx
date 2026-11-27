@@ -319,10 +319,10 @@ describe("AppSidebar — AI 任务组", () => {
     mockListActions.mockResolvedValue({ actions: [], errors: [] });
     mockListAiTasks.mockResolvedValue({
       tasks: [],
-      errors: ["ai/claude-ask.yaml: 第 3 行: 未知字段"],
+      errors: ["ai/demo-ask.yaml: 第 3 行: 未知字段"],
     });
     render(wrap());
-    expect(await screen.findByText("ai/claude-ask.yaml: 第 3 行: 未知字段")).toBeInTheDocument();
+    expect(await screen.findByText("ai/demo-ask.yaml: 第 3 行: 未知字段")).toBeInTheDocument();
     expect(screen.getByText("AI 任务")).toBeInTheDocument();
     // 没有可进的任务：入口行不出现
     expect(screen.queryByText("全部 AI 任务")).not.toBeInTheDocument();
