@@ -69,7 +69,7 @@ func Validate(def *WorkflowDef) error {
 		return fmt.Errorf("title 必填")
 	}
 	if def.Color != "" && !registry.ValidAmbColors[def.Color] {
-		return fmt.Errorf("color 非法 %q（应为 amber/green/blue/violet，不写则按分组序循环）", def.Color)
+		return fmt.Errorf("color 非法 %q（应为 amber/green/cyan/blue/violet，不写则按分组序循环）", def.Color)
 	}
 	if len(def.Steps) == 0 {
 		return fmt.Errorf("steps 不能为空")

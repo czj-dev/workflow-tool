@@ -597,8 +597,8 @@ func TestValidate_ScriptExtension(t *testing.T) {
 	}
 }
 
-// TestValidate_ColorField 校验顶层 color 字段（ADR-0003 备注②）：合法四色名放行、
-// 非法名报错、不写（空串）放行——前端回落分组序循环。
+// TestValidate_ColorField 校验顶层 color 字段（ADR-0003 备注②）：合法五色名放行、
+// 非法名报错（文案列出五色）、不写（空串）放行——前端回落分组序循环。
 func TestValidate_ColorField(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -606,8 +606,10 @@ func TestValidate_ColorField(t *testing.T) {
 		wantErr string
 	}{
 		{"合法色名 green", "id: a\ntitle: A\ncolor: green\ncommand:\n  run: echo\n", ""},
+		{"合法色名 cyan", "id: a\ntitle: A\ncolor: cyan\ncommand:\n  run: echo\n", ""},
 		{"不写 color 放行", "id: a\ntitle: A\ncommand:\n  run: echo\n", ""},
 		{"非法色名", "id: a\ntitle: A\ncolor: red\ncommand:\n  run: echo\n", "color 非法"},
+		{"非法色名文案列五色", "id: a\ntitle: A\ncolor: red\ncommand:\n  run: echo\n", "amber/green/cyan/blue/violet"},
 	}
 	for _, c := range cases {
 		def, err := ParseAction([]byte(c.yaml))

@@ -12,9 +12,10 @@ func TestSaveAndLoadVariableGroups(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "var-groups.yaml")
 
+	// 分组颜色与 action/workflow/AI 任务共用同一张五色白名单（含 cyan）。
 	groups := []VariableGroup{
 		{Name: "路径", Color: "blue", Keys: []string{"DOCS", "LOGS_DIR", "OUTPUT_DIR"}},
-		{Name: "XDZS 项目", Color: "green", Keys: []string{"XDZS_RESROUCE_DIR", "XDZS_SPEECH_DIR"}},
+		{Name: "XDZS 项目", Color: "cyan", Keys: []string{"XDZS_RESROUCE_DIR", "XDZS_SPEECH_DIR"}},
 		{Name: "账号", Color: "violet", Keys: []string{"USER"}},
 	}
 	got, err := SaveVariableGroups(path, groups)
