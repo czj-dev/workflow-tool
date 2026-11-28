@@ -9,7 +9,12 @@ import { useTranslation } from "react-i18next";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Tick02Icon } from "@hugeicons/core-free-icons";
 import { cn } from "@/lib/utils";
-import { AMB_COLORS, SWATCH_BG, type AmbColor, type AmbColorValue } from "./colors";
+import {
+  AMB_COLORS,
+  SWATCH_BG,
+  type AmbColor,
+  type AmbColorValue,
+} from "@/lib/amb-colors";
 
 /** 可读颜色名的 i18n key（shared.* 两页共用小命名空间）。 */
 const COLOR_NAME_KEY: Record<AmbColor, string> = {

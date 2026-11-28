@@ -23,13 +23,18 @@ import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { extractVars } from "@/lib/vars";
 import { cn } from "@/lib/utils";
 import { Swatches } from "@/components/config-pages/swatch";
-import type { AmbColor } from "@/components/config-pages/colors";
+import {
+  GROUP_AMB,
+  type AmbColor,
+  type AmbColorValue,
+} from "@/lib/amb-colors";
 
 export interface FragmentRow {
   title: string;
   content: string;
   tags: string[];
-  /** 这条卡片的底色（#10）。缺省 = 分区固定琥珀：弹窗预选它，保存时补齐落盘。 */
+  /** 这条卡片的底色（#10）。undefined = 未设置：跟随分区固定琥珀，保存时载荷
+   *  不写 color 键（编辑保留该语义）；新增模式弹窗预选 GROUP_AMB（规格 F）。 */
   color?: AmbColor;
 }
 
@@ -109,7 +114,8 @@ function TagInput({
   );
 }
 
-const EMPTY_ROW: FragmentRow = { title: "", content: "", tags: [] };
+// 新增模式默认琥珀（规格 F「新增时默认琥珀」）：色卡预选它，保存载荷带默认色
+const EMPTY_ROW: FragmentRow = { title: "", content: "", tags: [], color: GROUP_AMB };
 
 // 片段编辑弹窗：新增与编辑同一交互。initial 为 null 即新增模式。
 // 由父层用 key 控制重挂载来重置草稿，避免 useEffect 同步 props→state。
@@ -136,8 +142,10 @@ export function FragmentDialog({
 
   const vars = extractVars(row.content);
   const canSave = row.title.trim().length > 0 || row.content.trim().length > 0;
-  // 弹窗里色永远有值：未选过（新增）= 分区固定琥珀，与列表渲染口径一致
-  const color = row.color ?? "amber";
+  // 色卡当前值：编辑未选过色的片段停在「未设置」档（跟随分区色，保存不写 color
+  // 键）；新增由 EMPTY_ROW 预选 GROUP_AMB。预览卡未设置时按分区固定琥珀渲染。
+  const colorValue: AmbColorValue = row.color ?? null;
+  const previewAmb = row.color ?? GROUP_AMB;
 
   const submit = () => {
     if (!canSave) return;
@@ -145,7 +153,8 @@ export function FragmentDialog({
       title: row.title.trim(),
       content: row.content,
       tags: row.tags,
-      color,
+      // undefined = 未设置：saveOne 据此不写 color 键
+      color: row.color,
     });
   };
 
@@ -229,18 +238,20 @@ export function FragmentDialog({
               onChange={(tags) => setRow((r) => ({ ...r, tags }))}
             />
           </Field>
-          {/* 卡片颜色：只染这张卡的底色，标题 / 命令文字不变色 */}
+          {/* 卡片颜色：只染这张卡的底色，标题 / 命令文字不变色。编辑模式多一档
+              「跟随分区色」（未设置）：不动它直接保存，载荷不含 color */}
           <Field>
             <FieldTitle>{t("shared.cardColor")}</FieldTitle>
             <Swatches
-              value={color}
-              onChange={(c) => setRow((r) => ({ ...r, color: c ?? "amber" }))}
+              value={colorValue}
+              onChange={(c) => setRow((r) => ({ ...r, color: c ?? undefined }))}
+              unsetLabel={initial ? t("fragments.fragColorUnset") : undefined}
               label={t("shared.cardColor")}
             />
             <FieldDescription>{t("fragments.fragColorHint")}</FieldDescription>
             {/* 实时预览：同一支 tint-card + frag-card 染色，标题 / 命令取已输入的内容 */}
             <article
-              data-amb={color}
+              data-amb={previewAmb}
               aria-hidden="true"
               className="frag-card tint-card rounded-md px-2 py-1.5"
             >

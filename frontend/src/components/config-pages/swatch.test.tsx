@@ -4,7 +4,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import i18n from "../../i18n";
 import { Swatches } from "./swatch";
-import type { AmbColorValue } from "./colors";
+import type { AmbColorValue } from "@/lib/amb-colors";
 
 beforeEach(async () => {
   await i18n.changeLanguage("zh");

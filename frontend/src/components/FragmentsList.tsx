@@ -37,16 +37,15 @@ import { joinDroppedPaths, type FileDropPayload } from "@/lib/filedrop";
 import { FragmentDialog, type FragmentRow } from "./FragmentDialog";
 import { SectionHead } from "@/components/config-pages/section-head";
 import { TokenText } from "@/components/config-pages/token-text";
-import { AMB_COLORS, type AmbColor } from "@/components/config-pages/colors";
+import { GROUP_AMB, asAmbColor, normalizeAmbColor } from "@/lib/amb-colors";
+import { toggleInSet } from "@/lib/sets";
+import { useLitSection } from "../hooks/useLitSection";
 import type { Fragment } from "../../bindings/workflow-tool/internal/registry/models.js";
 import { cn } from "@/lib/utils";
 
 // 删除二次确认窗口（ms）：首次点击进入待确认，超时自动复原
 const CONFIRM_WINDOW_MS = 2000;
 const COPIED_FEEDBACK_MS = 1200;
-
-// 片段分区的固定色（规格 F）：分区一律琥珀，颜色下放给条目——每条片段自己选
-const GROUP_AMB = "amber";
 
 // Tab 键值：「全部」用裸 "all"，tag 加 t: 前缀，不与真实 tag 同名冲突
 const ALL_KEY = "all";
@@ -70,13 +69,6 @@ function tagIcon(tag: string): Icon {
   if (/rg|grep|find/.test(t)) return Search01Icon;
   if (/lnav|view|data/.test(t)) return DatabaseIcon;
   return TagsIcon;
-}
-
-/** 存档里的颜色 → 五色值：未设置或越界回落分区固定琥珀（后端本就按白名单规整）。 */
-function normalizeColor(color: string | undefined): AmbColor {
-  return (AMB_COLORS as readonly string[]).includes(color ?? "")
-    ? (color as AmbColor)
-    : "amber";
 }
 
 // FragCard：一条片段卡（#10 方案 A）。标题即复制——片段页的主操作给最大点击面；
@@ -117,7 +109,7 @@ function FragCard({
 
   return (
     <article
-      data-amb={f.color ? normalizeColor(f.color) : undefined}
+      data-amb={f.color ? normalizeAmbColor(f.color, GROUP_AMB) : undefined}
       className="frag-card tint-card group/row @container rounded-md px-2 py-1.5"
     >
       <div className="flex items-center gap-2">
@@ -204,9 +196,9 @@ export function FragmentsList({ inSheet = false }: { inSheet?: boolean }) {
   // 缺失变量的临时填写值：fragment 索引 → 变量名 → 值。仅内存，不落盘，
   // 编辑/删除片段后索引可能错位，此时整体清空（见 saveOne/clickDelete）。
   const [overrides, setOverrides] = useState<Record<number, Record<string, string>>>({});
-  // 分区折叠集合（内存态，默认全展开）与焦点所在分区（data-lit 提亮）
+  // 分区折叠集合（内存态，默认全展开）；焦点所在分区（data-lit 提亮）抽成 useLitSection
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set());
-  const [lit, setLit] = useState<string | null>(null);
+  const { lit, onFocusCapture, onBlurCapture } = useLitSection();
   const query = q.trim().toLowerCase();
 
   // useCallback：拖拽订阅 effect 要拿它做依赖又不能每次渲染重新订阅（只用到稳定的 setOverrides）
@@ -312,15 +304,20 @@ export function FragmentsList({ inSheet = false }: { inSheet?: boolean }) {
     void saveFragments(fragments.filter((_, idx) => idx !== i));
   };
 
-  // 单条落盘：editing=-1 追加，否则替换该索引。载荷按 Fragment 模型字段显式构造，
-  // color 由弹窗保证有值（新增 / 未选过 = 分区固定琥珀），其余行对象原样引用不动。
+  // 单条落盘：editing=-1 追加，否则替换该索引。载荷按 Fragment 模型字段显式构造；
+  // color 未设置（编辑未选过色的片段原样保存）时不写键——后端 Fragment.color
+  // omitempty，「未设置 = 跟随分区色」与显式 GROUP_AMB 是两种数据，编辑不得悄悄
+  // 转正。新增的默认色由弹窗给（规格 F：新增时默认琥珀）。其余行对象原样引用不动。
   const saveOne = (row: FragmentRow) => {
-    const frag: Fragment = {
+    // 生成的 Fragment 类型把 color 推成必填键（JSDoc JS 用 if(false) 死分支表示
+    // omitempty，TS 不认作可选），线协议实际按 omitempty：未设置时不写键。
+    // 断言只补这个缺口，其余字段仍受检查。
+    const frag = {
       title: row.title,
       content: row.content,
       tags: row.tags,
-      color: row.color,
-    };
+      ...(row.color ? { color: row.color } : {}),
+    } as Fragment;
     const list =
       editing === -1
         ? [...fragments, frag]
@@ -424,13 +421,8 @@ export function FragmentsList({ inSheet = false }: { inSheet?: boolean }) {
       ) : (
         <div
           className="flex min-h-0 flex-1 flex-col gap-3 overflow-auto p-4"
-          onFocusCapture={(e) => {
-            // 焦点落在哪个分区，哪个分区整段提亮（data-lit）
-            const sec =
-              e.target instanceof Element ? e.target.closest("[data-sec]") : null;
-            setLit(sec?.getAttribute("data-sec") ?? null);
-          }}
-          onBlurCapture={() => setLit(null)}
+          onFocusCapture={onFocusCapture}
+          onBlurCapture={onBlurCapture}
         >
           {Array.from(groups.entries()).map(([tag, idxs]) => {
             const secCollapsed = collapsed.has(tag);
@@ -454,11 +446,7 @@ export function FragmentsList({ inSheet = false }: { inSheet?: boolean }) {
                   count={idxs.length}
                   collapsed={secCollapsed}
                   onToggle={() =>
-                    setCollapsed((prev) => {
-                      const next = new Set(prev);
-                      if (!next.delete(tag)) next.add(tag);
-                      return next;
-                    })
+                    setCollapsed((prev) => toggleInSet(prev, tag))
                   }
                 />
                 {!secCollapsed && (
@@ -498,7 +486,9 @@ export function FragmentsList({ inSheet = false }: { inSheet?: boolean }) {
                   title: fragments[editing].title,
                   content: fragments[editing].content,
                   tags: fragments[editing].tags ?? [],
-                  color: normalizeColor(fragments[editing].color),
+                  // 越界 / 未设置都归「未设置」：弹窗停在「跟随分区色」档，直接
+                  // 保存则载荷不写 color 键（不把未设置悄悄转成分区固定琥珀）
+                  color: asAmbColor(fragments[editing].color),
                 }
               : null
           }

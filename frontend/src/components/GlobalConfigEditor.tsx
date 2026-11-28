@@ -1,4 +1,4 @@
-import { useMemo, useState, type FocusEvent } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { HugeiconsIcon } from "@hugeicons/react";
 import {
@@ -26,14 +26,15 @@ import { Empty, EmptyDescription } from "@/components/ui/empty";
 import { IconButton } from "./IconButton";
 import { GroupColorPicker, GroupDialog } from "./config-pages/group-dialog";
 import { SectionHead } from "@/components/config-pages/section-head";
-import { HEAD_ACTION } from "@/components/config-pages/colors";
+import { HEAD_ACTION, normalizeAmbColor } from "@/lib/amb-colors";
+import { removeFromSet, toggleInSet } from "@/lib/sets";
 import { useActionRunner } from "../hooks/useActionRunner";
 import {
-  displayAmbColor,
   pickDefaultColor,
   useVariableGroups,
   type GroupWriteCtx,
 } from "../hooks/useVariableGroups";
+import { useLitSection } from "../hooks/useLitSection";
 import { extractVars } from "@/lib/vars";
 import { cn } from "@/lib/utils";
 import type { VariableGroup } from "../../bindings/workflow-tool/internal/registry/models.js";
@@ -75,8 +76,8 @@ export function GlobalConfigEditor() {
   const [fresh, setFresh] = useState<{ index: number; focus: "key" | "value" } | null>(null);
   /** 收起 / 展开只在本次会话的内存里（规格 E）。 */
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
-  /** 焦点所在的分区整段提亮（data-lit）。 */
-  const [lit, setLit] = useState<string | null>(null);
+  /** 焦点所在的分区整段提亮（data-lit），样板抽成 useLitSection。 */
+  const { lit, onFocusCapture, onBlurCapture } = useLitSection();
   const [dialog, setDialog] = useState<
     { mode: "create" } | { mode: "rename"; group: VariableGroup } | null
   >(null);
@@ -162,12 +163,7 @@ export function GlobalConfigEditor() {
     setDirty(true);
     setFresh(null);
   };
-  const expand = (id: string) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      next.delete(id);
-      return next;
-    });
+  const expand = (id: string) => setCollapsed((prev) => removeFromSet(prev, id));
   /** 追加一行（key 可预填，用于「补定义」）：保证所在分区展开，焦点交给指定输入框。 */
   const addRow = (key = "", focus: "key" | "value" = "key") => {
     const index = rows.length;
@@ -185,13 +181,6 @@ export function GlobalConfigEditor() {
     await saveGlobalConfig(kv);
     setDirty(false);
   };
-
-  // 焦点落在哪个分区（气泡 / 选项里的焦点带 data-sec，归得到分区）
-  const onFocusCapture = (e: FocusEvent<HTMLElement>) => {
-    const sec = (e.target as HTMLElement).closest("[data-sec]");
-    setLit(sec?.getAttribute("data-sec") ?? null);
-  };
-  const onBlurCapture = () => setLit(null);
 
   /** 一行关系线：值里引用了谁（from，只列已定义），谁又引用了它（by）。 */
   const relationsOf = (row: VarRow) => {
@@ -360,8 +349,11 @@ export function GlobalConfigEditor() {
           ) : (
             <>
               {groups.map((g) => {
+                // 分区键（data-sec）命名空间：手动分组带 m: 前缀，与「未分组」的
+                // 裸键 "ungrouped" 隔开——分组名可能与它撞名，前缀保证键永不冲突
                 const id = `m:${g.name}`;
-                const amb = displayAmbColor(g.color);
+                // 未设置 / 越界按蓝色显示（规格 E）
+                const amb = normalizeAmbColor(g.color, "blue");
                 const members = sectioned.byName.get(g.name) ?? [];
                 const memberKeys = members
                   .map(({ row }) => row.key.trim())
@@ -386,12 +378,7 @@ export function GlobalConfigEditor() {
                       count={members.length}
                       collapsed={isCollapsed}
                       onToggle={() =>
-                        setCollapsed((prev) => {
-                          const next = new Set(prev);
-                          if (next.has(id)) next.delete(id);
-                          else next.add(id);
-                          return next;
-                        })
+                        setCollapsed((prev) => toggleInSet(prev, id))
                       }
                       action={
                         <>
@@ -450,12 +437,7 @@ export function GlobalConfigEditor() {
                   count={sectioned.ungrouped.length}
                   collapsed={collapsed.has("ungrouped")}
                   onToggle={() =>
-                    setCollapsed((prev) => {
-                      const next = new Set(prev);
-                      if (next.has("ungrouped")) next.delete("ungrouped");
-                      else next.add("ungrouped");
-                      return next;
-                    })
+                    setCollapsed((prev) => toggleInSet(prev, "ungrouped"))
                   }
                 />
                 {!collapsed.has("ungrouped") && (
@@ -525,7 +507,7 @@ export function GlobalConfigEditor() {
         <GroupDialog
           mode="rename"
           initialName={dialog.group.name}
-          initialColor={displayAmbColor(dialog.group.color)}
+          initialColor={normalizeAmbColor(dialog.group.color, "blue")}
           existingNames={groups.map((g) => g.name).filter((n) => n !== dialog.group.name)}
           onSubmit={(name, color) => rename(dialog.group.name, name, color, writeCtx())}
           onClose={() => setDialog(null)}

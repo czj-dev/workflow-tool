@@ -117,6 +117,7 @@
   "fragments.stats": "{{n}} fragments · {{g}} tags",
   "fragments.clickToCopy": "Click the title to copy",
   "fragments.fragColorHint": "Tints only this card's background; text stays neutral",
+  "fragments.fragColorUnset": "Follow section color",
   "fragments.previewTitle": "Sample fragment",
   "fragments.previewContent": "adb shell dumpsys activity top",
   "edit.title": "Edit Action",

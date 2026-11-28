@@ -2,11 +2,14 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { act, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import i18n from "../i18n";
+import type { Fragment } from "../../bindings/workflow-tool/internal/registry/models.js";
 
+// vi.hoisted 运行在 import 之前，但类型标注是编译期的——mockSetFragments 带上
+// (list: Fragment[]) 签名后 .mock.calls 才有元组类型，测试里可直接索引取载荷
 const { mockGetFragments, mockSetFragments, mockWriteText, listeners } = vi.hoisted(
   () => ({
     mockGetFragments: vi.fn(),
-    mockSetFragments: vi.fn(() => Promise.resolve()),
+    mockSetFragments: vi.fn<(list: Fragment[]) => Promise<void>>(),
     mockWriteText: vi.fn(() => Promise.resolve()),
     // 同名事件可能有多个订阅者（Provider 写输入框、FragmentsList 写变量 token），故按名存数组
     listeners: {} as Record<string, Array<(e: unknown) => void>>,
@@ -305,25 +308,73 @@ describe("FragmentsView - 新增/编辑弹窗", () => {
     ]);
   });
 
-  it("点编辑打开弹窗并预填现有值，保存后替换该条（未选过色 → 默认 amber）", async () => {
+  it("点编辑打开弹窗并预填现有值；未选过色的片段不动颜色直接保存 → 载荷不含 color 键", async () => {
     const user = userEvent.setup();
     renderView();
     await screen.findByRole("button", { name: "看日志" });
     await user.click(screen.getByRole("button", { name: "编辑" }));
 
     expect(screen.getByText("编辑片段")).toBeInTheDocument();
+    // 编辑模式色卡多一档「跟随分区色」（未设置）：未选过色的片段停在这档，
+    // 预览卡按分区固定琥珀渲染
+    const dialog = screen.getByRole("dialog");
+    const group = within(dialog).getByRole("radiogroup", { name: "卡片颜色" });
+    expect(within(group).getAllByRole("radio")).toHaveLength(6);
+    expect(
+      within(group).getByRole("radio", { name: "跟随分区色" }),
+    ).toHaveAttribute("aria-checked", "true");
+    expect(dialog.querySelector("article[data-amb]")).toHaveAttribute(
+      "data-amb",
+      "amber",
+    );
+
     const titleInput = screen.getByDisplayValue("看日志");
     await user.type(titleInput, "2");
     await user.click(screen.getByRole("button", { name: "保存" }));
 
-    expect(mockSetFragments).toHaveBeenCalledWith([
+    // 载荷不含 color 键：未设置语义保留（后端 omitempty，未设置 = 跟随分区色），
+    // 不能被悄悄转成显式 amber
+    expect(mockSetFragments).toHaveBeenCalledTimes(1);
+    const saved = mockSetFragments.mock.calls[0][0][0];
+    expect(saved).toEqual({
+      title: "看日志2",
+      content: "adb logcat -d > ${LOGS_DIR}/today.log",
+      tags: ["adb", "logcat"],
+    });
+    expect("color" in saved).toBe(false);
+  });
+
+  it("编辑带色片段改回「跟随分区色」：保存载荷同样不含 color 键", async () => {
+    mockGetFragments.mockResolvedValue([
       {
-        title: "看日志2",
+        title: "看日志",
         content: "adb logcat -d > ${LOGS_DIR}/today.log",
         tags: ["adb", "logcat"],
-        color: "amber",
+        color: "green",
       },
     ]);
+    const user = userEvent.setup();
+    renderView();
+    await screen.findByRole("button", { name: "看日志" });
+    await user.click(screen.getByRole("button", { name: "编辑" }));
+
+    const dialog = screen.getByRole("dialog");
+    const group = within(dialog).getByRole("radiogroup", { name: "卡片颜色" });
+    expect(within(group).getByRole("radio", { name: "绿色" })).toHaveAttribute(
+      "aria-checked",
+      "true",
+    );
+    await user.click(within(group).getByRole("radio", { name: "跟随分区色" }));
+    await user.click(screen.getByRole("button", { name: "保存" }));
+
+    expect(mockSetFragments).toHaveBeenCalledTimes(1);
+    const saved = mockSetFragments.mock.calls[0][0][0];
+    expect(saved).toEqual({
+      title: "看日志",
+      content: "adb logcat -d > ${LOGS_DIR}/today.log",
+      tags: ["adb", "logcat"],
+    });
+    expect("color" in saved).toBe(false);
   });
 
   it("编辑改色后保存：载荷带新颜色且其它字段不变", async () => {
