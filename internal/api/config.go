@@ -28,6 +28,31 @@ func (s *Service) SetGlobalConfig(cfg map[string]string) error {
 	return nil
 }
 
+// GetVariableGroups 返回规整后的变量分组列表，顺序即文件顺序（副本）。
+// 分组与全局配置分开存：整理分组不碰运行时读取的 config.yaml。
+func (s *Service) GetVariableGroups() []registry.VariableGroup {
+	s.gMu.Lock()
+	defer s.gMu.Unlock()
+	out := make([]registry.VariableGroup, len(s.varGroups))
+	copy(out, s.varGroups)
+	return out
+}
+
+// SetVariableGroups 规整 → 写盘 → 更新内存 → 返回规整后的结果。与全局配置
+// 共用互斥锁；写盘方式与片段文件一致。页面每次提交整份状态：页面上没有对应
+// 行、且已保存全局配置里也不存在的变量（早已删除的变量）由页面在构建载荷时
+// 丢弃，整份替换写盘因此让文件自我清理；未保存的草稿行照常提交、保留。
+func (s *Service) SetVariableGroups(groups []registry.VariableGroup) ([]registry.VariableGroup, error) {
+	s.gMu.Lock()
+	defer s.gMu.Unlock()
+	normalized, err := registry.SaveVariableGroups(s.varGroupsPath, groups)
+	if err != nil {
+		return nil, err
+	}
+	s.varGroups = normalized
+	return normalized, nil
+}
+
 // AgentConfig 是 Settings → Agent 分区编辑的领域模型：三个已知字段 + auth.json 里
 // 其余未知键的透传（键名词汇表将来扩展不留死角）。前端表单只关心已知字段。
 type AgentConfig struct {

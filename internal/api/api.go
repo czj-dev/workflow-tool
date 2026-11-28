@@ -2,7 +2,7 @@
 // 按域拆文件：actions.go（动作 CRUD/列表）、run.go（直跑执行）、workflows.go
 // （workflow CRUD/执行）、ai.go（AI 任务 CRUD/列表）、events.go（事件发射器与顺序
 // 协议）、devices.go（设备选择）、
-// config.go（全局配置/片段/Agent 三键 auth.json）、dialog.go（原生对话框）、runregistry.go（运行簿记）、
+// config.go（全局配置/变量分组/片段/Agent 三键 auth.json）、dialog.go（原生对话框）、runregistry.go（运行簿记）、
 // schedules.go（调度 CRUD 与到点发起）、runs.go（运行记录查询与接入点）。
 package api
 
@@ -36,17 +36,21 @@ const scheduleStateFile = "schedules.state.json"
 
 // Service 是暴露给前端的 Wails 服务。
 type Service struct {
-	app       *application.App
-	reg       *registry.Registry
-	regMu     sync.RWMutex // registry 指针由 Reload 原子替换
-	baseDir   string
-	cfgPath   string // config.yaml 路径
-	fragPath  string // fragments.yaml 路径
-	authPath  string // 用户级 auth.json 路径（Agent 三键，apphome.AuthPath()）
-	global    map[string]string
-	gMu       sync.Mutex // 保护 global 的读写
-	fragments []registry.Fragment
-	fMu       sync.Mutex // 保护 fragments 的读写
+	app      *application.App
+	reg      *registry.Registry
+	regMu    sync.RWMutex // registry 指针由 Reload 原子替换
+	baseDir  string
+	cfgPath  string // config.yaml 路径
+	fragPath string // fragments.yaml 路径
+	authPath string // 用户级 auth.json 路径（Agent 三键，apphome.AuthPath()）
+	global   map[string]string
+	gMu      sync.Mutex // 保护 global 与 varGroups 的读写（变量分组与全局配置共用）
+	// varGroups 是全局配置页的手动变量分组（exe 同级 var-groups.yaml，与 config.yaml
+	// 分开存：分组是界面偏好，不进运行时变量表）。写穿式即时保存，与变量草稿互不触发。
+	varGroups     []registry.VariableGroup
+	varGroupsPath string // var-groups.yaml 路径（从 baseDir 推导，同 schedules.yaml）
+	fragments     []registry.Fragment
+	fMu           sync.Mutex // 保护 fragments 的读写
 	// locks 是落盘的目标锁：应用内的运行、独立执行器与 CLI 运行对同一目标互斥（跨进程）。
 	// 三个 runRegistry 经它占锁；执行器发起时也在这里探测目标是否被占。
 	locks     *targetlock.Locks
@@ -93,6 +97,12 @@ func New(reg *registry.Registry, wfReg *workflow.WorkflowRegistry, baseDir, cfgP
 	if g == nil {
 		g = map[string]string{}
 	}
+	vgPath := filepath.Join(baseDir, "var-groups.yaml")
+	// 分组文件不存在/为空/手改坏都视为没有分组，应用照常启动（registry 侧宽容加载）。
+	vgroups, _ := registry.LoadVariableGroups(vgPath)
+	if vgroups == nil {
+		vgroups = []registry.VariableGroup{}
+	}
 	frags, _ := registry.LoadFragments(fragPath)
 	if frags == nil {
 		frags = []registry.Fragment{}
@@ -102,21 +112,23 @@ func New(reg *registry.Registry, wfReg *workflow.WorkflowRegistry, baseDir, cfgP
 	}
 	locks := targetlock.New(baseDir)
 	svc := &Service{
-		locks:        locks,
-		reg:          reg,
-		baseDir:      baseDir,
-		cfgPath:      cfgPath,
-		fragPath:     fragPath,
-		authPath:     apphome.AuthPath(),
-		global:       g,
-		fragments:    frags,
-		running:      newRunRegistry(target.Action, locks),
-		wfReg:        wfReg,
-		wfRunning:    newRunRegistry(target.Workflow, locks),
-		aiReg:        ai.Load(filepath.Join(baseDir, "ai"), reg.Skills),
-		aiRunning:    newRunRegistry(target.AI, locks),
-		schedulePath: filepath.Join(baseDir, "schedules.yaml"),
-		scheduleRuns: make(map[string]*scheduleRunState),
+		locks:         locks,
+		reg:           reg,
+		baseDir:       baseDir,
+		cfgPath:       cfgPath,
+		fragPath:      fragPath,
+		authPath:      apphome.AuthPath(),
+		global:        g,
+		varGroups:     vgroups,
+		varGroupsPath: vgPath,
+		fragments:     frags,
+		running:       newRunRegistry(target.Action, locks),
+		wfReg:         wfReg,
+		wfRunning:     newRunRegistry(target.Workflow, locks),
+		aiReg:         ai.Load(filepath.Join(baseDir, "ai"), reg.Skills),
+		aiRunning:     newRunRegistry(target.AI, locks),
+		schedulePath:  filepath.Join(baseDir, "schedules.yaml"),
+		scheduleRuns:  make(map[string]*scheduleRunState),
 	}
 	svc.scheduleDefs, svc.scheduleErrors = schedule.LoadFile(svc.schedulePath, svc.scheduleCatalog())
 	svc.scheduleDefs, svc.scheduleErrors = svc.validateLoadedScheduleDefinitions(svc.scheduleDefs, svc.scheduleErrors)
