@@ -17,15 +17,12 @@ import { ActionsGridView } from "./ActionsGridView";
 import { RunsView } from "./RunsView";
 import { RunDetailView } from "./RunDetailView";
 import { WorkflowsGridView } from "./WorkflowsGridView";
-import { ProtoHost, ProtoPage } from "./config-pages.prototype/slot";
 
 // 右栏容器：按 view 分派到对应视图。
 export function OutputPanel() {
   const { view } = useActionRunner();
   return (
     <>
-      {/* PROTOTYPE（一次性）：原型切换条宿主。非原型会话同步返回 null，不产生任何 DOM。 */}
-      <ProtoHost />
       <SchedulerView active={view === "schedules"} />
       {view !== "schedules" && <OtherView />}
     </>
@@ -47,9 +44,8 @@ function OtherView() {
       </main>
     );
   }
-  // PROTOTYPE（一次性）：两页各插一个插槽；非原型会话同步回落到原组件（见 config-pages.prototype/slot.tsx）。
-  if (view === "global") return <ProtoPage id="global" fallback={<GlobalConfigEditor />} />;
-  if (view === "fragments") return <ProtoPage id="fragments" fallback={<FragmentsView />} />;
+  if (view === "global") return <GlobalConfigEditor />;
+  if (view === "fragments") return <FragmentsView />;
   if (view === "ai-grid") return <AiGridView />;
   if (view === "ai-chat") return <AiChatView />;
   // 运行记录（M3）：全部目标的运行列表与单条运行详情

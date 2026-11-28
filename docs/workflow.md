@@ -8,7 +8,7 @@
 id: my-workflow                # 必填，^[a-z0-9-]+$ 全局唯一
 title: 我的工作流               # 必填
 icon: hi:workflow              # 可选，hugeicons key 或 emoji
-color: violet                  # 可选，卡片氛围色：amber | green | blue | violet（不写按组序循环）
+color: violet                  # 可选，卡片氛围色：amber | green | cyan | blue | violet（不写按组序循环）
 description: 简要说明           # 可选
 
 env:                           # 可选，workflow 级默认环境变量，注入所有 step
@@ -469,7 +469,7 @@ steps:
 
 - `id` 必须匹配 `^[a-z0-9-]+$`
 - `title` 必填
-- `color` 若填写只能是 `amber` / `green` / `blue` / `violet`
+- `color` 若填写只能是 `amber` / `green` / `cyan` / `blue` / `violet`
 - `steps` 不能为空
 - 每个 step 必须指定 `action` / `sleep` / `run` / `ai` 之一（四者互斥）
 - step 的 `shell` 修饰字段只能搭配 `run` 形态；值必须是内置名（`bash`/`sh`/`pwsh`/`powershell`/`python`/`node`/`cmd`）或含 `{0}` 的自定义模板

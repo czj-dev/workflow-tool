@@ -9,7 +9,6 @@ import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { IconButton } from "./IconButton";
 import { useActionRunner } from "../hooks/useActionRunner";
 import { FragmentsList } from "./FragmentsList";
-import { ProtoPage } from "./config-pages.prototype/slot";
 
 // ─── 非模态片段抽屉：与任意视图同屏共存 ────────────────────────────────────
 // modal=false：不锁滚动、不挡底下视图的交互（跑着 action 同时翻片段的诉求）；
@@ -70,9 +69,8 @@ export function FragmentsSheet() {
             onClick={() => setFragmentsOpen(false)}
           />
         </SheetHeader>
-        {/* PROTOTYPE（一次性）：原型插槽；非原型会话同步回落到 FragmentsList（抽屉模式：
-            工具行只画搜索 + 新增，标题与关闭钮在本层 SheetHeader，统计行不进抽屉）。 */}
-        <ProtoPage id="fragments" inSheet fallback={<FragmentsList inSheet />} />
+        {/* 抽屉模式：工具行只画搜索 + 新增，标题与关闭钮在本层 SheetHeader，统计行不进抽屉。 */}
+        <FragmentsList inSheet />
       </SheetContent>
     </Sheet>
   );
