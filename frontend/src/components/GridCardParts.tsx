@@ -67,6 +67,8 @@ export function StatusRail({
 
 // 四色按「分组显示序」循环取色（设计稿 token 表：图标色缺省时按序循环）——
 // 相邻组必然异色（ADB 与 DEMO 不再撞色），组内同色。传入该组在排序后的位次。
+// 循环刻意保持原四色板不动（ADR-0003 评审定稿）：cyan 只能通过逐卡显式 color
+// 或配置页色卡选用，不参与自动分配——进循环会改变现有网格的组色。
 const AMB_CYCLE = ["var(--amb-amber)", "var(--amb-green)", "var(--amb-blue)", "var(--amb-violet)"] as const;
 export function ambFor(index: number): string {
   const n = AMB_CYCLE.length;
@@ -75,10 +77,11 @@ export function ambFor(index: number): string {
 
 // YAML 可选 color 字段（ADR-0003 备注②落地）：逐卡声明氛围色，已知名 → token；
 // 未写 / 未知名返回 null，调用方回落 ambFor 组序循环。白名单与 Go 侧
-// registry.ValidAmbColors 保持同步（amber/green/blue/violet）。
+// registry.ValidAmbColors 保持同步（amber/green/cyan/blue/violet 五色）。
 const AMB_BY_NAME: Record<string, string> = {
   amber: "var(--amb-amber)",
   green: "var(--amb-green)",
+  cyan: "var(--amb-cyan)",
   blue: "var(--amb-blue)",
   violet: "var(--amb-violet)",
 };

@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -124,7 +125,7 @@ func TestRunActionMergesGlobalAndParams(t *testing.T) {
 	svc := New(reg, nil, dir, cfgPath, fragPath)
 
 	// 直接测 merge 逻辑（不实际 exec）
-	merged := svc.mergeGlobalAndParams(map[string]any{"NAME": "param-name"})
+	merged := svc.mergeGlobalAndParams(context.Background(), map[string]any{"NAME": "param-name"})
 	if merged["OUTPUT_DIR"] != "D:/pages" {
 		t.Fatalf("全局未合并: %+v", merged)
 	}

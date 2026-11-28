@@ -172,6 +172,7 @@ workflow-tool/
 ├── ai/                 AI 任务定义 YAML
 ├── fragments.yaml      指令片段
 ├── config.yaml         全局变量配置
+├── var-groups.yaml     全局配置变量分组（运行时创建，不随包分发）
 ├── schedules.yaml      调度定义（cron → action / workflow / ai）
 ├── runs/               运行记录（运行时生成，不入仓库）
 ├── logs/               应用日志（运行时生成，不入仓库）

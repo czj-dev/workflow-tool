@@ -69,7 +69,8 @@ export function FragmentsSheet() {
             onClick={() => setFragmentsOpen(false)}
           />
         </SheetHeader>
-        <FragmentsList />
+        {/* 抽屉模式：工具行只画搜索 + 新增，标题与关闭钮在本层 SheetHeader，统计行不进抽屉。 */}
+        <FragmentsList inSheet />
       </SheetContent>
     </Sheet>
   );

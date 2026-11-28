@@ -157,10 +157,58 @@ func TestShellRunnerUsesStepEnvInText(t *testing.T) {
 	}
 }
 
+// TestBuildEnvInjectsBinDirToPath 验证 <BaseDir>/bin 目录存在时注入 PATH 最前、
+// 不存在时不注入、用户显式 PATH 仍被前缀、已在最前时幂等。
+func TestBuildEnvInjectsBinDirToPath(t *testing.T) {
+	bin := t.TempDir()
+	sep := string(os.PathListSeparator)
+	parentPath := os.Getenv("PATH")
+
+	t.Run("目录存在注入最前", func(t *testing.T) {
+		env := buildEnv(nil, nil, bin)
+		got := envPath(env)
+		if !strings.HasPrefix(got, bin+sep) {
+			t.Fatalf("PATH 应以 %s 开头，实际: %q", bin+sep, got)
+		}
+		if !strings.HasSuffix(got, parentPath) {
+			t.Fatalf("PATH 应保留父进程 PATH 后缀，实际: %q", got)
+		}
+	})
+	t.Run("目录不存在不注入", func(t *testing.T) {
+		env := buildEnv(nil, nil, filepath.Join(bin, "missing"))
+		if got := envPath(env); got != parentPath {
+			t.Fatalf("目录不存在时 PATH 应原样，实际: %q", got)
+		}
+	})
+	t.Run("用户显式 PATH 仍被前缀", func(t *testing.T) {
+		env := buildEnv(nil, map[string]string{"PATH": "/explicit"}, bin)
+		if got := envPath(env); got != bin+sep+"/explicit" {
+			t.Fatalf("应注入到用户 PATH 前，实际: %q", got)
+		}
+	})
+	t.Run("已在最前幂等", func(t *testing.T) {
+		env := buildEnv(nil, map[string]string{"PATH": bin + sep + "/x"}, bin)
+		if got := envPath(env); got != bin+sep+"/x" {
+			t.Fatalf("已在最前不应重复注入，实际: %q", got)
+		}
+	})
+}
+
+// envPath 取 env 列表中最后一次出现的 PATH 值（与 exec.Cmd 的同名键合并语义一致）。
+func envPath(env []string) string {
+	p := ""
+	for _, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok && strings.EqualFold(k, "PATH") {
+			p = v
+		}
+	}
+	return p
+}
+
 // TestBuildEnvInjectsParamsAndKeepsParent 验证 params（全局+动作参数）与动作 env
 // 都注入子进程环境变量，且父进程 env（如 PATH）保留——脚本内部 $env:VAR / ${VAR} 才能读到。
 func TestBuildEnvInjectsParamsAndKeepsParent(t *testing.T) {
-	env := buildEnv(map[string]any{"PROJECT_DIR": "D:/proj"}, map[string]string{"USER_AGENT": "M"})
+	env := buildEnv(map[string]any{"PROJECT_DIR": "D:/proj"}, map[string]string{"USER_AGENT": "M"}, "")
 	joined := strings.Join(env, "\n")
 	if !strings.Contains(joined, "PROJECT_DIR=D:/proj") {
 		t.Fatalf("params 未注入 env: %v", env)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 )
@@ -35,6 +36,8 @@ type AIConfig struct {
 	// models.json）：pi 没有 CLI flag，官方机制是 env PI_CODING_AGENT_DIR
 	//（configuration.md），由 Run 注入子进程环境，用户自己的 ~/.pi 不生效。
 	AgentDir string
+	// BaseDir 是应用目录（exe 同级）：定位 bin/ 工具注入 PATH（与 ShellRunner 相同语义）。
+	BaseDir string
 	// SessionDir 是 hermetic 会话目录（<BaseDir>/pi-sessions，--session-dir argv）。
 	SessionDir string
 	// SkillReport 是 Build 层注入的 [skill] 报告行，Run 开头最先以 stdout 流 emit
@@ -183,19 +186,19 @@ func buildPICommand(cfg AIConfig) *exec.Cmd {
 	return exec.Command(cfg.PiBin, args...)
 }
 
-// piEnv 构造子进程 env：通用 buildEnv（父 env + Inputs + cfg.Env）之上把 hermetic
-// agent 目录映射为 PI_CODING_AGENT_DIR。复制 cfg.Env 后写入，不污染调用方的映射；
-// AgentDir 为空时不注入（共享的 buildEnv 保持零改动）。
+// piEnv 构造子进程 env：通用 buildEnv（父 env + Inputs + cfg.Env + bin/ 注入）之上把
+// hermetic agent 目录映射为 PI_CODING_AGENT_DIR。复制 cfg.Env 后写入，不污染调用方的
+// 映射；AgentDir 为空时不注入（共享的 buildEnv 保持零改动）。
 func piEnv(cfg AIConfig) []string {
 	if cfg.AgentDir == "" {
-		return buildEnv(cfg.Inputs, cfg.Env)
+		return buildEnv(cfg.Inputs, cfg.Env, filepath.Join(cfg.BaseDir, binDirName))
 	}
 	merged := make(map[string]string, len(cfg.Env)+1)
 	for k, v := range cfg.Env {
 		merged[k] = v
 	}
 	merged["PI_CODING_AGENT_DIR"] = cfg.AgentDir
-	return buildEnv(cfg.Inputs, merged)
+	return buildEnv(cfg.Inputs, merged, filepath.Join(cfg.BaseDir, binDirName))
 }
 
 // joinSystemPrompt 把无人值守守则与任务 system 合成一段：守则在前（所有任务通用的

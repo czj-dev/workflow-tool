@@ -41,6 +41,11 @@ cp -R "$ROOT/workflows" "$MACOS/workflows"
 cp -R "$ROOT/ai"        "$MACOS/ai"
 cp "$ROOT/config.yaml"    "$MACOS/config.yaml"
 cp "$ROOT/fragments.yaml" "$MACOS/fragments.yaml"
+# bin/ 工具二进制（jq 等）：shell 运行环境经 <exe目录>/bin 注入 PATH，有才拷
+if [ -d "$ROOT/bin" ]; then
+  echo "→ 已携带 bin/（工具二进制注入 shell PATH）"
+  cp -R "$ROOT/bin" "$MACOS/bin"
+fi
 # schedules.yaml：调度定义，须与二进制同级才被加载；旧检出可能没有该文件，存在才拷
 if [ -f "$ROOT/schedules.yaml" ]; then
   cp "$ROOT/schedules.yaml" "$MACOS/schedules.yaml"

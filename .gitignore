@@ -12,6 +12,8 @@
 /build/bin/
 /workflow-tool
 /WorkflowTool.app/
+# 随产物携带的工具二进制（bin/jq 等：构建机复制进 bin/，shell 运行环境注入 PATH）
+/bin/
 
 # Node / 前端
 node_modules/

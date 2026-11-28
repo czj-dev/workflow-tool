@@ -58,8 +58,18 @@ _Avoid_: 中心盘、圆盘
 _Avoid_: 侧栏、状态列
 
 **氛围色 (Ambient Color)**:
-双态卡的卡片氛围基色：YAML 可选 `color` 字段（四色板白名单）逐卡优先，未写按分组显示序循环（组内同色、相邻组异色），驱动卡面染色梯度、图标底色与边框；恒为卡色，运行中仅边框与流光让位于 primary。全部 color-mix 插值空间用 `in oklab`（oklch 混 transparent/中性色会 hue 红移，见 ADR-0003）。
+双态卡的卡片氛围基色：YAML 可选 `color` 字段（五色板白名单：amber / green / cyan / blue / violet）逐卡优先，未写按分组显示序循环（组内同色、相邻组异色；循环仍按原四色板，cyan 只能显式选用），驱动卡面染色梯度、图标底色与边框；恒为卡色，运行中仅边框与流光让位于 primary。全部 color-mix 插值空间用 `in oklab`（oklch 混 transparent/中性色会 hue 红移，见 ADR-0003）。
 _Avoid_: 主题色、环境色、品牌色
+
+**色卡 (Swatch)**:
+从氛围色五色板（amber / green / cyan / blue / violet）里选色的单选控件（一组单选按钮，方向键切换），按通用零件实现、不耦合具体数据形状；用于变量分组与指令片段选卡片颜色。红、玫红留给 destructive 语义，不进色卡。
+_Avoid_: 主题色、环境色、品牌色、调色板
+
+### 全局配置
+
+**变量分组 (Variable Group)**:
+全局配置里由人手动维护的一组变量：有名字、卡片颜色（色卡五色之一）与成员，一个变量最多属于一个分组；没归组的变量落在「未分组」分区。分组存 exe 同级的 `var-groups.yaml`，与 `config.yaml` 的变量表分离，整理分组不改动运行时读取的配置。
+_Avoid_: 分类、目录、标签组
 
 ### 可执行物
 

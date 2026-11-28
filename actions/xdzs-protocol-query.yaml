@@ -1,0 +1,24 @@
+id: xdzs-protocol-query
+title: 语音协议查询
+icon: hi:voice
+description: "tinnove-ai 语义查询 → jq 格式化语义 → extract_wt_protocol.sh --adb 输出车机广播命令"
+params:
+  - id: QUERY
+    label: Query
+    type: text
+    required: true
+    default: 打开空调
+    description: 发给 tinnove-ai 的语义查询指令
+command:
+  run: |
+    # 单次调用缓存输出，避免重复请求；全部走 stdout（不做 stderr 镜像）
+    raw=$(python3 "${XDZS_SPEECH_DIR}/.claude/skills/protocol-verify-tool/scripts/tinnove_ai_query.py" "${QUERY}")
+    printf '%s\n' "$raw"
+
+    printf '\n--- 语义解析（jq 格式化）---\n'
+    printf '%s\n' "$raw" | awk '/\[最终解析结果\]:/{grab=1; next} grab{print}' | jq -r '.data' | jq .
+
+    printf '\n--- WT 协议（--adb 广播）---\n'
+    printf '%s\n' "$raw" | awk '/\[最终解析结果\]:/{grab=1; next} grab{print}' | jq -r '.data' | "${XDZS_SPEECH_DIR}/tools/extract_wt_protocol.sh" --adb
+  cwd: ${XDZS_SPEECH_DIR}
+  timeout: 60s

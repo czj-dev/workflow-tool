@@ -69,6 +69,11 @@ func Build(ctx context.Context, lt ai.LoadedTask, deps Deps, opts Options) (*run
 	if err != nil {
 		return nil, err
 	}
+	// config 层先解到终值（值间嵌套引用在此闭环，见 runner.ResolveGlobal）：解析输入
+	// 剔除密钥键——否则引用 ${AI_AUTH_KEY} 的 config 值会解析出密钥明文、随非密钥键
+	// 流入 vars 层（密钥防泄漏依赖它在查找源里缺席）；密钥值本身是明文无嵌套，
+	// 原样回填即可。之后的 vars / resolveInputs / setupPI / envInputs 一律消费终值。
+	global = resolveGlobalExcludingSecrets(ctx, global, deps.Builtins)
 
 	inputs, fromDefault, err := resolveInputs(t.Params, opts.Params, global)
 	if err != nil {
@@ -154,6 +159,7 @@ func Build(ctx context.Context, lt ai.LoadedTask, deps Deps, opts Options) (*run
 		Inputs:       envInputs(global, inputs),
 		AgentDir:     agentDir,
 		SessionDir:   sessionDir,
+		BaseDir:      deps.BaseDir,
 	}
 
 	// config.yaml 残留 AI_CLI：pi 是唯一运行器，忽略并警告（BuildWarnings）。
@@ -209,6 +215,26 @@ func mergedGlobal(global map[string]string, agentCfg func() (map[string]string, 
 		}
 	}
 	return merged, nil
+}
+
+// resolveGlobalExcludingSecrets 剔除密钥键后做 runner.ResolveGlobal（config 层嵌套
+// 引用解到终值），再把密钥原值回填：密钥不进解析输入，${AI_AUTH_KEY} 在其它 config
+// 值里保持字面量，不会随非密钥键解析出明文。
+func resolveGlobalExcludingSecrets(ctx context.Context, global map[string]string, builtins *builtinvars.Registry) map[string]string {
+	resolveIn := make(map[string]string, len(global))
+	secrets := make(map[string]string, len(secretConfigKeys))
+	for k, v := range global {
+		if secretConfigKeys[k] {
+			secrets[k] = v
+			continue
+		}
+		resolveIn[k] = v
+	}
+	resolved := runner.ResolveGlobal(ctx, resolveIn, builtins)
+	for k, v := range secrets {
+		resolved[k] = v
+	}
+	return resolved
 }
 
 // agentKeysIn 列出 global 里非空的 Agent 三键——config.yaml 残留检测：

@@ -118,11 +118,13 @@
     /* 输入卡片浮起阴影：浅色极轻，深色更明显（v3 输入卡片语言） */
     --card-sh: 0 1px 2px rgb(0 0 0 / 0.05);
     --card-sh-hover: 0 2px 6px rgb(0 0 0 / 0.08);
-    /* 双态卡氛围色四源（ADR-0003）：amber/green/blue 取 chart 板，紫取 mark 板（无新色值） */
+    /* 双态卡氛围色五源（ADR-0003）：amber/green/blue 取 chart 板，紫取 mark 板，
+       青借 logcat 标记板 hue-5（同侧栏蓝组借 hue-6 的做法，无新色值） */
     --amb-amber: var(--chart-1);
     --amb-green: var(--chart-2);
     --amb-blue: var(--chart-4);
     --amb-violet: oklch(0.55 0.15 310);
+    --amb-cyan: var(--mark-h-5);
 }
 
 /* —— 精密控制台 · 深色(主力)—— */
@@ -180,11 +182,12 @@
     --mark-8: oklch(0.74 0.14 350 / 36%);
     --card-sh: 0 1px 3px rgb(0 0 0 / 0.3);
     --card-sh-hover: 0 3px 8px rgb(0 0 0 / 0.35);
-    /* 深色氛围四源：紫同深色 mark 板紫 */
+    /* 深色氛围五源：紫同深色 mark 板紫，青同深色 mark 板 hue-5 */
     --amb-amber: var(--chart-1);
     --amb-green: var(--chart-2);
     --amb-blue: var(--chart-4);
     --amb-violet: oklch(0.7 0.15 310);
+    --amb-cyan: var(--mark-h-5);
 }
 
 @layer base {
@@ -834,11 +837,35 @@
   --tintc: var(--amb-violet);
   --ink: oklch(0.45 0.17 310);
 }
+/* 配置页分区档（变量分组五色色卡 + 「未分组」，规格 G）：amber / cyan 与蓝绿紫同构——
+   cyan 的 --tintc 直接用 --amb-cyan（主区底色中性，不存在侧栏蓝灰那种读成「底色变亮」的问题）。
+   浅色墨色 = 预计算相对色（同蓝绿紫公式 amb l−0.10 / c×1.15：amber oklch(0.52 0.184 68)、
+   cyan oklch(0.52 0.138 200)）；深色墨色由下方通用 .dark .side-sec 掺混规则覆盖。
+   「未分组」是兜底桶而不是真正的组：中性灰——氛围色 = 前景色 45%，图标色 = 次要前景色。 */
+.side-sec[data-amb="amber"] {
+  --amb: var(--amb-amber);
+  --tintc: var(--amb-amber);
+  --ink: oklch(0.52 0.184 68);
+}
+.side-sec[data-amb="cyan"] {
+  --amb: var(--amb-cyan);
+  --tintc: var(--amb-cyan);
+  --ink: oklch(0.52 0.138 200);
+}
+.side-sec[data-amb="none"] {
+  --amb: color-mix(in oklab, var(--foreground) 45%, transparent);
+  --tintc: var(--foreground);
+  --ink: var(--muted-foreground);
+}
 .dark .side-sec {
   --ink: color-mix(in oklab, var(--amb) 85%, var(--foreground));
 }
 .dark .side-sec[data-amb="blue"] {
   --tintc: oklch(0.7 0.17 255);
+}
+/* 「未分组」深色墨色：中性灰组的图标不吃板块色——盖过上方通用深色掺混 */
+.dark .side-sec[data-amb="none"] {
+  --ink: var(--muted-foreground);
 }
 
 /* 当前组提亮（gp=live）：foreground 5% 底 + 更亮顶线；折叠态轨道不留面 */
@@ -1006,4 +1033,46 @@
   .side-run-dot {
     animation: none;
   }
+}
+
+/* —— 配置页 / 片段页的分区条目卡染色（规格 G，color-mix 一律 in oklab，ADR-0003）——
+   .tint-card：分区里的条目卡——底色 = 染色源（--tintc，来自所在 .side-sec[data-amb]）8%，
+   悬停 / 聚焦（含行内控件获得焦点）15% 并加 1px 氛围色（--amb）40% 内描边；
+   侧栏条目是 12%，主区面积大、行数多，压淡一档。分区焦点提亮沿用 .side-sec[data-lit]（上方侧栏段）。
+   .frag-card[data-amb]：片段卡自带颜色——在卡上重定义 --amb / --tintc，声明值盖过分区
+   继承下来的值；不定义 --ink，卡上文字 / 图标不吃板块墨色，颜色只落在底色与悬停内描边——
+   标题、命令文字不变色。蓝与 .side-sec 蓝组同一做法：不直接用 --amb-blue 而借 --mark-h-6，
+   深色再提色度。未自带颜色的片段卡不写 data-amb，--tintc 落回所在分区（固定琥珀）继承。 */
+.tint-card {
+  background: color-mix(in oklab, var(--tintc) 8%, transparent);
+  transition: background-color 0.15s ease, box-shadow 0.15s ease;
+}
+.tint-card:hover,
+.tint-card:focus-within {
+  background: color-mix(in oklab, var(--tintc) 15%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--amb) 40%, transparent);
+}
+
+.frag-card[data-amb="amber"] {
+  --amb: var(--amb-amber);
+  --tintc: var(--amb-amber);
+}
+.frag-card[data-amb="green"] {
+  --amb: var(--amb-green);
+  --tintc: var(--amb-green);
+}
+.frag-card[data-amb="cyan"] {
+  --amb: var(--amb-cyan);
+  --tintc: var(--amb-cyan);
+}
+.frag-card[data-amb="blue"] {
+  --amb: var(--amb-blue);
+  --tintc: var(--mark-h-6);
+}
+.dark .frag-card[data-amb="blue"] {
+  --tintc: oklch(0.7 0.17 255);
+}
+.frag-card[data-amb="violet"] {
+  --amb: var(--amb-violet);
+  --tintc: var(--amb-violet);
 }

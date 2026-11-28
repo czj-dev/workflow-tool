@@ -8,7 +8,7 @@
 id: my-action                  # 必填，^[a-z0-9-]+$ 全局唯一
 title: 我的动作                 # 必填，按钮/卡片显示文字
 icon: hi:play                  # 可选，hugeicons 图标 key 或 emoji
-color: blue                    # 可选，卡片氛围色：amber | green | blue | violet（不写按组序循环）
+color: blue                    # 可选，卡片氛围色：amber | green | cyan | blue | violet（不写按组序循环）
 description: 简要说明           # 可选，UI 悬停提示
 
 command:
@@ -99,7 +99,7 @@ hmi:                           # 可选，声明动作输出的交互视图
 - 拖入多个时按系统给出的顺序**空格拼接**，含空格的路径自动加双引号（如 `/a/x.txt "/b/My Docs/y.txt"`）；`path` / `file` 类型只取第一个
 - 顺序只与系统给出的数组一致，**不保证等于文件管理器里看到的排列**
 - 只处理空格，路径自带引号或 shell 特殊字符不做转义
-- 片段视图里未定义的变量 pill（红框）也可以拖入，落下即填好，不需要先点开它
+- 片段视图里未定义的变量 token（红字）也可以拖入，落下即填好，不需要先点开它
 
 ### presets（预设）
 
@@ -117,7 +117,7 @@ hmi:                           # 可选，声明动作输出的交互视图
 
 ### color
 
-可选的卡片氛围色（四色板白名单）：`amber` / `green` / `blue` / `violet`。写了则该卡图标底色、卡面光晕、边框染色梯度优先用此色；不写按分组显示序循环（同组同色）。非法值加载时报错。见 [ADR-0003](adr/0003-ambient-color.md)。
+可选的卡片氛围色（五色板白名单）：`amber` / `green` / `cyan` / `blue` / `violet`。写了则该卡图标底色、卡面光晕、边框染色梯度优先用此色；不写按分组显示序循环（同组同色；循环仍按原四色板，cyan 只能显式选用）。非法值加载时报错。见 [ADR-0003](adr/0003-ambient-color.md)。
 
 ## 变量替换
 
@@ -130,6 +130,8 @@ hmi:                           # 可选，声明动作输出的交互视图
 5. **环境变量**
 
 都未定义则保留 `${VAR}` 原样 + 控制台 warning。
+
+**嵌套引用**：`config.yaml` 的值是**模板**，可以互相引用（如 `USER: /Users/v` → `DOCS: ${USER}/Documents` → `OUTPUT_DIR: ${DOCS}/docs`）——各运行入口（GUI 直跑 / CLI / workflow）在合并查找源前先由 `runner.ResolveGlobal` 把 config 层递归解到终值，动作里写 `${OUTPUT_DIR}/shot.png` 拿到的即 `/Users/v/Documents/docs/shot.png`。链上未命中的名字按「内置变量 → 环境变量」兜底，兜底值按字面处理不再展开；环引用（直接或间接指回自己）与超过 8 层的引用链保留原样并记 warning，不会卡死运行。与之相对，**参数值是数据不是模板**：表单填入的值、树点击的 `$literal` 映射、AI 任务的输入只做单层替换，值里的 `${VAR}` 原样进入命令、不传递展开（run/script 形态还有 shell 对最终脚本的一遍解析，adb 形态的参数直接进 Go 侧处理不经 shell——所以 config 层必须先解到终值，否则像 `${DOCS}` 这类字面量会一路带到 `os.WriteFile` 报错）。
 
 `command.env` 排在最前是实现上的取舍：它的终值会被并进查找源，由 Go 侧统一展开 `${VAR}`，PowerShell 脚本里的 `${VAR}` 才能跨平台读到（PowerShell 把 `${VAR}` 当变量语法，读不到环境变量）。代价是动作参数覆盖不了同名的 `command.env`——想用参数控制一个值，就别在 `command.env` 里再定义同名键。
 

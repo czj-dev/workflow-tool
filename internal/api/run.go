@@ -49,7 +49,7 @@ func (s *Service) runAction(id string, params map[string]any, source *runSource)
 	sess := s.beginRun(target.Action, id, decoded, source)
 	s.beginScheduledRun(source)
 
-	merged := s.mergeGlobalAndParams(decoded)
+	merged := s.mergeGlobalAndParams(ctx, decoded)
 	var ctrl chan any
 	if la.Def.Command.Adb.Operation == logcat.OpStream {
 		ctrl = make(chan any, controlChanCap)
@@ -59,11 +59,13 @@ func (s *Service) runAction(id string, params map[string]any, source *runSource)
 	return nil
 }
 
-// mergeGlobalAndParams 持锁快照 global 后委托 actionrun.MergeParams（合并单一真相源）。
-func (s *Service) mergeGlobalAndParams(params map[string]any) map[string]any {
+// mergeGlobalAndParams 持锁快照 global、经 runner.ResolveGlobal 解到终值后委托
+// actionrun.MergeParams（合并单一真相源）。config 层的嵌套引用（OUTPUT_DIR: ${DOCS}/docs）
+// 在这里闭环；用户参数保持数据语义不参与解析（见 runner.ResolveGlobal 的分层说明）。
+func (s *Service) mergeGlobalAndParams(ctx context.Context, params map[string]any) map[string]any {
 	s.gMu.Lock()
 	defer s.gMu.Unlock()
-	return actionrun.MergeParams(s.global, params)
+	return actionrun.MergeParams(runner.ResolveGlobal(ctx, s.global, s.builtins), params)
 }
 
 // decodeLiteralParams 校验树点击传来的字面值包装，仅接受单键对象。
