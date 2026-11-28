@@ -70,8 +70,9 @@ export function FragmentsSheet() {
             onClick={() => setFragmentsOpen(false)}
           />
         </SheetHeader>
-        {/* PROTOTYPE（一次性）：原型插槽；非原型会话同步回落到 FragmentsList。 */}
-        <ProtoPage id="fragments" inSheet fallback={<FragmentsList />} />
+        {/* PROTOTYPE（一次性）：原型插槽；非原型会话同步回落到 FragmentsList（抽屉模式：
+            工具行只画搜索 + 新增，标题与关闭钮在本层 SheetHeader，统计行不进抽屉）。 */}
+        <ProtoPage id="fragments" inSheet fallback={<FragmentsList inSheet />} />
       </SheetContent>
     </Sheet>
   );
