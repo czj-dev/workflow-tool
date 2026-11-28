@@ -125,6 +125,15 @@ var ValidAmbColors = map[string]bool{
 	"amber": true, "green": true, "blue": true, "violet": true,
 }
 
+// normalizeAmbColor 把不在色卡内的颜色规整为未设置（空串），不报错。片段 color
+// 与变量分组 color 的读写共用（手改文件里的非法颜色不该让整份内容读不出来）。
+func normalizeAmbColor(color string) string {
+	if ValidAmbColors[color] {
+		return color
+	}
+	return ""
+}
+
 // Load 扫描 dir 下所有 *.yaml，返回 Registry。
 // baseDir 用于运行时解析相对 script 路径（Registry 仅透传，不做路径解析）。
 func Load(dir, baseDir string) *Registry {
