@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -19,7 +20,7 @@ type ShellConfig struct {
 	Cwd           string                // 工作目录（必须存在）
 	Timeout       time.Duration         // 超时
 	Env           map[string]string     // 额外环境变量
-	BaseDir       string                // exe 目录，用于解析相对 script 路径
+	BaseDir       string                // exe 目录：解析相对 script 路径 + 定位 bin/（工具二进制注入 PATH）
 	CaptureOutput *bool                 // nil 或指向 true = 捕获全量 stdout/stderr 供 outputs 使用；指向 false = 关闭（长跑/持续输出 action 用）
 	Builtins      *builtinvars.Registry // 内置变量注册表（CURRENT_DATE/CURRENT_TIME/ADB_SERIAL），nil 时跳过该层查找
 	BashPath      string                // config.yaml BASH_PATH 覆盖（bash/sh 解析级联第一优先），空则级联探测
@@ -64,8 +65,8 @@ func (r *ShellRunner) Run(ctx context.Context, params map[string]any, emit EmitF
 	if cfg.Cwd != "" {
 		cmd.Dir = cfg.Cwd
 	}
-	// 子进程环境变量：父进程 env + params（全局+动作参数，供脚本内部 $env:VAR 读）+ 动作 env
-	cmd.Env = buildEnv(params, cfg.Env)
+	// 子进程环境变量：父进程 env + params（全局+动作参数，供脚本内部 $env:VAR / ${VAR} 读）+ 动作 env
+	cmd.Env = buildEnv(params, cfg.Env, filepath.Join(cfg.BaseDir, binDirName))
 
 	captureOn := cfg.CaptureOutput == nil || *cfg.CaptureOutput
 	var stdoutBuf, stderrBuf *capBuffer
@@ -163,9 +164,15 @@ func expandTemplate(template []string, scriptPath string) []string {
 	return argv
 }
 
+// binDirName 是随发布产物携带的工具二进制目录名（位于 exe 目录下）。
+// 产物里的 jq 等工具由此目录经 PATH 注入 shell 运行环境，不依赖目标机安装。
+const binDirName = "bin"
+
 // buildEnv 构造子进程环境变量：父进程 env + params（全局配置 + 动作参数，供脚本内部
 // $env:VAR / ${VAR} 读取）+ 动作 env。三者同名时后者覆盖前者（动作 env > params > 父 env）。
-func buildEnv(params map[string]any, cfgEnv map[string]string) []string {
+// binDir 非空且目录存在时，把 binDir 插到最终 PATH 最前（幂等，已在最前则不重复插）——
+// 发布产物携带的工具二进制（bin/jq 等）由此进入 shell 运行环境。
+func buildEnv(params map[string]any, cfgEnv map[string]string, binDir string) []string {
 	env := os.Environ()
 	for k, v := range params {
 		env = append(env, k+"="+fmt.Sprint(v))
@@ -173,6 +180,32 @@ func buildEnv(params map[string]any, cfgEnv map[string]string) []string {
 	for k, v := range cfgEnv {
 		env = append(env, k+"="+v)
 	}
+	if binDir != "" {
+		if st, err := os.Stat(binDir); err == nil && st.IsDir() {
+			env = prependBinToPath(env, binDir)
+		}
+	}
+	return env
+}
+
+// prependBinToPath 把 binDir 插到 env 里 PATH 键的最前。env 同名键以最后出现的为准
+// （exec.Cmd 的 env 合并语义），因此改写最后一次出现的 PATH；没有 PATH 键则新建。
+// 已在 PATH 最前时原样返回（幂等）。
+func prependBinToPath(env []string, binDir string) []string {
+	sep := string(os.PathListSeparator)
+	idx, path := -1, ""
+	for i, kv := range env {
+		if k, v, ok := strings.Cut(kv, "="); ok && strings.EqualFold(k, "PATH") {
+			idx, path = i, v
+		}
+	}
+	if idx < 0 {
+		return append(env, "PATH="+binDir)
+	}
+	if path == binDir || strings.HasPrefix(path, binDir+sep) {
+		return env
+	}
+	env[idx] = "PATH=" + binDir + sep + path
 	return env
 }
 

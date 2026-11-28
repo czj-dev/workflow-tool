@@ -154,6 +154,7 @@ func Build(ctx context.Context, lt ai.LoadedTask, deps Deps, opts Options) (*run
 		Inputs:       envInputs(global, inputs),
 		AgentDir:     agentDir,
 		SessionDir:   sessionDir,
+		BaseDir:      deps.BaseDir,
 	}
 
 	// config.yaml 残留 AI_CLI：pi 是唯一运行器，忽略并警告（BuildWarnings）。
