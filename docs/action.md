@@ -8,7 +8,7 @@
 id: my-action                  # 必填，^[a-z0-9-]+$ 全局唯一
 title: 我的动作                 # 必填，按钮/卡片显示文字
 icon: hi:play                  # 可选，hugeicons 图标 key 或 emoji
-color: blue                    # 可选，卡片氛围色：amber | green | blue | violet（不写按组序循环）
+color: blue                    # 可选，卡片氛围色：amber | green | cyan | blue | violet（不写按组序循环）
 description: 简要说明           # 可选，UI 悬停提示
 
 command:
@@ -99,7 +99,7 @@ hmi:                           # 可选，声明动作输出的交互视图
 - 拖入多个时按系统给出的顺序**空格拼接**，含空格的路径自动加双引号（如 `/a/x.txt "/b/My Docs/y.txt"`）；`path` / `file` 类型只取第一个
 - 顺序只与系统给出的数组一致，**不保证等于文件管理器里看到的排列**
 - 只处理空格，路径自带引号或 shell 特殊字符不做转义
-- 片段视图里未定义的变量 pill（红框）也可以拖入，落下即填好，不需要先点开它
+- 片段视图里未定义的变量 token（红字）也可以拖入，落下即填好，不需要先点开它
 
 ### presets（预设）
 
@@ -117,7 +117,7 @@ hmi:                           # 可选，声明动作输出的交互视图
 
 ### color
 
-可选的卡片氛围色（四色板白名单）：`amber` / `green` / `blue` / `violet`。写了则该卡图标底色、卡面光晕、边框染色梯度优先用此色；不写按分组显示序循环（同组同色）。非法值加载时报错。见 [ADR-0003](adr/0003-ambient-color.md)。
+可选的卡片氛围色（五色板白名单）：`amber` / `green` / `cyan` / `blue` / `violet`。写了则该卡图标底色、卡面光晕、边框染色梯度优先用此色；不写按分组显示序循环（同组同色；循环仍按原四色板，cyan 只能显式选用）。非法值加载时报错。见 [ADR-0003](adr/0003-ambient-color.md)。
 
 ## 变量替换
 

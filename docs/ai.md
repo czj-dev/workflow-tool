@@ -12,7 +12,7 @@ AI 任务有三个入口：在界面上手动运行、作为工作流的一步�
 id: ai-bug-analyze              # 必填，^[a-z0-9-]+$，ai/ 内唯一
 title: 分析 bug 卡片             # 必填，侧栏/卡片/会话页显示文字
 icon: hi:ai                     # 可选，hugeicons 图标 key 或 emoji，默认 hi:ai
-color: violet                   # 可选，卡片氛围色：amber | green | blue | violet（不写按组序循环）
+color: violet                   # 可选，卡片氛围色：amber | green | cyan | blue | violet（不写按组序循环）
 description: 简要说明            # 可选，UI 悬停提示
 
 params:                         # 可选，输入参数（结构同动作的 params）
@@ -56,7 +56,7 @@ skills: [icafe-bug-analyzer]    # 可选，skill id，须存在于 skills/
 
 - `title` 必填
 - `icon` 可选，`hi:<key>`（key 见 `frontend/src/components/ActionIcon.tsx`）或 emoji / 文本；不写默认 `hi:ai`
-- `color` 可选，卡片氛围色：`amber` / `green` / `blue` / `violet`；不写按分组显示序循环，非法值加载失败。见 [ADR-0003](adr/0003-ambient-color.md)
+- `color` 可选，卡片氛围色：`amber` / `green` / `cyan` / `blue` / `violet`；不写按分组显示序循环，非法值加载失败。见 [ADR-0003](adr/0003-ambient-color.md)
 - `description` 可选：卡片悬停提示；任务从未运行时也用作卡片叙述区和会话页空态的说明文字
 
 ### params（输入参数）
@@ -422,7 +422,7 @@ id 与动作、工作流重名时加 `--kind ai`。完整用法见 [internal/cli
 - 顶层键只允许上面 13 个字段：未知键报「未知字段」（提示里列出全部合法键），预留字段报「已预留、暂未实现」。`params` / `presets` 条目内的未知键同样报错
 - `id` 必须匹配 `^[a-z0-9-]+$`，`ai/` 内不可重复
 - `title` 必填
-- `color` 只允许 `amber` / `green` / `blue` / `violet`
+- `color` 只允许 `amber` / `green` / `cyan` / `blue` / `violet`
 - `prompt` 键必须出现
 - `timeout` 必须是大于 0 的 Go duration
 - `params[].id` 必填、唯一，不能是 `prompt` / `system` / `resume`
