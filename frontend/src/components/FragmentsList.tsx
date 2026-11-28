@@ -31,6 +31,7 @@ import { useActionRunner } from "../hooks/useActionRunner";
 import { expandVars, extractVars } from "@/lib/vars";
 import { joinDroppedPaths, type FileDropPayload } from "@/lib/filedrop";
 import { FragmentDialog, type FragmentRow } from "./FragmentDialog";
+import type { Fragment } from "../../bindings/workflow-tool/internal/registry/models.js";
 import { cn } from "@/lib/utils";
 
 // 删除二次确认窗口（ms）：首次点击进入待确认，超时自动复原
@@ -299,12 +300,13 @@ export function FragmentsList() {
     void saveFragments(fragments.filter((_, idx) => idx !== i));
   };
 
-  // 单条落盘：editing=-1 追加，否则替换该索引
+  // 单条落盘：editing=-1 追加，否则替换该索引。FragmentRow 不带 color，载荷因此
+  // 不含 color 键（后端按未设置规整）；卡片颜色的正式接线见 T4（#10）。
   const saveOne = (row: FragmentRow) => {
     const list =
       editing === -1
-        ? [...fragments, row]
-        : fragments.map((f, idx) => (idx === editing ? row : f));
+        ? [...fragments, row as Fragment]
+        : fragments.map((f, idx) => (idx === editing ? (row as Fragment) : f));
     setOverrides({}); // 内容可能变了，旧的临时变量值不再适用
     void saveFragments(list);
     setEditing(null);
