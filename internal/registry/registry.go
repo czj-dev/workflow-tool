@@ -119,10 +119,22 @@ type SkillMeta struct {
 
 var idPattern = regexp.MustCompile(`^[a-z0-9-]+$`)
 
-// ValidAmbColors 是 action/workflow 顶层 color 字段的合法取值，对应前端 ADR-0003
-// 四色板 token（--amb-amber/green/blue/violet）。空串 = 未声明，前端回落分组序循环。
+// ValidAmbColors 是氛围色白名单（五色板，ADR-0003 评审定稿：白名单统一），action /
+// workflow / AI 任务顶层 color、变量分组与片段的色卡共用这一张。对应前端 token
+// --amb-amber/green/cyan/blue/violet，cyan 借自 logcat 标记板青色。空串 = 未声明，
+// 前端回落分组序循环（循环仍按原四色板 amber/green/blue/violet，cyan 只能显式
+// 选用，不参与自动分配）。
 var ValidAmbColors = map[string]bool{
-	"amber": true, "green": true, "blue": true, "violet": true,
+	"amber": true, "green": true, "cyan": true, "blue": true, "violet": true,
+}
+
+// normalizeAmbColor 把不在色卡内的颜色规整为未设置（空串），不报错。片段 color
+// 与变量分组 color 的读写共用（手改文件里的非法颜色不该让整份内容读不出来）。
+func normalizeAmbColor(color string) string {
+	if ValidAmbColors[color] {
+		return color
+	}
+	return ""
 }
 
 // Load 扫描 dir 下所有 *.yaml，返回 Registry。
@@ -187,7 +199,7 @@ func Validate(def *ActionDef) error {
 		return fmt.Errorf("title 必填")
 	}
 	if def.Color != "" && !ValidAmbColors[def.Color] {
-		return fmt.Errorf("color 非法 %q（应为 amber/green/blue/violet，不写则按分组序循环）", def.Color)
+		return fmt.Errorf("color 非法 %q（应为 amber/green/cyan/blue/violet，不写则按分组序循环）", def.Color)
 	}
 	if def.HMI != nil && def.HMI.Tree != nil && def.HMI.Tree.Click != nil {
 		click := def.HMI.Tree.Click

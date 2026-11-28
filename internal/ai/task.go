@@ -178,7 +178,7 @@ func Validate(t *Task) error {
 		return fmt.Errorf("title 必填")
 	}
 	if t.Color != "" && !registry.ValidAmbColors[t.Color] {
-		return fmt.Errorf("color 非法 %q（应为 amber/green/blue/violet，不写则按分组序循环）", t.Color)
+		return fmt.Errorf("color 非法 %q（应为 amber/green/cyan/blue/violet，不写则按分组序循环）", t.Color)
 	}
 	if t.Prompt == nil {
 		return fmt.Errorf("缺少必填字段 prompt（提示词由调用方给入时写 prompt: \"\"）")

@@ -255,6 +255,17 @@ func TestLoadReportsMissingSkill(t *testing.T) {
 	}
 }
 
+// color:cyan 放行（五色白名单统一，ADR-0003 评审定稿）；非法名报错且文案列出五色。
+func TestValidateColorCyanAllowed(t *testing.T) {
+	if _, err := Parse([]byte("id: a\ntitle: A\ncolor: cyan\nprompt: hi\n"), nil); err != nil {
+		t.Fatalf("color:cyan 应合法: %v", err)
+	}
+	_, err := Parse([]byte("id: a\ntitle: A\ncolor: red\nprompt: hi\n"), nil)
+	if err == nil || !strings.Contains(err.Error(), "amber/green/cyan/blue/violet") {
+		t.Errorf("非法 color 应报错且文案列出五色, got %v", err)
+	}
+}
+
 func TestReservedRunParamsOrder(t *testing.T) {
 	if got := ReservedRunParams(); strings.Join(got, ",") != "prompt,system,resume" {
 		t.Errorf("ReservedRunParams = %v", got)
