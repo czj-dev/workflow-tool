@@ -49,6 +49,8 @@ fi
 # 构建机没装 jq 时产物 bin/ 为空——action 里 jq 不可用，需预置 jq/jq.exe 到 bin/。
 mkdir -p "$ROOT/bin"
 if command -v jq >/dev/null 2>&1; then
+  # rm -f 先清：历史产物 bin/jq 是 555 只读，cp 覆盖会 Permission denied
+  rm -f "$ROOT/bin/jq" "$ROOT/bin/jq.exe"
   cp "$(command -v jq)" "$ROOT/bin/"
   echo "→ 携带工具二进制: $(command -v jq) → $ROOT/bin/"
 else

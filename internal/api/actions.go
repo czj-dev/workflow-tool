@@ -171,7 +171,7 @@ var varRefRe = regexp.MustCompile(`\$\{([A-Za-z0-9_]+)\}|\$env:([A-Za-z0-9_]+)`)
 // GetVarReferenceCounts 统计每个变量被多少处引用：
 // 所有 action 的 shell 命令 + cwd + env 值 + script 脚本文件内容 + params 默认值 +
 // preset 值 + AI 任务的 prompt/system/cwd/env/params 默认值 + workflow 的
-// env/params 默认值/step 字段 + 指令片段。
+// env/params 默认值/step 字段 + 指令片段 + config.yaml 值内的内联引用。
 // 同一字段内重复引用只计一次，体现「是否被用到」。
 // params 默认值与 action preset 值都是模板：动作经 withActionDefaults /
 // expandDirectParams、AI 任务经 resolveInputs 的 fromDefault 展开分支、workflow
@@ -192,6 +192,14 @@ func (s *Service) GetVarReferenceCounts() map[string]int {
 			}
 		}
 	}
+	// global config（config.yaml）：值之间可互相引用（如 DOCS: ${USER}/Documents），
+	// 运行时作为变量查找源的终值经 runner.Expand 展开——漏扫会让 DOCS/USER 这类仅被
+	// config 内联引用的变量在全局配置页显示「未使用」。
+	s.gMu.Lock()
+	for _, v := range s.global {
+		add(v)
+	}
+	s.gMu.Unlock()
 	// actions：inline run + cwd + env values + script 脚本文件内容 + params 默认值 +
 	// presets 值（preset 提交后与其他参数一起经 expandDirectParams 展开）
 	for _, la := range s.actionRegistry().Actions {

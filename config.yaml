@@ -1,5 +1,8 @@
-LOGS_DIR: /Users/v_chenzhaojun/Documents/Logs
-OUTPUT_DIR: /Users/v_chenzhaojun/Documents/docs
-VOICE_DEBUG_OUTPUT: /Users/v_chenzhaojun/Project/baidu/asd-edc/xdzs-speech/app-vui/vr-app/build/outputs/apk/debug
-XDZS_RESROUCE_DIR: /Users/v_chenzhaojun/Project/baidu/asd-edc/xdzs-resrouce
-XDZS_SPEECH_DIR: /Users/v_chenzhaojun/Project/baidu/asd-edc/xdzs-speech
+DOCS: ${USER}/Documents
+LOGS_DIR: ${DOCS}/Logs
+OUTPUT_DIR: ${DOCS}/docs
+USER: /Users/v_chenzhaojun
+VOICE_DEBUG_OUTPUT: ${XDZS_SPEECH_DIR}/app-vui/vr-app/build/outputs/apk/debug
+VOICE_RELEASE_OUTPUT: ${XDZS_SPEECH_DIR}/app-vui/vr-app/build/outputs/apk/release
+XDZS_RESROUCE_DIR: ${USER}/Project/baidu/asd-edc/xdzs-resrouce
+XDZS_SPEECH_DIR: ${USER}/Project/baidu/asd-edc/xdzs-speech
