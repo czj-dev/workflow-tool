@@ -17,9 +17,10 @@ vi.mock("@wailsio/runtime", () => ({
 import { ambColorFor, ambFor } from "./GridCardParts";
 
 describe("ambColorFor", () => {
-  it("四色名映射到 --amb-* token", () => {
+  it("五色名映射到 --amb-* token", () => {
     expect(ambColorFor("amber")).toBe("var(--amb-amber)");
     expect(ambColorFor("green")).toBe("var(--amb-green)");
+    expect(ambColorFor("cyan")).toBe("var(--amb-cyan)");
     expect(ambColorFor("blue")).toBe("var(--amb-blue)");
     expect(ambColorFor("violet")).toBe("var(--amb-violet)");
   });
