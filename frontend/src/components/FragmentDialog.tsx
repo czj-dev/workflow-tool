@@ -11,16 +11,26 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+  FieldTitle,
+} from "@/components/ui/field";
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { extractVars } from "@/lib/vars";
 import { cn } from "@/lib/utils";
+import { Swatches } from "@/components/config-pages/swatch";
+import type { AmbColor } from "@/components/config-pages/colors";
 
 export interface FragmentRow {
   title: string;
   content: string;
   tags: string[];
+  /** 这条卡片的底色（#10）。缺省 = 分区固定琥珀：弹窗预选它，保存时补齐落盘。 */
+  color?: AmbColor;
 }
 
 // TagInput：chip 式标签编辑。Enter / 逗号 提交，Backspace 删末尾，× 单删；
@@ -103,6 +113,8 @@ const EMPTY_ROW: FragmentRow = { title: "", content: "", tags: [] };
 
 // 片段编辑弹窗：新增与编辑同一交互。initial 为 null 即新增模式。
 // 由父层用 key 控制重挂载来重置草稿，避免 useEffect 同步 props→state。
+// 「卡片颜色」与「新建分组」同一支五色色卡（#10）：只染这张卡的底色，
+// 标题 / 命令文字不变色；下方实时预览画的就是列表里那张卡。
 export function FragmentDialog({
   open,
   initial,
@@ -124,6 +136,8 @@ export function FragmentDialog({
 
   const vars = extractVars(row.content);
   const canSave = row.title.trim().length > 0 || row.content.trim().length > 0;
+  // 弹窗里色永远有值：未选过（新增）= 分区固定琥珀，与列表渲染口径一致
+  const color = row.color ?? "amber";
 
   const submit = () => {
     if (!canSave) return;
@@ -131,6 +145,7 @@ export function FragmentDialog({
       title: row.title.trim(),
       content: row.content,
       tags: row.tags,
+      color,
     });
   };
 
@@ -141,7 +156,11 @@ export function FragmentDialog({
         if (!v) onClose();
       }}
     >
-      <DialogContent className="max-w-xl" showCloseButton={false}>
+      {/* 多了色卡与预览，窗口矮时让弹窗自己滚动，保存按钮不至于被顶出屏幕 */}
+      <DialogContent
+        className="max-h-[calc(100dvh-2rem)] max-w-xl overflow-y-auto"
+        showCloseButton={false}
+      >
         <DialogHeader>
           <DialogTitle>
             {initial ? t("fragments.editTitle") : t("fragments.addTitle")}
@@ -209,6 +228,30 @@ export function FragmentDialog({
               suggestions={allTags}
               onChange={(tags) => setRow((r) => ({ ...r, tags }))}
             />
+          </Field>
+          {/* 卡片颜色：只染这张卡的底色，标题 / 命令文字不变色 */}
+          <Field>
+            <FieldTitle>{t("shared.cardColor")}</FieldTitle>
+            <Swatches
+              value={color}
+              onChange={(c) => setRow((r) => ({ ...r, color: c ?? "amber" }))}
+              label={t("shared.cardColor")}
+            />
+            <FieldDescription>{t("fragments.fragColorHint")}</FieldDescription>
+            {/* 实时预览：同一支 tint-card + frag-card 染色，标题 / 命令取已输入的内容 */}
+            <article
+              data-amb={color}
+              aria-hidden="true"
+              className="frag-card tint-card rounded-md px-2 py-1.5"
+            >
+              <div className="truncate text-[13px] leading-[18px] font-medium text-foreground">
+                {row.title.trim() || t("fragments.previewTitle")}
+              </div>
+              <div className="mt-0.5 truncate font-mono text-xs leading-5 text-foreground/85">
+                {row.content.trim().split("\n")[0] ||
+                  t("fragments.previewContent")}
+              </div>
+            </article>
           </Field>
         </FieldGroup>
         <DialogFooter>
