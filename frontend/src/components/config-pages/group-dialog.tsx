@@ -26,7 +26,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { cn } from "@/lib/utils";
 import { SectionHead } from "./section-head";
 import { Swatches } from "./swatch";
-import { HEAD_ACTION, SWATCH_BG, type AmbColor } from "./colors";
+import { HEAD_ACTION, SWATCH_BG, type AmbColor } from "@/lib/amb-colors";
 
 /** 预览里的两行样例：排版同真实条目。 */
 const PREVIEW_ROWS = [

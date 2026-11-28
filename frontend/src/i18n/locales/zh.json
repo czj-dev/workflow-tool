@@ -117,6 +117,7 @@
   "fragments.stats": "{{n}} 个片段 · {{g}} 个标签",
   "fragments.clickToCopy": "点击标题复制",
   "fragments.fragColorHint": "只染这张卡片的底色，文字不变色",
+  "fragments.fragColorUnset": "跟随分区色",
   "fragments.previewTitle": "示例片段",
   "fragments.previewContent": "adb shell dumpsys activity top",
   "edit.title": "编辑 Action",

@@ -5,7 +5,7 @@ import {
   SetVariableGroups,
 } from "../../bindings/workflow-tool/internal/api/service.js";
 import type { VariableGroup } from "../../bindings/workflow-tool/internal/registry/models.js";
-import { AMB_COLORS, type AmbColor } from "../components/config-pages/colors";
+import { AMB_COLORS, normalizeAmbColor, type AmbColor } from "@/lib/amb-colors";
 
 // 页面级专用 hook（规格 C）：只有全局配置页消费，不并入 ActionRunnerProvider 的
 // 启动加载——Provider 多调一个绑定会让 23 个测试文件的 mock 全部失败。
@@ -23,18 +23,14 @@ export interface GroupWriteCtx {
   savedKeys: ReadonlySet<string>;
 }
 
-/** 分组的显示色：色卡五色之外的值（含未设置）按蓝色显示（规格 E）。 */
-export function displayAmbColor(color: string | undefined): AmbColor {
-  return AMB_COLORS.includes(color as AmbColor) ? (color as AmbColor) : "blue";
-}
-
 /** 新分组默认色：五色里第一个还没被占用的；都占用了取「最久没用过的那色」
- * （按分组顺序，最后一次出现的位置最靠前），平手按色卡顺序（规格 E）。 */
+ *  （按分组顺序，最后一次出现的位置最靠前），平手按色卡顺序（规格 E）。 */
 export function pickDefaultColor(groups: VariableGroup[]): AmbColor {
   const lastUsedAt = (color: AmbColor) => {
     let at = -1;
     groups.forEach((g, i) => {
-      if (displayAmbColor(g.color) === color) at = i;
+      // 未设置 / 越界按蓝色显示（规格 E），占用统计同口径
+      if (normalizeAmbColor(g.color, "blue") === color) at = i;
     });
     return at;
   };
