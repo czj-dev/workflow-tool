@@ -4,6 +4,7 @@ package workflow
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"workflow-tool/internal/registry"
@@ -184,15 +185,24 @@ func TestValidate_IfSyntaxError_NotFalselyReportedAsUnknownRef(t *testing.T) {
 	}
 }
 
-// TestValidate_ColorField 顶层 color 与 action 共用同一白名单（ADR-0003 备注②）。
+// TestValidate_ColorField 顶层 color 与 action 共用同一白名单（ADR-0003 备注②，
+// 五色板：cyan 放行；非法名报错且文案列出五色）。
 func TestValidate_ColorField(t *testing.T) {
 	ok := &WorkflowDef{ID: "w", Title: "W", Color: "blue", Steps: []Step{{Run: "echo hi"}}}
 	if err := Validate(ok); err != nil {
 		t.Fatalf("color:blue 应合法: %v", err)
 	}
+	cyan := &WorkflowDef{ID: "w", Title: "W", Color: "cyan", Steps: []Step{{Run: "echo hi"}}}
+	if err := Validate(cyan); err != nil {
+		t.Fatalf("color:cyan 应合法: %v", err)
+	}
 	bad := &WorkflowDef{ID: "w", Title: "W", Color: "red", Steps: []Step{{Run: "echo hi"}}}
-	if err := Validate(bad); err == nil {
+	err := Validate(bad)
+	if err == nil {
 		t.Fatal("非法 color 应报错")
+	}
+	if !strings.Contains(err.Error(), "amber/green/cyan/blue/violet") {
+		t.Fatalf("错误文案应列出五色, got %v", err)
 	}
 }
 

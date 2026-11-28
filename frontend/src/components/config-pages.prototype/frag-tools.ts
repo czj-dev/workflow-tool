@@ -169,7 +169,10 @@ export function useFragTools() {
   const saveOne = (row: FragmentRow, color?: GroupColor) => {
     // 弹窗只在 editing 非 null 时存在，这里只是把类型收窄
     if (editing === null) return;
-    const list = editing === -1 ? [...fragments, row] : fragments.map((f, idx) => (idx === editing ? row : f));
+    // FragmentRow 不带 color（原型颜色在内存颜色表里），载荷不含 color 键；正式接线见 T4（#10）。
+    const list = editing === -1
+      ? [...fragments, row as Fragment]
+      : fragments.map((f, idx) => (idx === editing ? (row as Fragment) : f));
     const nextColors = colors.slice(0, fragments.length);
     if (editing === -1) nextColors.push(color ?? null);
     else if (color !== undefined) nextColors[editing] = color;
