@@ -32,7 +32,7 @@ import {
 } from "@hugeicons/core-free-icons";
 import { IconButton } from "./IconButton";
 import { useActionRunner } from "../hooks/useActionRunner";
-import { expandVars, extractVars } from "@/lib/vars";
+import { expandVars, extractVars, resolveGlobalConfig } from "@/lib/vars";
 import { joinDroppedPaths, type FileDropPayload } from "@/lib/filedrop";
 import { FragmentDialog, type FragmentRow } from "./FragmentDialog";
 import { SectionHead } from "@/components/config-pages/section-head";
@@ -287,7 +287,8 @@ export function FragmentsList({ inSheet = false }: { inSheet?: boolean }) {
   }, [filtered, activeTag, t]);
 
   const copyOne = async (i: number) => {
-    const vars = { ...globalConfig, ...(overrides[i] ?? {}) };
+    // config 层先解到终值再与临时填写合并（用户填写的值是数据，单遍替换不传递展开）。
+    const vars = { ...resolveGlobalConfig(globalConfig), ...(overrides[i] ?? {}) };
     await navigator.clipboard.writeText(expandVars(fragments[i].content, vars));
     setCopiedIdx(i);
     setTimeout(

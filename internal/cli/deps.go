@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"path/filepath"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	"workflow-tool/internal/apphome"
 	"workflow-tool/internal/builtinvars"
 	"workflow-tool/internal/registry"
+	"workflow-tool/internal/runner"
 	"workflow-tool/internal/runstore"
 	"workflow-tool/internal/targetlock"
 	"workflow-tool/internal/workflow"
@@ -75,9 +77,11 @@ func loadEnv(baseDir string) *env {
 		heartbeatEvery: runstore.HeartbeatInterval, stopPollEvery: time.Second}
 }
 
-// merge 合并全局配置与参数（参数覆盖同名全局），委托 actionrun.MergeParams 单一真相源。
-func (e *env) merge(params map[string]any) map[string]any {
-	return actionrun.MergeParams(e.global, params)
+// merge 合并全局配置与参数（参数覆盖同名全局）：global 先经 runner.ResolveGlobal
+// 解到终值（config 层嵌套引用在此闭环，与 api.mergeGlobalAndParams 同语义），
+// 再委托 actionrun.MergeParams 单一真相源。用户参数保持数据语义不参与解析。
+func (e *env) merge(ctx context.Context, params map[string]any) map[string]any {
+	return actionrun.MergeParams(runner.ResolveGlobal(ctx, e.global, e.builtins), params)
 }
 
 // target 是 id 解析结果：命中的是 action、workflow 还是 AI 任务。

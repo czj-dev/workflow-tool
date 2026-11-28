@@ -177,7 +177,7 @@ func (s *Service) executeWorkflow(ctx context.Context, id string, lw workflow.Lo
 	ev := newWorkflowEvents(s.app, id)
 	ev.Sink = sess
 
-	merged := s.mergeGlobalAndParams(params)
+	merged := s.mergeGlobalAndParams(ctx, params)
 	// 直跑与 cli 路径共用的 workflow step 回调构造（见 actionrun.WorkflowCallbacks）。
 	actionRun, shellRun := actionrun.WorkflowCallbacks(s.actionRegistry(), s.runDeps, merged)
 	// 动作步骤占它自己的目标锁（规格：工作流的动作步骤与 AI 步骤同样占锁，撞上立即失败）。

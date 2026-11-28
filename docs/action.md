@@ -131,6 +131,8 @@ hmi:                           # 可选，声明动作输出的交互视图
 
 都未定义则保留 `${VAR}` 原样 + 控制台 warning。
 
+**嵌套引用**：`config.yaml` 的值是**模板**，可以互相引用（如 `USER: /Users/v` → `DOCS: ${USER}/Documents` → `OUTPUT_DIR: ${DOCS}/docs`）——各运行入口（GUI 直跑 / CLI / workflow）在合并查找源前先由 `runner.ResolveGlobal` 把 config 层递归解到终值，动作里写 `${OUTPUT_DIR}/shot.png` 拿到的即 `/Users/v/Documents/docs/shot.png`。链上未命中的名字按「内置变量 → 环境变量」兜底，兜底值按字面处理不再展开；环引用（直接或间接指回自己）与超过 8 层的引用链保留原样并记 warning，不会卡死运行。与之相对，**参数值是数据不是模板**：表单填入的值、树点击的 `$literal` 映射、AI 任务的输入只做单层替换，值里的 `${VAR}` 原样进入命令、不传递展开（run/script 形态还有 shell 对最终脚本的一遍解析，adb 形态的参数直接进 Go 侧处理不经 shell——所以 config 层必须先解到终值，否则像 `${DOCS}` 这类字面量会一路带到 `os.WriteFile` 报错）。
+
 `command.env` 排在最前是实现上的取舍：它的终值会被并进查找源，由 Go 侧统一展开 `${VAR}`，PowerShell 脚本里的 `${VAR}` 才能跨平台读到（PowerShell 把 `${VAR}` 当变量语法，读不到环境变量）。代价是动作参数覆盖不了同名的 `command.env`——想用参数控制一个值，就别在 `command.env` 里再定义同名键。
 
 `command.adb.operation` 形态没有 `command.env` 这一层：它的参数值在进入 runner 前已按「动作参数 > 全局配置 > 内置变量 > 环境变量」展开，`command.env` 与 workflow 的 `env` 都不参与查找。
