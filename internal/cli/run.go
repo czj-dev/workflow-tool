@@ -148,7 +148,7 @@ func (e *env) runAction(ctx context.Context, la registry.LoadedAction, rawParams
 	if cerr != nil {
 		return cliFailure(cerr)
 	}
-	merged := e.merge(params)
+	merged := e.merge(ctx, params)
 	if deviceSerial != "" {
 		merged["ADB_SERIAL"] = deviceSerial
 	}
@@ -187,7 +187,7 @@ func (e *env) runWorkflow(ctx context.Context, lw workflow.LoadedWorkflow, rawPa
 	if cerr != nil {
 		return cliFailure(cerr)
 	}
-	merged := e.merge(params)
+	merged := e.merge(ctx, params)
 	if deviceSerial != "" {
 		merged["ADB_SERIAL"] = deviceSerial
 	}

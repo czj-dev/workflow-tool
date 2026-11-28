@@ -65,7 +65,7 @@ import { EMPTY_AI_VIEW, reduceAiOutput, type AiViewState } from "../lib/aiStream
 import { reduceWorkflowOutput } from "../lib/workflowStream";
 import { foldOutputLine } from "../lib/outputFold";
 import { treeFrameToText } from "../lib/treeFrame";
-import { expandVars } from "../lib/vars";
+import { expandVars, resolveGlobalConfig } from "../lib/vars";
 import { AI_RESUME, aiCanRun, aiDraftFor, aiRunParams, type AiDraft, type AiPatch } from "../lib/ai";
 import { missingRequired, resolveActionParams } from "../lib/params";
 import { invalidArrayParams, normalizeArrayParams } from "../lib/arrayParams";
@@ -1431,8 +1431,9 @@ export function ActionRunnerProvider({ children }: { children: ReactNode }) {
       gate: { nextSeq: 1, pending: new Map(), consumed: new Set() },
       view: {
         ...EMPTY_AI_VIEW,
-        // 冻结本轮 prompt 快照（展开 ${VAR} 后的文本）+ 发送时刻，供聊天页气泡回显
-        sentPrompt: expandVars(draft.prompt, { ...globalConfig, ...draft }),
+        // 冻结本轮 prompt 快照（展开 ${VAR} 后的文本）+ 发送时刻，供聊天页气泡回显。
+        // config 层先解到终值再并入 draft（draft 是用户输入，单遍替换不传递展开）。
+        sentPrompt: expandVars(draft.prompt, { ...resolveGlobalConfig(globalConfig), ...draft }),
         sentAt: now,
       },
       sent,
